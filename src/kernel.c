@@ -13,6 +13,7 @@
 #include <vfs.h>
 #include <dev.h>
 #include <kshell.h>
+//  a
 static int fb_addr;
 extern int *syscall_table;
 void *memset(void *dest,char val,int count) {
