@@ -135,7 +135,12 @@ static int sys_exec(char *path) {
     arch_sti();
     return thread_getNextPID()-1;
 }
-static void sys_reboot(int reason) {arch_reset();}
+static void sys_reboot(int reason) {
+	if (reason == POWEROFF_MAGIC) {
+		arch_poweroff();
+	}
+	arch_reset();
+}
 static void sys_chdir(char *to) {
     process_t *prc = thread_getThread(thread_getCurrent());
     int size = strlen(to);
@@ -246,8 +251,8 @@ static int sys_insmod(char *path) {
         mod->init(mod);
     }
     kfree(m);
-    //arch_sti();
-    clock_setShedulerEnabled(false);
+    clock_setShedulerEnabled(true);
+    arch_sti();
     arch_mmu_switch(aspace);
     return 0;
 }

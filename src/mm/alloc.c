@@ -2,6 +2,7 @@
 #include <arch/mmu.h>
 #include <arch.h>
 #include <output.h>
+#include <lib/string.h>
 /*
     Ported version of https://github.com/ozkl/soso/blob/master/kernel/alloc.c
 */
@@ -186,4 +187,16 @@ void alloc_initProcess(process_t *process,int size) {
 }
 int alloc_getUsedSize() {
     return heap_used;
+}
+void *krealloc(void *p,int size) {
+    if(p == NULL) {
+        return kmalloc(size);
+    }
+    struct MallocHeader *header = (struct MallocHeader *)(((char *)p) - sizeof (struct MallocHeader));
+    void *newchunk = kmalloc(size);
+    if(newchunk == NULL) return NULL; // WTF?
+
+    memcpy(newchunk, p, header->size);
+    kfree(p);
+    return newchunk;
 }

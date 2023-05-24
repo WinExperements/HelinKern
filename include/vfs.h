@@ -23,7 +23,7 @@ struct dirent {
 };
 typedef struct vfs_fs {
     char *fs_name;
-    struct vfs_node *(*mount)(struct vfs_node *dev,void *);
+    bool (*mount)(struct vfs_node *dev,struct vfs_node *mountpoint,void *);
     void (*read)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
     void (*write)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
     void (*open)(struct vfs_node *node,bool w,bool r);

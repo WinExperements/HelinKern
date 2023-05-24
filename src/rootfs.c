@@ -15,7 +15,7 @@ static vfs_node_t *rootfs_creat(vfs_node_t *node,char *name,int flags);
 static void rootfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
 static void rootfs_truncate(vfs_node_t *in,int size);
 static void rootfs_close(vfs_node_t *in);
-static vfs_node_t *__rootfs_mount(vfs_node_t *,void *);
+static bool __rootfs_mount(vfs_node_t *,vfs_node_t *mptr,void *);
 static char **data;
 void rootfs_init() {
     // we need to register new FS
@@ -110,6 +110,9 @@ void rootfs_insertModuleData(vfs_node_t *node,int size,char *addr) {
 	data[node->inode] = addr;
 	node->size = size;
 }
-static vfs_node_t *__rootfs_mount(vfs_node_t *to,void *params) {
-	return root;
+static bool __rootfs_mount(vfs_node_t *to,vfs_node_t *mp,void *params) {
+	mp->name = "/";
+    mp->flags = VFS_DIRECTORY;
+    mp->fs = rootfs_fs;
+    return true;
 }

@@ -257,7 +257,6 @@ void ata_vdev_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf
 	uint64_t lba = 0;
 	uint16_t sectors = how/512;
 	if (sectors == 0) sectors = 1;
-	kprintf("Writing %d sectors to drive\n",sectors);
 	ata_device_t *dev = &ata_primary_master;
 	outb(dev->base+ATA_REG_HDDEVSEL,0x40);
 	outb(dev->base+ATA_REG_SECCOUNT0,(sectors >> 8) & 0xFF);
@@ -299,6 +298,7 @@ static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf) 
 	}
 	uint64_t lba = blockNo;
 	uint16_t sectors = how/512;
+   // kprintf("Read %d sectors at %d\r\n",sectors,lba);
 	if (sectors == 0) sectors = 1;
 	outb(dev->base+ATA_REG_HDDEVSEL,0x40);
 	outb(dev->base+ATA_REG_SECCOUNT0,(sectors >> 8) & 0xFF);
@@ -326,7 +326,7 @@ static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf) 
 	}
 }
 void ata_create_device(bool hda,ata_device_t *dev) {
-	char *name;
+	char *name = kmalloc(4);
 	if (hda) {
 		name = "hd ";
 		name[2] = ata_start_char;
@@ -336,11 +336,7 @@ void ata_create_device(bool hda,ata_device_t *dev) {
 		name[2] = ata_cdrom_char;
 		ata_cdrom_char++;
 	}
-#ifdef DEBUG
-	write_serialString("creating ATA device with name: ");
-	write_serialString(name);
-	write_serialString("\r\n");
-#endif
+	name[3] = 0;
 	dev_t *disk = kmalloc(sizeof(dev_t));
     memset(disk,0,sizeof(dev_t));
 	disk->name = name;

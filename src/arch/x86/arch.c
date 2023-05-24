@@ -12,6 +12,7 @@
 #include <arch/elf.h>
 #include <output.h>
 #include <symbols.h>
+#include <arch/x86/acpi.h>
 #define PUSH(tos,val) (*(-- tos) = val)
 static multiboot_info_t *info;
 void x86_switchContext(void *);
@@ -59,6 +60,7 @@ void arch_init() {
     uint8_t h = (uint8_t)((divisor >> 8) & 0xFF);
     outb(0x40,l);
     outb(0x40,h);
+    initAcpi();
 }
 void arch_sti() {
     asm volatile("sti");
@@ -235,4 +237,9 @@ bool arch_relocSymbols(module_t *mod,void *ehdr) {
 			}
 	}
 	return true;
+}
+void arch_poweroff() {
+    kprintf("Warrning: Using unstable ACPI shutdown code!\r\n");
+    kwait(1000);
+    acpiPowerOff();
 }

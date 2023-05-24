@@ -52,6 +52,7 @@ static void mbr_registerDevice(vfs_node_t *harddrive,int part_index,mbr_t *mbr) 
     d->device = dev;
     dev_add(d);
     global_part_id++;
+    kprintf("%s ",d->name);
 }
 
 static void mbr_parseMbr(vfs_node_t *harddrive,uint32_t extPartSector,mbr_t mbr) {
@@ -60,7 +61,7 @@ static void mbr_parseMbr(vfs_node_t *harddrive,uint32_t extPartSector,mbr_t mbr)
             if (mbr.partitions[i].sector_count != 0) { //active partiton
                     int off = extPartSector;
                     mbr.partitions[i].lba_first_sector += off;
-                    kprintf("MBR: Partiton %d start: %d, size(in sectors): %d, offset: %d\n",i,mbr.partitions[i].lba_first_sector,mbr.partitions[i].sector_count,off);
+                    //kprintf("MBR: Partiton %d start: %d, size(in sectors): %d, offset: %d\n",i,mbr.partitions[i].lba_first_sector,mbr.partitions[i].sector_count,off);
                     mbr_registerDevice(harddrive,i,&mbr);
                     if (mbr.partitions[i].type == 0x5 || mbr.partitions[i].type == 0xf) {
                         mbr_t *sec_mbr = kmalloc(sizeof(mbr_t));
@@ -69,8 +70,6 @@ static void mbr_parseMbr(vfs_node_t *harddrive,uint32_t extPartSector,mbr_t mbr)
                    
                         kfree(sec_mbr);
                     }
-            } else {
-                kprintf("MBR: Partition %d inactive\n",i);
             }
         }
     } else {
@@ -89,7 +88,9 @@ static void module_main() {
     }
     // read mbr_t structure
     vfs_readBlock(harddrive,0,512,&m_mbr);
+    kprintf("Detected hard drive partitions: ");
     mbr_parseMbr(harddrive,0,m_mbr);
+    kprintf("\r\n");
 }
 mbr_t *mbr_getMBR() {
     return &m_mbr;

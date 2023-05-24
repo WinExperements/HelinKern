@@ -6,10 +6,6 @@
 #include <lib/string.h>
 #include "fat32.h"
 
-/*
-    Based on https://github.com/knusbaum/kernel/blob/master/fat32.c
-*/
-
 // this filesystem can be mounted only on ONE drive!
 char modname[] __attribute__((section(".modname"))) = "fat32";
 static vfs_node_t *disk;
@@ -40,7 +36,7 @@ static uint32_t readi32(uint8_t *buff, size_t offset) {
 // define not implemented or unused functions here
 static struct dirent *fat32_readdir(vfs_node_t *node,uint32_t index);
 
-static vfs_node_t *fat32_mount(vfs_node_t *to,void *params) {
+static bool fat32_mount(vfs_node_t *to,vfs_node_t *root,void *params) {
 	disk = to;
 	struct bios_parameter_block *bpb = kmalloc(sizeof(struct bios_parameter_block));
 	static uint8_t sector0[512];
@@ -82,6 +78,7 @@ static vfs_node_t *fat32_mount(vfs_node_t *to,void *params) {
 	}
 	kprintf("FAT32: Allocation FAT\n");
 	uint32_t fatSize = 512 * bpb->count_sectors_per_FAT32;
+	int pages = (fatSize/4096)+1;
 	int fat_begin_sector = bpb->reserved_sectors;
 	int fat_begin_cluster = bpb->FAT_count *  bpb->count_sectors_per_FAT32;
 	int fat_cluster_size = 512 * bpb->sectors_per_cluster;
@@ -102,20 +99,15 @@ static vfs_node_t *fat32_mount(vfs_node_t *to,void *params) {
 	}
 	kprintf("FAT32: OK\n");
 	// Create FAT32 device struct and root inode
-	struct fat32_fs *fs = kmalloc(sizeof(struct fat32_fs));
+	struct fat32_fs *fs =  kmalloc(sizeof(struct fat32_fs));
 	fs->bpb = bpb;
 	fs->fat32_begin_sector = fat_begin_sector;
 	fs->fat32_begin_cluster = fat_begin_cluster;
 	fs->fat32_cluster_size = fat_cluster_size;
-	vfs_node_t *root = kmalloc(sizeof(vfs_node_t));
-	root->fs = fat32;
 	root->device = fs;
-    vfs_node_t *test = vfs_creat(vfs_getRoot(),"f",VFS_DIRECTORY);
-    if (test) {
-        test->fs = fat32;
-        test->device = fs;
-    }
-	return root;
+    root->fs = fat32;
+    kfree(FAT);
+	return true;
 }
 
 

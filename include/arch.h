@@ -15,6 +15,7 @@ void arch_idleLoop();
 void arch_cli();
 void arch_sti();
 void arch_reset();
+void arch_poweroff();
 bool arch_getFBInfo(fbinfo_t *info);
 int arch_getMemSize();
 void arch_switchContext(void *prSt);

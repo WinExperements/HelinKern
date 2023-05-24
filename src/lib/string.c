@@ -116,3 +116,10 @@ extern char* strcat(char* s1, const char* s2)
 
     return original;
 }
+
+int memcmp(const void * vl, const void * vr, size_t n) {
+	const unsigned char *l = vl;
+	const unsigned char *r = vr;
+	for (; n && *l == *r; n--, l++, r++);
+	return n ? *l-*r : 0;
+}

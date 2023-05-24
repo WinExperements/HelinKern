@@ -26,9 +26,24 @@ void kshell_main() {
 		kprintf("No keyboard found, exit\r\n");
 		thread_killThread(self,1);
 	}
+    kprintf("Activation some command(FAT32 driver test)...\r\n");
 	char *buff = kmalloc(100);
     int argc = 0;
     char **argv = kmalloc(100);
+    /*argv[0] = "loadm";
+    argv[1] = "/bin/atapi.mod";
+    parseCommand(2,argv);
+    argv[0] = "loadm";
+    argv[1] = "/bin/mbr.mod";
+    parseCommand(2,argv);
+    argv[0] = "loadm";
+    argv[1] = "/bin/fat32.mod";
+    parseCommand(2,argv);
+    argv[0] = "mount";
+    argv[1] = "fat32";
+    argv[2] = "/dev/hdap0";
+    argv[3] = "/initrd";
+    parseCommand(4,argv);*/
 	while(exit != true) {
         argc = 0;
 		kprintf("> ");
@@ -111,6 +126,8 @@ static void parseCommand(int argc,char *cmd[]) {
             }
             vfs_mount(fs,dev,cmd[3]);
         }
+    } else if (strcmp(cmd[0],"poweroff")) {
+        arch_poweroff();
     } else {
         kprintf("Unknown commmand: %s\r\n",cmd[0]);
     }

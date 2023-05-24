@@ -1,3 +1,4 @@
+# Here you can see all my problems in code
 target remote localhost:1234
 #b thread_killForeach
 #b test
@@ -9,6 +10,7 @@ target remote localhost:1234
 #b kshell_main
 #b syscall_get
 #b sys_exec
+#b sys_exit
 #b strcpy
 #b memset
 #b src/kshell.c:87
@@ -17,5 +19,9 @@ target remote localhost:1234
 #b ksbrk_page
 #b module_load_seg
 #b sys_insmod
-b vfs_mount
+#b vfs_mount
+#b krealloc
+b elf_load_file
+add-symbol-file module/fat32/fat32.mod 0x200443b
+b fat32_mount
 c

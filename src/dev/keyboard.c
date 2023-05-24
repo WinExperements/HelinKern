@@ -23,7 +23,7 @@ void keyboard_init() {
     interrupt_add(IRQ12,keyboard_handler);
     // Register keyboard in devfs
     keyboard_dev = kmalloc(sizeof(dev_t));
-    memset(keyboard_dev,0,sizeof(keyboard_dev));
+    memset(keyboard_dev,0,sizeof(dev_t));
     keyboard_dev->name = "keyboard";
     keyboard_dev->buffer_sizeMax = 100;
     keyboard_dev->read = keyboard_read;

@@ -3,6 +3,7 @@
 #include <output.h>
 #include <lib/string.h>
 #include <thread.h>
+#include <mm/alloc.h>
 static vfs_fs_t *fs_start;
 static vfs_node_t *fs_root;
 static vfs_node_t *vfs_find_impl(vfs_node_t *start,char *path);
@@ -79,12 +80,13 @@ void vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
                 kprintf("%s: filesystem mount function are not defined\n",mountPoint);
                 return;
         }
-	vfs_node_t *root = fs->mount(dev,NULL);
+        fs_root = kmalloc(sizeof(vfs_node_t));
+        memset(fs_root,0,sizeof(vfs_node_t));
+	    bool root = fs->mount(dev,fs_root,NULL);
         if (!root) {
                 kprintf("%s: filesystem mount failed\n",mountPoint);
                 return;
         }
-        fs_root = root;
     } else {
         vfs_node_t *mount_point = vfs_find(mountPoint);
 	if (!mount_point) {
@@ -99,12 +101,11 @@ void vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
 		kprintf("%s: filesystem mount function are not defined\n");
 		return;
 	}
-	vfs_node_t *root = fs->mount(dev,NULL);
+	bool root = fs->mount(dev,mount_point,NULL);
         if (!root) {
                 kprintf("%s: filesystem mount failed\n",mountPoint);
                 return;
         }
-	mount_point->fs = fs;
    }
 }
 vfs_node_t *vfs_creat(vfs_node_t *in,char *name,int flags) {
