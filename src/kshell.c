@@ -128,6 +128,11 @@ static void parseCommand(int argc,char *cmd[]) {
         }
     } else if (strcmp(cmd[0],"poweroff")) {
         arch_poweroff();
+    } else if (strcmp(cmd[0],"kill")) {
+        if (argc > 1) {
+            int pid = atoi(cmd[1]);
+            thread_killThread(thread_getThread(pid),0);
+        }
     } else {
         kprintf("Unknown commmand: %s\r\n",cmd[0]);
     }
@@ -140,7 +145,10 @@ static void start_module() {
         kprintf("Trying to load initrd as ELF\r\n");
         if (!elf_load_file((void *)addr)) {
             kprintf("Failed to load ELF! Check console\r\n");
-        } 
+        } else {
+            // change name to "module"
+            thread_changeName(thread_getThread(thread_getNextPID()-1),"module");
+        }
     } else {
 	    kprintf("No initrd passed, skipping...\r\n");
     }

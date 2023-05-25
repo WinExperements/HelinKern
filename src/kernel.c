@@ -64,5 +64,6 @@ void kernel_main(const char *args) {
     thread_create("shell",(int)kshell_main,false);
     arch_post_init();
     clock_setShedulerEnabled(true);
+    arch_detect();
     arch_sti();
 }

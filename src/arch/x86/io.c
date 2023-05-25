@@ -18,3 +18,11 @@ void outw(uint32_t port,uint16_t data) {
 void insw(uint16_t port, unsigned char *data, unsigned long size) {
      asm volatile ("rep insw" : "+D" (data), "+c" (size) : "d" (port) : "memory");
 }
+uint32_t inl(uint32_t port) {
+     uint32_t data;
+    __asm__ volatile("inl %w1, %0" : "=a" (data) : "Nd" (port));
+    return data;
+}
+void outl(uint32_t port,uint32_t data) {
+     __asm__ volatile("outl %0, %w1" : : "a" (data), "Nd" (port));
+}

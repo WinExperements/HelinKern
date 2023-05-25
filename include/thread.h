@@ -37,4 +37,5 @@ process_t *thread_getThread(int pid);
 void thread_killThread(process_t *prc,int code);
 void thread_waitPid(process_t *prc);
 int thread_getNextPID();
+void thread_changeName(process_t *prc,char *n);
 #endif

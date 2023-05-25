@@ -6,6 +6,7 @@
 #include <arch/mmu.h>
 #include <dev/fb.h>
 #include <output.h>
+#include <lib/string.h>
 #ifdef X86
 #define TIMER_NO 32
 #else
@@ -20,6 +21,7 @@ static process_t *thread_findNextByStatus(int status,int addr);
 static void thread_killForeach(clist_head_t *head_va,va_list args);
 static int freePid;
 static process_t *idle;
+static bool scheduled = false;
 static void idle_main() {
     arch_sti();
     while(1) {}
@@ -42,6 +44,7 @@ void thread_init() {
 void *thread_schedule(void *stack) {
     // scheduler v1, taked code from my old osdev project
     // Edited version
+    scheduled = false;
     if (clist_size(died_list) != 0) {
         // kill there tasks using foreach
         // switch to our kernel VMM space
@@ -54,10 +57,10 @@ void *thread_schedule(void *stack) {
     //kprintf("Schedule\r\n");
     if (runningTask != NULL) {
         // Okay we need to find a new if the quota is ended
-        if (runningTask->quota < PROCESS_QUOTA && !runningTask->reschedule) {
+        /*if (runningTask->quota < PROCESS_QUOTA && !runningTask->reschedule) {
                 runningTask->quota++;
                 return stack;
-            }
+            }*/
             arch_mmu_switch(idle->aspace);
             // Simply select new task
             nextTask = thread_findNextByStatus(STATUS_RUNNING,runningTask->lAddr);
@@ -73,6 +76,7 @@ void *thread_schedule(void *stack) {
     if (nextTask->aspace == NULL) {
         PANIC("Process structure has been rewriten by something!\r\n");
     } 
+    scheduled = true;
     // switch the address space
     arch_mmu_switch(nextTask->aspace);
     // switch context
@@ -82,9 +86,10 @@ void *thread_schedule(void *stack) {
 process_t *thread_create(char *name,int entryPoint,bool isUser) {
     // Allocate the process
     clist_head_t *h = clist_insert_entry_after(task_list,task_list->head);
+    memset(h->data,0,sizeof(process_t));
     process_t *th = (process_t *)h->data;
     th->pid = freePid++;
-    th->name = name;
+    th->name = strdup(name);
     th->lAddr = (int)h;
     th->stack = arch_prepareContext(entryPoint);
     th->arch_info = arch_preapreArchStack(isUser);
@@ -94,6 +99,7 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     th->workDir = vfs_getRoot();
     th->parent = runningTask;
     th->child = NULL;
+    //kprintf("PID of new process: %d\r\n",th->pid);
     return th;
 }
 static bool process_findDispatcher(clist_head_t *head,va_list args) {
@@ -131,9 +137,9 @@ void *clock_handler(void *stack) {
     return stack;
 }
 void kwait(int ms) {
-    int startClocks = num_clocks;
-    int endClocks = startClocks + (ms*10);
-    while(num_clocks <= endClocks) {}
+    uint32_t now = num_clocks;
+    ++ms;
+    while(num_clocks - now < ms) {}
 }
 int clock_getUptimeSec() {
     return num_clocks/1000;
@@ -169,19 +175,29 @@ static void thread_killForeach(clist_head_t *head_va,va_list args) {
 void thread_killThread(process_t *prc,int code) {
     // called when thread killed by an exception or its want to exit
     // remove the process from processes list and insert it to the died list
+    arch_cli();    
     clist_delete_entry(task_list,(clist_head_t *)prc->lAddr);
     // insert it to the list
     clist_head_t *ent = clist_insert_entry_after(died_list,died_list->head);
     ent->data = prc;
     prc->lAddr = (int)ent;
     // schedule to a new free task
-    runningTask = NULL;
-    // wait for reschedule
-    while(1) {}
+    //runningTask = NULL;
+    arch_sti();
+    arch_reschedule();
 }
 void thread_waitPid(process_t *prc) {
     prc->state = STATUS_WAITPID;
 }
 int thread_getNextPID() {
     return freePid;
+}
+void thread_changeName(process_t *prc,char *n) {
+    int newlen = strlen(n)+1;
+    int oldLen = strlen(prc->name)+1;
+    if (newlen >= oldLen) {
+        kfree(prc->name);
+        prc->name = kmalloc(newlen);
+    }
+    strcpy(prc->name,n);
 }

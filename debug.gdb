@@ -21,7 +21,9 @@ target remote localhost:1234
 #b sys_insmod
 #b vfs_mount
 #b krealloc
-b elf_load_file
-add-symbol-file module/fat32/fat32.mod 0x200443b
-b fat32_mount
+#b elf_load_file
+#add-symbol-file module/fat32/fat32.mod 0x200443b
+#b fat32_mount
+b thread_killForeach
+#b thread_changeName
 c

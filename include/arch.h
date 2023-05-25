@@ -28,4 +28,7 @@ void arch_destroyContext(void *context);
 void arch_destroyArchStack(void *stack);
 void arch_post_init();
 bool arch_relocSymbols(module_t *mod,void *ehdr);
+void arch_reschedule();
+/* Print all CPU information */
+void arch_detect();
 #endif

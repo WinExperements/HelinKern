@@ -60,6 +60,101 @@ typedef struct symbol
 } symbol_t;
 
 void *memset(void *,char,int);
+// Grub source code
+static inline uint16_t swap_bytes16(uint16_t _x)
+{
+   return (uint16_t) ((_x << 8) | (_x >> 8));
+}
+
+#define swap_bytes16_compile_time(x) ((((x) & 0xff) << 8) | (((x) & 0xff00) >> 8))
+#define swap_bytes32_compile_time(x) ((((x) & 0xff) << 24) | (((x) & 0xff00) << 8) | (((x) & 0xff0000) >> 8) | (((x) & 0xff000000UL) >> 24))
+#define swap_bytes64_compile_time(x)	\
+({ \
+   uint64_t _x = (x); \
+   (uint64_t) ((_x << 56) \
+                    | ((_x & (uint64_t) 0xFF00ULL) << 40) \
+                    | ((_x & (uint64_t) 0xFF0000ULL) << 24) \
+                    | ((_x & (uint64_t) 0xFF000000ULL) << 8) \
+                    | ((_x & (uint64_t) 0xFF00000000ULL) >> 8) \
+                    | ((_x & (uint64_t) 0xFF0000000000ULL) >> 24) \
+                    | ((_x & (uint64_t) 0xFF000000000000ULL) >> 40) \
+                    | (_x >> 56)); \
+})
+
+#if (defined(__GNUC__) && (__GNUC__ > 3) && (__GNUC__ > 4 || __GNUC_MINOR__ >= 3)) || defined(__clang__)
+static inline uint32_t swap_bytes32(uint32_t x)
+{
+	return __builtin_bswap32(x);
+}
+
+static inline uint64_t swap_bytes64(uint64_t x)
+{
+	return __builtin_bswap64(x);
+}
+#else					/* not gcc 4.3 or newer */
+static inline uint32_t swap_bytes32(uint32_t _x)
+{
+   return ((_x << 24)
+	   | ((_x & (uint32_t) 0xFF00UL) << 8)
+	   | ((_x & (uint32_t) 0xFF0000UL) >> 8)
+	   | (_x >> 24));
+}
+
+static inline uint64_t swap_bytes64(uint64_t _x)
+{
+   return ((_x << 56)
+	   | ((_x & (uint64_t) 0xFF00ULL) << 40)
+	   | ((_x & (uint64_t) 0xFF0000ULL) << 24)
+	   | ((_x & (uint64_t) 0xFF000000ULL) << 8)
+	   | ((_x & (uint64_t) 0xFF00000000ULL) >> 8)
+	   | ((_x & (uint64_t) 0xFF0000000000ULL) >> 24)
+	   | ((_x & (uint64_t) 0xFF000000000000ULL) >> 40)
+	   | (_x >> 56));
+}
+#endif					/* not gcc 4.3 or newer */
+
+#ifdef KERNEL_CPU_WORDS_BIGENDIAN
+# define cpu_to_le16(x)	swap_bytes16(x)
+# define cpu_to_le32(x)	swap_bytes32(x)
+# define cpu_to_le64(x)	swap_bytes64(x)
+# define le_to_cpu16(x)	swap_bytes16(x)
+# define le_to_cpu32(x)	swap_bytes32(x)
+# define le_to_cpu64(x)	swap_bytes64(x)
+# define cpu_to_be16(x)	((uint16_t) (x))
+# define cpu_to_be32(x)	((uint32_t) (x))
+# define cpu_to_be64(x)	((uint64_t) (x))
+# define be_to_cpu16(x)	((uint16_t) (x))
+# define be_to_cpu32(x)	((uint32_t) (x))
+# define be_to_cpu64(x)	((uint64_t) (x))
+# define cpu_to_be16_compile_time(x)	((uint16_t) (x))
+# define cpu_to_be32_compile_time(x)	((uint32_t) (x))
+# define cpu_to_be64_compile_time(x)	((uint64_t) (x))
+# define be_to_cpu64_compile_time(x)	((uint64_t) (x))
+# define cpu_to_le32_compile_time(x)	swap_bytes32_compile_time(x)
+# define cpu_to_le64_compile_time(x)	swap_bytes64_compile_time(x)
+# define cpu_to_le16_compile_time(x)	swap_bytes16_compile_time(x)
+#else /* ! WORDS_BIGENDIAN */
+# define cpu_to_le16(x)	((uint16_t) (x))
+# define cpu_to_le32(x)	((uint32_t) (x))
+# define cpu_to_le64(x)	((uint64_t) (x))
+# define le_to_cpu16(x)	((uint16_t) (x))
+# define le_to_cpu32(x)	((uint32_t) (x))
+# define le_to_cpu64(x)	((uint64_t) (x))
+# define cpu_to_be16(x)	swap_bytes16(x)
+# define cpu_to_be32(x)	swap_bytes32(x)
+# define cpu_to_be64(x)	swap_bytes64(x)
+# define be_to_cpu16(x)	swap_bytes16(x)
+# define be_to_cpu32(x)	swap_bytes32(x)
+# define be_to_cpu64(x)	swap_bytes64(x)
+# define cpu_to_be16_compile_time(x)	swap_bytes16_compile_time(x)
+# define cpu_to_be32_compile_time(x)	swap_bytes32_compile_time(x)
+# define cpu_to_be64_compile_time(x)	swap_bytes64_compile_time(x)
+# define be_to_cpu64_compile_time(x)	swap_bytes64_compile_time(x)
+# define cpu_to_le16_compile_time(x)	((uint16_t) (x))
+# define cpu_to_le32_compile_time(x)	((uint32_t) (x))
+# define cpu_to_le64_compile_time(x)	((uint64_t) (x))
+
+#endif /* ! WORDS_BIGENDIAN */
 
 #endif
 
