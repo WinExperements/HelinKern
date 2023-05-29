@@ -9,6 +9,7 @@ clist_head_t* clist_insert_entry_after(clist_definition_t *list,clist_head_t* po
     clist_head_t* entry;
     size_t addr = (size_t)kmalloc(list->slot_size);
     entry = (clist_head_t*)kmalloc(sizeof(clist_head_t));
+    memset(entry,0,sizeof(clist_head_t));
     entry->data = (void*)addr;
     if (list->head == NULL) {
         /* insert first entry */
@@ -102,7 +103,7 @@ clist_head_t* clist_find_next(clist_definition_t* list, clist_head_t* pos, clist
         }
     }
 
-    if (pos != NULL) {
+    if (pos != NULL && current) {
         va_list args;
         va_start(args, detector);
         if (detector(current, args)) {

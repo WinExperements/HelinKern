@@ -22,8 +22,15 @@ target remote localhost:1234
 #b vfs_mount
 #b krealloc
 #b elf_load_file
-#add-symbol-file module/fat32/fat32.mod 0x200443b
-#b fat32_mount
-b thread_killForeach
-#b thread_changeName
+#add-symbol-file module/atapi/atapi.mod 0x2002009
+#b ata_vdev_readBlock
+#b ata_vdev_writeBlock
+#b test
+#b scheduler_irq
+#b arch_saveContext
+#b thread_schedule
+#b vfs_find
+#b kshell_main
+#b src/kshell.c:166
+b parse_cpu
 c

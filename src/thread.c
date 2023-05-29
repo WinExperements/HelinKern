@@ -7,6 +7,7 @@
 #include <dev/fb.h>
 #include <output.h>
 #include <lib/string.h>
+#include <debug.h>
 #ifdef X86
 #define TIMER_NO 32
 #else
@@ -40,19 +41,11 @@ void thread_init() {
     waiting_list->slot_size = sizeof(int);
     idle = thread_create("idle",(int)idle_main,false);
     idle->state = 0;
+    runningTask = idle;
 }
 void *thread_schedule(void *stack) {
     // scheduler v1, taked code from my old osdev project
     // Edited version
-    scheduled = false;
-    if (clist_size(died_list) != 0) {
-        // kill there tasks using foreach
-        // switch to our kernel VMM space
-        arch_mmu_switch(idle->aspace);
-        clist_for_each(died_list,thread_killForeach);
-        memset(died_list,0,sizeof(clist_definition_t));
-        runningTask = NULL;
-    }
     process_t *nextTask;
     //kprintf("Schedule\r\n");
     if (runningTask != NULL) {
@@ -72,14 +65,21 @@ void *thread_schedule(void *stack) {
     if (!nextTask) {
         // no tasks left, goto idle thread
         nextTask = idle;
+    } else if (nextTask->died) {
+        kprintf("Died task: %s!\r\n",nextTask->name);
+        arch_destroyContext(nextTask->stack);
+        arch_destroyArchStack(nextTask->arch_info);
+        clist_delete_entry(task_list,(clist_head_t *)nextTask->lAddr);
+        nextTask->parent->state = STATUS_RUNNING;
+        process_t *parent = nextTask->parent;
+        kfree(nextTask);
+        nextTask = parent;
     }
     if (nextTask->aspace == NULL) {
         PANIC("Process structure has been rewriten by something!\r\n");
-    } 
-    scheduled = true;
+    }
     // switch the address space
     arch_mmu_switch(nextTask->aspace);
-    // switch context
     arch_switchContext(nextTask);
     return stack;
 }
@@ -99,6 +99,7 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     th->workDir = vfs_getRoot();
     th->parent = runningTask;
     th->child = NULL;
+    th->died = false;
     //kprintf("PID of new process: %d\r\n",th->pid);
     return th;
 }
@@ -173,16 +174,12 @@ static void thread_killForeach(clist_head_t *head_va,va_list args) {
     kfree(prc);
 }
 void thread_killThread(process_t *prc,int code) {
+    DEBUG("Killing thread %s with code %d\r\n",prc->name,code);
     // called when thread killed by an exception or its want to exit
     // remove the process from processes list and insert it to the died list
-    arch_cli();    
-    clist_delete_entry(task_list,(clist_head_t *)prc->lAddr);
+    arch_cli();
     // insert it to the list
-    clist_head_t *ent = clist_insert_entry_after(died_list,died_list->head);
-    ent->data = prc;
-    prc->lAddr = (int)ent;
-    // schedule to a new free task
-    //runningTask = NULL;
+    prc->died = true;
     arch_sti();
     arch_reschedule();
 }

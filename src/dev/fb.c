@@ -9,6 +9,8 @@
 #include <lib/string.h>
 #include <arch.h>
 #include <thread.h>
+#include <dev.h>
+#include <debug.h>
 extern char _binary_font_psf_start;
 extern char _binary_font_psf_end;
 uint16_t *unicode;
@@ -20,6 +22,10 @@ static uint32_t ws_row,ws_col;
 static void scroll();
 static int width,height,pitch,addr,fcolor,bcolor;
 static bool enableCursor = true;
+static void fbdev_write(vfs_node_t *node,int off,int size,void *buff);
+static void *fbdev_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
+static dev_t *fbdev;
+static int paddr;
 void fb_init(fbinfo_t *fb) {
     if (!fb) return;
     psf_init();
@@ -27,6 +33,7 @@ void fb_init(fbinfo_t *fb) {
     height = fb->height;
     pitch = fb->pitch;
     addr = (uint32_t)fb->addr;
+    paddr = addr;
     ws_row = height/16;
  	ws_col = width/9;
     output_write("FB initialized\r\n");
@@ -195,7 +202,7 @@ void fb_map() {
 	addr = GFX_MEMORY;
 	mapped = true;
     }
-    //kprintf("FB mapped: from 0x%x to 0x%x\r\n",->addr,(->addr)+(->pitch*->width));
+    DEBUG("FB mapped: from 0x%x to 0x%x\r\n",addr,(addr)+(pitch*width));
 }
 void fb_clear(int color) {
     if (color == WHITE) {
@@ -215,23 +222,11 @@ void fb_clear(int color) {
 }
 static void scroll() {
     if (cursor_y >= ws_row) {
-        arch_cli();
-        for (int y = 16; y != height; ++y)
-        {
-            void *dest = (void *)(((uintptr_t)addr) + ( y - 16) * pitch);
-            const void* src = (void *)(((uintptr_t)addr) + y * pitch);
-            memcpy(dest,src,width * 4);
-        }
-        for (int y = height - 16; y != height; ++y)
-        {
-            uint32_t* dest = (uint32_t *)(((uintptr_t)addr) + y * pitch);
-            for (int i = 0; i != width; ++i)
-            {
-                *dest++ = bcolor;
-            }
-        }
-        cursor_y = ws_row-1;
-        arch_sti();
+	int fb_size = height * pitch;
+        int size = 1 * 16 * pitch;
+	memcpy((void *)addr,addr+size,fb_size - size);
+	memset((void *)addr + fb_size - size,0,size);
+	cursor_y = ws_row - 1;
     }
 }
 void fb_setpos(int x,int y) {
@@ -243,4 +238,25 @@ void fb_disableCursor() {
 }
 void fb_enableCursor() {
     enableCursor = true;
+}
+static void fbdev_write(vfs_node_t *node,int off,int size,void *buff) {
+    // Nothing!
+}
+static void *fbdev_mmap(struct vfs_node *node,int _addr,int size,int offset,int flags) {
+    // First allocate requested space
+    for (int i = 0; i < size/4096; i++) {
+        // Map
+        // TODO: Fix  this shit
+        int pag = (i*4096);
+        arch_mmu_mapPage(NULL,USER_MMAP_START+pag,paddr+pag,7);
+    }
+    return (void *)USER_MMAP_START;
+}
+void fbdev_init() {
+     fbdev = kmalloc(sizeof(dev_t));
+    fbdev->name = "fb0";
+    fbdev->buffer_sizeMax = pitch * height;
+    fbdev->write = fbdev_write;
+    fbdev->mmap = fbdev_mmap;
+    dev_add(fbdev);
 }

@@ -18,4 +18,5 @@ void fb_clear(int color);
 void fb_setpos(int x,int y);
 void fb_disableCursor();
 void fb_enableCursor();
+void fbdev_init();
 #endif

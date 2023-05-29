@@ -13,7 +13,7 @@
 #include <vfs.h>
 #include <dev.h>
 #include <kshell.h>
-//  a
+#include <debug.h>
 static int fb_addr;
 extern int *syscall_table;
 void *memset(void *dest,char val,int count) {
@@ -36,12 +36,12 @@ void kernel_main(const char *args) {
     if (arch_getFBInfo(&fb)) {
         fb_init(&fb);
         fb_enable();
-        output_changeToFB();
+	output_changeToFB();
         fb_addr = (int)fb.addr;
     }
     // Hi!
     fb_disableCursor();
-    kprintf("HelinOS starting up...\r\n");
+    DEBUG_N("HelinOS starting up...\r\n");
     int mem = arch_getMemSize();
     alloc_init(arch_getKernelEnd(),mem);
     arch_mmu_init();
@@ -60,10 +60,12 @@ void kernel_main(const char *args) {
     dev_init();
     #ifdef X86
     keyboard_init();
+    fbdev_init();
     #endif
     thread_create("shell",(int)kshell_main,false);
     arch_post_init();
     clock_setShedulerEnabled(true);
     arch_detect();
     arch_sti();
+    //kshell_main();
 }

@@ -27,6 +27,7 @@ typedef struct mbr_dev {
 	int harddrive_addr;
 	int part_index;
 	int lba_start;
+    int sectors;
 } mbr_dev_t;
 
 #endif

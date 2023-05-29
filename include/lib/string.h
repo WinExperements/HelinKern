@@ -10,4 +10,6 @@ char *strtok(char *s, const char *delim);
 char *strdup(char *src);
 int atoi(char *number);
 extern char* strcat(char* s1, const char* s2);
+char toupper(char chr);
+bool islower(char chr);
 #endif

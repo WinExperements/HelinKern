@@ -12,6 +12,7 @@ static void devfs_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *
 static void devfs_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
 static void *devfs_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
 static void devfs_readBlock(struct vfs_node *node,int blockN,int how,void *buff);
+static void devfs_writeBlock(struct vfs_node *node,int blockN,int how,void *buff);
 void dev_init() {
     device = NULL;
     dev_dir = vfs_finddir(vfs_getRoot(),"dev");
@@ -27,6 +28,7 @@ void dev_init() {
     fs->read = devfs_read;
     fs->mmap = devfs_mmap;
     fs->readBlock = devfs_readBlock;
+    fs->writeBlock = devfs_writeBlock;
     vfs_addFS(fs);
 }
 void dev_add(dev_t *dev) {
@@ -79,5 +81,11 @@ static void devfs_readBlock(struct vfs_node *node,int blockN,int how,void *buff)
     if (node != NULL) {
         dev_t *d = (dev_t *)node->priv_data;
         d->readBlock(node,blockN,how,buff);
+    }
+}
+static void devfs_writeBlock(struct vfs_node *node,int blockN,int how,void *buff) {
+    if (node != NULL) {
+        dev_t *d = (dev_t *)node->priv_data;
+        d->writeBlock(node,blockN,how,buff);
     }
 }

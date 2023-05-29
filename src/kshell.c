@@ -10,6 +10,7 @@
 #include <syscall.h>
 #include <symbols.h>
 #include <dev/fb.h>
+#include <debug.h>
 static vfs_node_t *keyboard;
 static void parseCommand(int argc,char *cmd[]);
 static bool exit = false;
@@ -17,8 +18,9 @@ static void start_module();
 static void load_m(void *);
 void kshell_main() {
 	arch_sti();
+	output_changeToFB();
 	kprintf("KShell V0.1\r\n");
-    kprintf("Please not that you are running in the kernel address space\r\n");
+    	kprintf("Please not that you are running in the kernel address space\r\n");
 	// open keyboard device
 	process_t *self = thread_getThread(thread_getCurrent());
 	keyboard = vfs_find("/dev/keyboard");
@@ -26,14 +28,14 @@ void kshell_main() {
 		kprintf("No keyboard found, exit\r\n");
 		thread_killThread(self,1);
 	}
-    kprintf("Activation some command(FAT32 driver test)...\r\n");
+    	kprintf("Activation some command(FAT32 driver test)...\r\n");
 	char *buff = kmalloc(100);
     int argc = 0;
     char **argv = kmalloc(100);
+    /*argv[0] = "exec";
+    argv[1] = "/bin/wm";
+    parseCommand(2,argv);*/
     /*argv[0] = "loadm";
-    argv[1] = "/bin/atapi.mod";
-    parseCommand(2,argv);
-    argv[0] = "loadm";
     argv[1] = "/bin/mbr.mod";
     parseCommand(2,argv);
     argv[0] = "loadm";
@@ -77,7 +79,9 @@ static void parseCommand(int argc,char *cmd[]) {
             struct dirent *d;
             int i = 0;
             while((d = vfs_readdir(in,i)) != 0) {
-                kprintf("%s\n",d->name);
+                if (d->name[0] != 0) {
+                       kprintf("%s\n",d->name);
+                } else break;
                 i++;
             }
         }
@@ -133,6 +137,85 @@ static void parseCommand(int argc,char *cmd[]) {
             int pid = atoi(cmd[1]);
             thread_killThread(thread_getThread(pid),0);
         }
+    } else if (strcmp(cmd[0],"cat")) {
+        if (argc > 1) {
+            vfs_node_t *node = vfs_find(cmd[1]);
+            if (!node) {
+                kprintf("%s: not found\r\n",cmd[1]);
+                return;
+            } else if (node->flags == VFS_DIRECTORY) {
+                kprintf("%s: is an directory\r\n",cmd[1]);
+                return;
+            }
+            char *buff = kmalloc(node->size);
+            vfs_read(node,0,node->size,buff);
+            kprintf("%s\r\n",buff);
+            kfree(buff);
+            vfs_close(node);
+        }
+    } else if (strcmp(cmd[0],"exec")) {
+        if (argc > 1) {
+           int (*exec)(char *) = ((int (*)(char *))syscall_get(13));
+            int pid = exec(cmd[1]);
+            void (*waitpid)(int) = ((void (*)(int))syscall_get(22));
+            waitpid(pid);
+        }
+    } else if (strcmp(cmd[0],"fin")) {
+        kprintf("Finishing boot\r\n");
+        kprintf("Starting up UI\r\n");
+        fb_putc('h');
+    } else if (strcmp(cmd[0],"hdt")) {
+		vfs_node_t *file = vfs_find("/bin/init");
+		if (!file) {
+			kprintf("Failed to open ELF\r\n");
+			return;
+		}
+		vfs_node_t *disk = vfs_find("/dev/hdap0");
+		if (!disk) {
+			kprintf("No disk found(hdap0)\r\n");
+			return;
+		}
+        if (!strcmp(disk->name,"hdap0")) {
+            kprintf("Invalid node\r\n");
+            return;
+        }
+		char *data = kmalloc(file->size);
+		kprintf("Select action: write/exec: ");
+		char *b = kmalloc(6);
+		vfs_read(keyboard,0,6,b);
+		if (strcmp(b,"write")) {
+            vfs_read(file,0,file->size,data);
+			kprintf("Writing %d bytes to the first partition of disk %s\r\n",file->size,disk->name);
+			vfs_writeBlock(disk,0,file->size,data);
+		} else if (strcmp(b,"read")) {
+            if (!strcmp(disk->name,"hdap0")) {
+                kprintf("WTF?\r\n");
+                kfree(data);
+                kfree(b);
+                return;
+            }
+			vfs_readBlock(disk,0,file->size,data);
+			elf_load_file(data);
+		}
+        kfree(b);
+		kfree(data);
+	} else if (strcmp(cmd[0],"wr")) {
+        vfs_node_t *n = vfs_find("/dev/hdap0");
+        if (!n) return;
+        arch_cli();
+        char *data = "Hi!";
+        uint16_t *d = kmalloc(512);
+        strcpy((char *)d,data);
+        vfs_writeBlock(n,0,512,d);
+        kprintf("Writen 1 sector: %s, verifying\r\n",d);
+        kfree(d);
+        arch_sti();
+    } else if (strcmp(cmd[0],"r")) {
+        char *b = kmalloc(512);
+        vfs_node_t *n = vfs_find("/dev/hdap0");
+        vfs_readBlock(n,0,512,b);
+        kprintf("%s\r\n",b);
+        kfree(b);
     } else {
         kprintf("Unknown commmand: %s\r\n",cmd[0]);
     }

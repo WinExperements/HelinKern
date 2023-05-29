@@ -7,6 +7,7 @@ extern __env
 extern _stdio_init
 extern _stdio_exit
 _start:
+    sti
     call main
     .exit:
     push eax

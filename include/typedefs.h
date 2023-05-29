@@ -11,6 +11,8 @@
 #define WHITE         0xFFFFFF
 #define PRINTK_INFO 1
 #define PRINTK_ERR 2
+#define min(a,b)    ((a) < (b) ? (a) : (b))
+#define max(a,b)    ((a) > (b) ? (a) : (b))
 typedef char                     int8_t;
 typedef unsigned char           uint8_t;
 typedef short                   int16_t;

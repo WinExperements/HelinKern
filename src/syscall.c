@@ -6,6 +6,7 @@
 #include <lib/string.h>
 #include <elf.h>
 #include <arch/mmu.h>
+#include <debug.h>
 static void sys_default() {}
 static void sys_exit(int exitCode);
 static void sys_kill(int pid,int code);
@@ -32,7 +33,7 @@ static int sys_getuid();
 static void sys_setuid(int uid);
 static void sys_seek(vfs_node_t *node,int type,int how);
 static int sys_tell(vfs_node_t *node);
-static void sys_mmap(vfs_node_t *node,int addr,int size,int offset,int flags);
+static void *sys_mmap(vfs_node_t *node,int addr,int size,int offset,int flags);
 static int sys_insmod(char *path);
 static void sys_rmmod(char *name);
 int syscall_table[32] = {
@@ -131,7 +132,8 @@ static int sys_exec(char *path) {
     elf_load_file(file_buff);
     kfree(file_buff);
     kfree(buff);
-    kprintf("Used kheap after exec: %dKB\r\n",alloc_getUsedSize()/1024);
+    vfs_close(file);
+    DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize()/1024);
     arch_sti();
     return thread_getNextPID()-1;
 }
@@ -215,7 +217,12 @@ static int sys_getuid() {return 0;}
 static void sys_setuid(int uid) {}
 static void sys_seek(vfs_node_t *node,int type,int how) {}
 static int sys_tell(vfs_node_t *node) {return 0;}
-static void sys_mmap(vfs_node_t *node,int addr,int size,int offset,int flags) {}
+static void *sys_mmap(vfs_node_t *node,int addr,int size,int offset,int flags) {
+    if (node != NULL) {
+        return vfs_mmap(node,addr,size,offset,flags);
+    }
+    return NULL;
+}
 static int sys_insmod(char *path) {
     int len = strlen(path);
     char *copy = kmalloc(len+1);

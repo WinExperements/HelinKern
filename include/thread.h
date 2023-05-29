@@ -22,6 +22,7 @@ typedef struct process {
     int quota;
     bool reschedule;
     vfs_node_t *workDir;
+    bool died;
     // Memory information
     uint32_t brk_begin,brk_end,brk_next_unallocated_page_begin;
 } process_t;

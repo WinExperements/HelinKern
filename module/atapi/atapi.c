@@ -125,7 +125,7 @@ static ata_device_t ata_channel3_master = {.base = 0x1e8, .ctrl = 0x3e0, .slave 
 static ata_device_t ata_channel3_slave = {.base = 0x1e8, .ctrl = 0x3e0, .slave = 1};
 void ata_create_device(bool hda,ata_device_t *dev);
 void ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
-void ata_vdev_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf);
 int ata_print_error(ata_device_t *dev);
 static char ata_start_char = 'a';
 static char ata_cdrom_char = 'a';
@@ -251,18 +251,18 @@ void ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf)
 	return;
 }
 /* Only for DEVELOPERS! */
-void ata_vdev_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
+void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 	// Convert void * to uint8_t *
 	uint8_t *target = (uint8_t *)buf;
-	uint64_t lba = 0;
+	uint64_t lba = blockNo;
 	uint16_t sectors = how/512;
 	if (sectors == 0) sectors = 1;
 	ata_device_t *dev = &ata_primary_master;
 	outb(dev->base+ATA_REG_HDDEVSEL,0x40);
 	outb(dev->base+ATA_REG_SECCOUNT0,(sectors >> 8) & 0xFF);
-	outb(dev->base+ATA_REG_LBA0,(lba >> 24) & 0xFF);
-	outb(dev->base+ATA_REG_LBA1,(lba >> 32) & 0xFF);
-	outb(dev->base+ATA_REG_LBA2,(lba >> 40) & 0xFF);
+	outb(dev->base+ATA_REG_LBA0, (lba & 0xff000000) >> 24);
+	outb(dev->base+ATA_REG_LBA1, (lba & 0xff000000) >> 32);
+	outb(dev->base+ATA_REG_LBA2, (lba & 0xff000000) >> 48);
 	outb(dev->base+ATA_REG_SECCOUNT0,sectors & 0xFF);
 	outb(dev->base+ATA_REG_LBA0,lba & 0xFF);
 	outb(dev->base+ATA_REG_LBA1,(lba >> 8) & 0xFF);
@@ -319,6 +319,9 @@ static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf) 
 			if (status & ATA_SR_DRQ) {
 				// Disk is ready to transfer data
 				break;
+			} else if (status & ATA_SR_ERR) {
+				kprintf("ATA: Disk error. Cancel\n");
+				return;
 			}
 		}
 		insw(dev->base,bu,256);
@@ -340,7 +343,7 @@ void ata_create_device(bool hda,ata_device_t *dev) {
 	dev_t *disk = kmalloc(sizeof(dev_t));
     memset(disk,0,sizeof(dev_t));
 	disk->name = name;
-	disk->write = ata_vdev_write;
+	disk->writeBlock = ata_vdev_writeBlock;
 	disk->read = ata_vdev_read;
 	disk->buffer_sizeMax = 512; // default sector size
 	disk->device = dev;

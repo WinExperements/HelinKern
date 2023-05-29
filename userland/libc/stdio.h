@@ -11,7 +11,7 @@ typedef enum seek_type {
 	SEEK_END = 3,
 	SEEK_CUR = 0
 } seek_type_t;
-void printf(const char *,...);
+int printf(const char *,...);
 FILE *fopen(char *file,char *mode);
 int fread(void *buff,int size,int count,FILE *file);
 int fclose(FILE *file);

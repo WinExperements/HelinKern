@@ -13,13 +13,13 @@ int main(int argc,char **argv) {
 		printf("windowserver: no FB support detected or no access to it\n");
 		return 1;
 	}
-	int *fb_b = mmap(fb,0,1336*768*32,0,0);
+	int *fb_b = mmap(fb,0,800*640*32,0,0);
 	if (fb_b == 0) {
 		printf("Failed to mmap FB\n");
 	} else {
-		for (int y =0; y <  768; y++) {
-			for (int x =0; x < 1336; x++) {
-				fb_b[x + y * 1336] = 0xFFFFFFFF;
+		for (int y =0; y <  640; y++) {
+			for (int x =0; x < 800; x++) {
+				fb_b[x + y * 800] = 0xFFFFFF;
 			}
 		}
 		printf("AHAHA\n");

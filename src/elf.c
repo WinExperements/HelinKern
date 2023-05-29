@@ -6,6 +6,7 @@
 #include <mm/alloc.h>
 #include <lib/string.h>
 #include <module.h>
+#include <debug.h>
 bool elf_check_file(Elf32_Ehdr *hdr) {
     if (!hdr) {
         kprintf("elf: given header are null\n");
@@ -104,6 +105,7 @@ bool elf_load_file(void *addr) {
             if (p_entry->p_memsz == 0) {
                 continue; // skip
             }
+            DEBUG("v_begin: 0x%x, how: %d\r\n",v_begin,p_entry->p_filesz);
             memcpy((void *) v_begin,(void *)(elf_base + p_entry->p_offset), p_entry->p_filesz);
             if (p_entry->p_memsz > p_entry->p_filesz)
             {

@@ -5,12 +5,19 @@
 #include <output.h>
 #include <dev.h>
 #include <mm/alloc.h>
+#include <lib/clist.h>
 static char keyCode;
 static void *keyboard_handler(void *);
 static bool shift,ctrl,hasKey = false;
 static void keyboard_keyHandler(char key);
 static dev_t *keyboard_dev;
 static void keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+static void readers_foreach(clist_head_t *element,va_list args);
+struct keyboard_reader {
+    bool hasKey;
+    char key;
+};
+static clist_definition_t *readers;
 void keyboard_init() {
     outb(0x64,0xAD); // disable first PS/2 port
 	outb(0x64,0xA7); // disable second PS/2 port(if supported)
@@ -27,6 +34,10 @@ void keyboard_init() {
     keyboard_dev->name = "keyboard";
     keyboard_dev->buffer_sizeMax = 100;
     keyboard_dev->read = keyboard_read;
+    // UPDATE 1: Add readers for each process(inspected by SOSO OS)
+    readers = kmalloc(sizeof(clist_definition_t));
+    memset(readers,0,sizeof(clist_definition_t));
+    readers->slot_size = sizeof(struct keyboard_reader);
     dev_add(keyboard_dev);
 }
 static void *keyboard_handler(void *stack) {
@@ -103,22 +114,28 @@ static void *keyboard_handler(void *stack) {
     }
     return stack;
 }
-static void keyboard_keyHandler(char key) {
-    keyCode = key;
-    hasKey = true;
-    kprintf("%c",key);
+static void readers_foreach(clist_head_t *element,va_list args) {
+    // Цей проект буде містити коментарі на двої мовах, обидві мови я знаю, на данний момент часу, всі вони написані одною людиною.
+    struct keyboard_reader *reader = element->data;
+    reader->hasKey = true;
+    reader->key = va_arg(args,int);
 }
-static char keyboard_get() {
-    hasKey = false;
-    while(!hasKey);
-    return keyCode;
+static void keyboard_keyHandler(char key) {
+    // Ці елементи більше не потрібні!
+    clist_for_each(readers,readers_foreach,key);
+    kprintf("%c",key);
 }
 static void keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
   if (how <= 0 || buf == NULL) return;
+    // Create then add reader to the structure!
+    clist_head_t *d = clist_insert_entry_after(readers,readers->head);
+    struct keyboard_reader *reader = d->data;
   char *buff = (char *)buf;
   uint64_t i = 0;
    while(i < (how-1)) {
-    char c = keyboard_get();
+    reader->hasKey = false;
+    while(!reader->hasKey);
+    char c = reader->key;
     if (c == '\n') {
         buff[i] = 0;
         return;
@@ -131,4 +148,5 @@ static void keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,voi
         i++;
     }
    }
+    clist_delete_entry(readers,d);
 }

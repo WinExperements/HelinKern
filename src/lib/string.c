@@ -123,3 +123,12 @@ int memcmp(const void * vl, const void * vr, size_t n) {
 	for (; n && *l == *r; n--, l++, r++);
 	return n ? *l-*r : 0;
 }
+bool islower(char chr)
+{
+    return chr >= 'a' && chr <= 'z';
+}
+
+char toupper(char chr)
+{
+    return islower(chr) ? (chr - 'a' + 'A') : chr;
+}

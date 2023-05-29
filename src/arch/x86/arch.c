@@ -13,80 +13,18 @@
 #include <output.h>
 #include <symbols.h>
 #include <arch/x86/acpi.h>
+#include <lib/string.h>
+#include <debug.h>
+#include <module.h>
+#include <arch/x86/cpuid.h>
+#include <arch/x86/smp.h>
 #define PUSH(tos,val) (*(-- tos) = val)
-#define ECX_SSE3                        (1 << 0)    // Streaming SIMD Extensions 3
-#define ECX_PCLMULQDQ                   (1 << 1)    // PCLMULQDQ Instruction
-#define ECX_DTES64                      (1 << 2)    // 64-Bit Debug Store Area
-#define ECX_MONITOR                     (1 << 3)    // MONITOR/MWAIT
-#define ECX_DS_CPL                      (1 << 4)    // CPL Qualified Debug Store
-#define ECX_VMX                         (1 << 5)    // Virtual Machine Extensions
-#define ECX_SMX                         (1 << 6)    // Safer Mode Extensions
-#define ECX_EST                         (1 << 7)    // Enhanced SpeedStep Technology
-#define ECX_TM2                         (1 << 8)    // Thermal Monitor 2
-#define ECX_SSSE3                       (1 << 9)    // Supplemental Streaming SIMD Extensions 3
-#define ECX_CNXT_ID                     (1 << 10)   // L1 Context ID
-#define ECX_FMA                         (1 << 12)   // Fused Multiply Add
-#define ECX_CX16                        (1 << 13)   // CMPXCHG16B Instruction
-#define ECX_XTPR                        (1 << 14)   // xTPR Update Control
-#define ECX_PDCM                        (1 << 15)   // Perf/Debug Capability MSR
-#define ECX_PCID                        (1 << 17)   // Process-context Identifiers
-#define ECX_DCA                         (1 << 18)   // Direct Cache Access
-#define ECX_SSE41                       (1 << 19)   // Streaming SIMD Extensions 4.1
-#define ECX_SSE42                       (1 << 20)   // Streaming SIMD Extensions 4.2
-#define ECX_X2APIC                      (1 << 21)   // Extended xAPIC Support
-#define ECX_MOVBE                       (1 << 22)   // MOVBE Instruction
-#define ECX_POPCNT                      (1 << 23)   // POPCNT Instruction
-#define ECX_TSC                         (1 << 24)   // Local APIC supports TSC Deadline
-#define ECX_AESNI                       (1 << 25)   // AESNI Instruction
-#define ECX_XSAVE                       (1 << 26)   // XSAVE/XSTOR States
-#define ECX_OSXSAVE                     (1 << 27)   // OS Enabled Extended State Management
-#define ECX_AVX                         (1 << 28)   // AVX Instructions
-#define ECX_F16C                        (1 << 29)   // 16-bit Floating Point Instructions
-#define ECX_RDRAND                      (1 << 30)   // RDRAND Instruction
-
-#define EDX_FPU                         (1 << 0)    // Floating-Point Unit On-Chip
-#define EDX_VME                         (1 << 1)    // Virtual 8086 Mode Extensions
-#define EDX_DE                          (1 << 2)    // Debugging Extensions
-#define EDX_PSE                         (1 << 3)    // Page Size Extension
-#define EDX_TSC                         (1 << 4)    // Time Stamp Counter
-#define EDX_MSR                         (1 << 5)    // Model Specific Registers
-#define EDX_PAE                         (1 << 6)    // Physical Address Extension
-#define EDX_MCE                         (1 << 7)    // Machine-Check Exception
-#define EDX_CX8                         (1 << 8)    // CMPXCHG8 Instruction
-#define EDX_APIC                        (1 << 9)    // APIC On-Chip
-#define EDX_SEP                         (1 << 11)   // SYSENTER/SYSEXIT instructions
-#define EDX_MTRR                        (1 << 12)   // Memory Type Range Registers
-#define EDX_PGE                         (1 << 13)   // Page Global Bit
-#define EDX_MCA                         (1 << 14)   // Machine-Check Architecture
-#define EDX_CMOV                        (1 << 15)   // Conditional Move Instruction
-#define EDX_PAT                         (1 << 16)   // Page Attribute Table
-#define EDX_PSE36                       (1 << 17)   // 36-bit Page Size Extension
-#define EDX_PSN                         (1 << 18)   // Processor Serial Number
-#define EDX_CLFLUSH                     (1 << 19)   // CLFLUSH Instruction
-#define EDX_DS                          (1 << 21)   // Debug Store
-#define EDX_ACPI                        (1 << 22)   // Thermal Monitor and Software Clock Facilities
-#define EDX_MMX                         (1 << 23)   // MMX Technology
-#define EDX_FXSR                        (1 << 24)   // FXSAVE and FXSTOR Instructions
-#define EDX_SSE                         (1 << 25)   // Streaming SIMD Extensions
-#define EDX_SSE2                        (1 << 26)   // Streaming SIMD Extensions 2
-#define EDX_SS                          (1 << 27)   // Self Snoop
-#define EDX_HTT                         (1 << 28)   // Multi-Threading
-#define EDX_TM                          (1 << 29)   // Thermal Monitor
-#define EDX_PBE                         (1 << 31)   // Pending Break Enable
-
-// ------------------------------------------------------------------------------------------------
-// Extended Function 0x01
-
-#define EDX_SYSCALL                     (1 << 11)   // SYSCALL/SYSRET
-#define EDX_XD                          (1 << 20)   // Execute Disable Bit
-#define EDX_1GB_PAGE                    (1 << 26)   // 1 GB Pages
-#define EDX_RDTSCP                      (1 << 27)   // RDTSCP and IA32_TSC_AUX
-#define EDX_64_BIT                      (1 << 29)   // 64-bit Architecture
 static multiboot_info_t *info;
 void x86_switchContext(void *);
 extern int syscall_num;
 static int stack_addr = 0;
 extern char kernel_end[];
+extern void x86_switchToNew(int esp);
 void arch_entry_point(void *arg) {
 	// arg is our multiboot structure description
 	// Basically, we need just to extract the arguments from the sctructure then pass it to the global entry point
@@ -129,6 +67,8 @@ void arch_init() {
     outb(0x40,l);
     outb(0x40,h);
     initAcpi();
+    apic_init();
+    smp_init();
 }
 void arch_sti() {
     asm volatile("sti");
@@ -155,15 +95,15 @@ int arch_getMemSize() {
     return size/1024;
 }
 void *arch_prepareContext(int entry) {
-    int *stack = (int *)(kmalloc(4096)+4096);
-    stack_addr = ((int)stack-4096);
-    PUSH(stack,0);
-    PUSH(stack,entry);
-    PUSH(stack,0);
-    PUSH(stack,0);
-    PUSH(stack,0);
-    PUSH(stack,0);
-    return (void *)(int)stack;
+    int *frame = (kmalloc(4096)+4096);
+    stack_addr = ((int)frame-4096);
+    PUSH(frame, 0);        // entry point
+    PUSH(frame, entry);  // startup function
+    PUSH(frame, 0);           // EBP
+    PUSH(frame, 0);           // EDI
+    PUSH(frame, 0);           // ESI
+    PUSH(frame, 0);           // EBX
+    return (void *)(int)frame;
 }
 void *arch_preapreArchStack(bool isUser) {
     x86_task_t *t = kmalloc(sizeof(x86_task_t));
@@ -239,8 +179,20 @@ void arch_post_init() {
         if (mod->cmdline != 0) {
             vfs_node_t *in = vfs_creat(node,(char *)mod->cmdline,0);
             rootfs_insertModuleData(in,mod->mod_end-mod->mod_start,(char *)mod->mod_start);
+	    // check extension then install it as module
+	    int name_size = strlen((char *)mod->cmdline)-4;
+	    if (strcmp((char *)mod->cmdline+name_size,".mod")) {
+			DEBUG("Loading module %s\r\n",mod->cmdline);
+			module_t *m = load_module((void *)mod->mod_start);
+			if (m) {
+				m->init(m);
+			} else {
+				DEBUG_N("Failed\r\n");
+			}
+		}
         }
     }
+    smp_post_init();
 }
 bool arch_relocSymbols(module_t *mod,void *ehdr) {
 	Elf32_Ehdr *e = (Elf32_Ehdr *)ehdr;
@@ -307,40 +259,40 @@ bool arch_relocSymbols(module_t *mod,void *ehdr) {
 	return true;
 }
 void arch_poweroff() {
-    kprintf("Warrning: Using unstable ACPI shutdown code!\r\n");
+    DEBUG_N("Warrning: Using unstable ACPI shutdown code!\r\n");
     kwait(5000);
     acpiPowerOff();
 }
 void arch_reschedule() {
     asm volatile("int $32");
 }
-static inline void cpuid(uint32_t reg,uint32_t *eax,uint32_t *ebx,uint32_t *ecx,uint32_t *edx) {
-    asm volatile("cpuid" : "=a" (*eax), "=b" (*ebx), "=c"(*ecx),"=d"(*edx) : "0" (reg));
-}
 /* Usually called at startup or when user trying to read from /proc/cpuinfo */
 /* Original: https://github.com/pdoane/osdev */
+void cpuid(uint32_t reg,uint32_t *eax,uint32_t *ebx,uint32_t *ecx,uint32_t *edx) {
+    asm volatile("cpuid" : "=a" (*eax), "=b" (*ebx), "=c"(*ecx),"=d"(*edx) : "0" (reg));
+}
 void arch_detect() {
     uint32_t eax,ebx,ecx,edx;
     uint32_t largestStandardFunc;
     char vendor[13];
     cpuid(0,&largestStandardFunc,(uint32_t *)(vendor + 0),(uint32_t *)(vendor + 8),(uint32_t *)(vendor + 4));
     vendor[12] = 0;
-    kprintf("X86 CPU Detect\r\n");
-    kprintf("CPU Vendor: %s\r\n",vendor);
+    DEBUG_N("X86 CPU Detect\r\n");
+    DEBUG("CPU Vendor: %s\r\n",vendor);
      if (largestStandardFunc >= 0x01)
     {
         cpuid(0x01, &eax, &ebx, &ecx, &edx);
 
-        kprintf("Features:");
+        DEBUG_N("Features:");
 
         if (edx & EDX_PSE)      kprintf(" PSE");
         if (edx & EDX_PAE)      kprintf(" PAE");
         if (edx & EDX_APIC)     kprintf(" APIC");
         if (edx & EDX_MTRR)     kprintf(" MTRR");
 
-        kprintf("\n");
+        kprintf("\r\n");
 
-        kprintf("Instructions:");
+        DEBUG_N("Instructions:");
 
         if (edx & EDX_TSC)      kprintf(" TSC");
         if (edx & EDX_MSR)      kprintf(" MSR");
@@ -354,7 +306,7 @@ void arch_detect() {
         if (ecx & ECX_F16C)     kprintf(" F16C");
         if (ecx & ECX_RDRAND)   kprintf(" RDRAND");
 
-        kprintf("\n");
+        kprintf("\r\n");
     }
 
     // Extended Function 0x00 - Largest Extended Function
@@ -370,7 +322,7 @@ void arch_detect() {
 
         if (edx & EDX_64_BIT)
         {
-            kprintf("Detected 64-bit CPU!\n");
+            DEBUG_N("Detected 64-bit CPU!\r\n");
         }
     }
 
@@ -390,6 +342,6 @@ void arch_detect() {
             ++p;
         }
 
-        kprintf("CPU Name: %s\n", p);
+        DEBUG("CPU Name: %s\r\n", p);
     }
 }

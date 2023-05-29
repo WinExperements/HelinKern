@@ -5,12 +5,13 @@
 #include "stdarg.h"
 char __stdio_buf[200];
 /* Print string on screen */
-void printf(const char *message,...) {
+int printf(const char *message,...) {
 	va_list l;
 	va_start(l,message);
 	vsprintf(__stdio_buf,message,l);
-	helin_syscall(1,(int)__stdio_buf,0,0,0,0);
+	int ret = helin_syscall(1,(int)__stdio_buf,0,0,0,0);
 	va_end(l);
+    return ret;
 }
 FILE *fopen(char *file,char *mode) {
 	if (!file) return NULL;

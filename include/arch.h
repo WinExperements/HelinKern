@@ -31,4 +31,6 @@ bool arch_relocSymbols(module_t *mod,void *ehdr);
 void arch_reschedule();
 /* Print all CPU information */
 void arch_detect();
+// Save context of current process
+void arch_saveContext(void *context,void *prcContext);
 #endif
