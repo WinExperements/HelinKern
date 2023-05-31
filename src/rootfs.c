@@ -41,7 +41,7 @@ void rootfs_init() {
 }
 static void rootfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
     if ((node->flags & 0x7) != VFS_DIRECTORY) {
-        memcpy(buf,data[node->inode],how);
+        memcpy(buf,data[node->inode]+offset,how);
     }
 }
 static struct dirent *rootfs_readdir(vfs_node_t *in,uint32_t index) {

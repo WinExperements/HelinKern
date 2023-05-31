@@ -11,6 +11,8 @@
 #include <symbols.h>
 #include <dev/fb.h>
 #include <debug.h>
+#include <lib/queue.h>
+#include <fs/cpio.h>
 static vfs_node_t *keyboard;
 static void parseCommand(int argc,char *cmd[]);
 static bool exit = false;
@@ -32,9 +34,11 @@ void kshell_main() {
 	char *buff = kmalloc(100);
     int argc = 0;
     char **argv = kmalloc(100);
-    /*argv[0] = "exec";
-    argv[1] = "/bin/wm";
-    parseCommand(2,argv);*/
+    argv[0] = "mount";
+    argv[1] = "cpio";
+    argv[2] = "/bin/initrd.cpio";
+    argv[3] = "/initrd";
+    parseCommand(4,argv);
     /*argv[0] = "loadm";
     argv[1] = "/bin/mbr.mod";
     parseCommand(2,argv);
@@ -216,6 +220,27 @@ static void parseCommand(int argc,char *cmd[]) {
         vfs_readBlock(n,0,512,b);
         kprintf("%s\r\n",b);
         kfree(b);
+    } else if (strcmp(cmd[0],"queue")) {
+        queue_t *q = queue_new();
+        kprintf("Queue initialized, pushing some info then poping\r\n");
+        enqueue(q,"Test");
+        enqueue(q,"AAA");
+        for (int i = 0; i < q->size+1; i++) {
+            kprintf("dequeue: %s\r\n",dequeue(q));
+        }
+        kfree(q);
+    } else if (strcmp(cmd[0],"initrd")) {
+        kprintf("Trying to load initrd...");
+        vfs_node_t *initrd = vfs_find("/bin/initrd.cpio");
+        if (!initrd) {
+            kprintf("Not found\r\n");
+            return;
+        }
+        void *buff = kmalloc(initrd->size);
+        vfs_read(initrd,0,initrd->size,buff);
+        vfs_close(initrd);
+        cpio_load(buff,initrd->size);
+        kprintf("done\r\n");
     } else {
         kprintf("Unknown commmand: %s\r\n",cmd[0]);
     }

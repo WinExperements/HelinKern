@@ -32,5 +32,8 @@ target remote localhost:1234
 #b vfs_find
 #b kshell_main
 #b src/kshell.c:166
-b parse_cpu
+#b sys_exec 
+#b thread_schedule
+#b src/thread.c:60
+b cpio_finddir
 c

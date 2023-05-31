@@ -105,7 +105,7 @@ static struct mpf_struct *search_for_mpf(void *base, uint32_t len)
 			continue;
 		}
 
-		DEBUG("MP: Found an MP pointer at 0x%x\n", mpf);
+		DEBUG("MP: Found an MP pointer at 0x%x\r\n", mpf);
 		return mpf;
 	}
 

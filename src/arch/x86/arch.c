@@ -67,8 +67,8 @@ void arch_init() {
     outb(0x40,l);
     outb(0x40,h);
     initAcpi();
-    apic_init();
-    smp_init();
+    //apic_init();
+    //smp_init();
 }
 void arch_sti() {
     asm volatile("sti");
@@ -192,6 +192,8 @@ void arch_post_init() {
 		}
         }
     }
+	apic_init();
+	smp_init();
     smp_post_init();
 }
 bool arch_relocSymbols(module_t *mod,void *ehdr) {

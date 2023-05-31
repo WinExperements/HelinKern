@@ -7,6 +7,7 @@
 #include <elf.h>
 #include <arch/mmu.h>
 #include <debug.h>
+#include <debug.h>
 static void sys_default() {}
 static void sys_exit(int exitCode);
 static void sys_kill(int pid,int code);
@@ -80,6 +81,7 @@ void syscall_init() {
 }
 int syscall_get(int n) {
 	if (n > syscall_num) return 0;
+	//DEBUG("Get syscall %d\r\n",n);
 	return syscall_table[n];
 }
 static void sys_exit(int exitCode) {
@@ -133,7 +135,7 @@ static int sys_exec(char *path) {
     kfree(file_buff);
     kfree(buff);
     vfs_close(file);
-    DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize()/1024);
+    //DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize()/1024);
     arch_sti();
     return thread_getNextPID()-1;
 }

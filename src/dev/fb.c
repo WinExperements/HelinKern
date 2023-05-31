@@ -22,7 +22,7 @@ static uint32_t ws_row,ws_col;
 static void scroll();
 static int width,height,pitch,addr,fcolor,bcolor;
 static bool enableCursor = true;
-static void fbdev_write(vfs_node_t *node,int off,int size,void *buff);
+static void fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff);
 static void *fbdev_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
 static dev_t *fbdev;
 static int paddr;
@@ -79,11 +79,11 @@ void fb_putchar(
         /* display a row */
         for(x=0;x<font->width;x++)
         {
-            if (c == 0)
+            /*if (c == 0)
             {
                 *((uint32_t*)((uint8_t*)addr + line)) = bg;
             }
-            else
+            else*/ if (c != 0)
             {
                 *((uint32_t*)((uint8_t*)addr + line)) = ((int)*glyph) & (mask) ? fg : bg;
             }
@@ -224,7 +224,7 @@ static void scroll() {
     if (cursor_y >= ws_row) {
 	int fb_size = height * pitch;
         int size = 1 * 16 * pitch;
-	memcpy((void *)addr,addr+size,fb_size - size);
+	memcpy((void *)addr,(void *)addr+size,fb_size - size);
 	memset((void *)addr + fb_size - size,0,size);
 	cursor_y = ws_row - 1;
     }
@@ -239,7 +239,7 @@ void fb_disableCursor() {
 void fb_enableCursor() {
     enableCursor = true;
 }
-static void fbdev_write(vfs_node_t *node,int off,int size,void *buff) {
+static void fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff) {
     // Nothing!
 }
 static void *fbdev_mmap(struct vfs_node *node,int _addr,int size,int offset,int flags) {
