@@ -28,7 +28,6 @@ void panic(char *file,int line,char *msg) {
     kprintf("PANIC: %s:%d %s\r\n",file,line,msg);
     while(1) {}
 }
-extern char kernel_end[];
 void kernel_main(const char *args) {
     arch_pre_init(); // must setup the base thinks in the architecture, for example: just check if the CPU is supported
     arch_init(); // setup interrupts

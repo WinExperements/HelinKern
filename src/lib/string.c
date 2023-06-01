@@ -84,6 +84,7 @@ char *strtok(char *s, const char *delim)
 char *strdup(char *src) {
 	int len = strlen(src);
 	char *p = kmalloc(len+1);
+    memset(p,0,len+1);
 	if (!p) return NULL;
 	memcpy(p,src,len);
 	return p;

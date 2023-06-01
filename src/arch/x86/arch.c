@@ -60,12 +60,10 @@ void arch_init() {
     outb(0x21, 0x00);
    	outb(0xa1, 0x00);
     // Init timer
-    uint32_t divisor = 119180 / 1000;
-    outb(0x43,0x36);
-    uint8_t l = (uint8_t)(divisor & 0xFF);
-    uint8_t h = (uint8_t)((divisor >> 8) & 0xFF);
-    outb(0x40,l);
-    outb(0x40,h);
+    uint32_t divisor = 1193182 / 1000;
+    outb(0x43,0x00 | 0x06 | 0x30 | 0x00);
+    outb(0x40,divisor);
+    outb(0x40,divisor >> 8);
     initAcpi();
     //apic_init();
     //smp_init();

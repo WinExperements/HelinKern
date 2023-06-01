@@ -13,7 +13,7 @@ target remote localhost:1234
 #b sys_exit
 #b strcpy
 #b memset
-#b src/kshell.c:87
+b src/kshell.c:53
 #b arch_pre_init
 #b arch_post_init
 #b ksbrk_page

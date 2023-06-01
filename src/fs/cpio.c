@@ -118,6 +118,7 @@ struct dirent *cpio_readdir(struct vfs_node *di,uint32_t index) {
     vfs_node_t *dir = p->dir;
     for (vfs_node_t *e = dir; e != NULL; e = ((struct cpio *) e->priv_data)->next) {
         if (i == index) {
+            
             strcpy(find_d.name,((struct cpio *)e->priv_data)->name);
             return &find_d;
         }
