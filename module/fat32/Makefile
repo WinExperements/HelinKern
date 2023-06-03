@@ -6,6 +6,6 @@ INC_DIR = ../../include
 	gcc -m32 -g -c -o $@ $< -ffreestanding -fno-pic -I$(INC_DIR) -I../mbr -I../
 all: $(OBJECTS)
 	ld -melf_i386 -r -o fat32.mod $(OBJECTS)
-	cp fat32.mod ../../iso/boot
+	cp fat32.mod ../../userland/initrd
 clean:
 	@rm -rf $(OBJECTS) fat32.mod

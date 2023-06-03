@@ -162,7 +162,7 @@ void sh_parseCommand(char **argv,int argc) {
     }
 }
 bool execute(char *command,char **argv,int argc) {
-    char *run_path = "/bin";
+    char *run_path = "/initrd";
     int _pid = 0;
     char **new_argv = NULL;
     int new_argc = argc-1;

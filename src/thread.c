@@ -8,6 +8,7 @@
 #include <output.h>
 #include <lib/string.h>
 #include <debug.h>
+#include <dev/fb.h>
 #ifdef X86
 #define TIMER_NO 32
 #else
@@ -17,6 +18,7 @@ process_t *runningTask;
 queue_t *task_list,*running_list;
 static int freePid;
 static process_t *idle;
+extern uint32_t cursor_x,cursor_y;
 static void idle_main() {
     arch_sti();
     while(1) {}
@@ -44,11 +46,9 @@ void *thread_schedule(void *stack) {
                 return stack;
             }
             if (running_list->size == 0) return stack;
-            arch_mmu_switch(idle->aspace);
             // Simply select new task
             nextTask = dequeue(running_list);
             nextTask->quota = 0;
-            nextTask->reschedule = false;
     } else {
         nextTask = dequeue(running_list);
     }
@@ -59,12 +59,17 @@ void *thread_schedule(void *stack) {
         kprintf("Died task: %s!\r\n",nextTask->name);
         arch_destroyContext(nextTask->stack);
         arch_destroyArchStack(nextTask->arch_info);
-        queue_remove(task_list,nextTask);
-        nextTask->parent->state = STATUS_RUNNING;
-        process_t *parent = nextTask->parent;
-        kfree(nextTask);
-        nextTask = parent;
-        enqueue(running_list,parent);
+        kfree(nextTask->name);
+        //queue_remove(task_list,nextTask);
+	    if (nextTask->parent == NULL) {
+		    DEBUG("No parent for %d! Switching to idle!\r\n",nextTask->pid);
+		    kfree(nextTask);
+		    nextTask = idle;
+	    } else {
+        	process_t *parent = nextTask->parent;
+        	kfree(nextTask);
+        	nextTask = parent;
+	    }
     }
     if (nextTask->aspace == NULL) {
         PANIC("Process structure has been rewriten by something!\r\n");
@@ -97,8 +102,20 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
 // Clock implementation
 static int num_clocks = 0;
 static bool schedulerEnabled = true;
+static int seconds;
+static int nextClocks = 0;
 void *clock_handler(void *stack) {
     num_clocks++;
+    /*nextClocks++;
+    if (nextClocks == 1000) {
+        nextClocks = 0;
+        seconds++;
+        int x = fb_getX();
+        int y = fb_getY();
+        fb_setpos(0,0);
+        kprintf("%d seconds\r\n",seconds);
+        fb_setpos(x,y);
+    }*/
     if (schedulerEnabled) {
         return thread_schedule(stack);
     }
@@ -133,12 +150,15 @@ void thread_killThread(process_t *prc,int code) {
     // remove the process from processes list and insert it to the died list
     arch_cli();
     // insert it to the list
+    runningTask = NULL;
     prc->died = true;
     enqueue(running_list,prc);
+    enqueue(running_list,prc->parent);
     arch_sti();
     arch_reschedule();
 }
 void thread_waitPid(process_t *prc) {
+    DEBUG("Waitpid for %d\r\n",prc->pid);
     prc->state = STATUS_WAITPID;
 }
 int thread_getNextPID() {

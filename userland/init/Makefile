@@ -7,8 +7,7 @@ all:
 	ld -melf_i386   -T../user.ld in.o ../libc/libcc.a -o in
 	gcc -ffreestanding -fno-stack-protector  -g -m32 -nodefaultlibs -nostartfiles -I../libc -c lo.c
 	ld -melf_i386  -T../user.ld lo.o ../libc/libcc.a -o lo
-	cp init ../../iso/boot
-	cp test ../../iso/boot/
-	cp lo ../../iso/boot/lo
+	cp init ../initrd
+	cp test ../initrd
 clean:
 	rm -rf *.o init test in lo

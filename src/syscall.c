@@ -85,6 +85,7 @@ int syscall_get(int n) {
 	return syscall_table[n];
 }
 static void sys_exit(int exitCode) {
+    DEBUG("sys_exit: %d\r\n",exitCode);
     thread_killThread(thread_getThread(thread_getCurrent()),exitCode);
 }
 static void sys_kill(int pid,int code) {
@@ -202,8 +203,8 @@ static void sys_waitpid(int pid) {
         struct process *child = thread_getThread(pid);
         process_t *parent = thread_getThread(thread_getCurrent());
         if (child != NULL && child->parent == parent) {
-            thread_waitPid(parent);
-            while(parent->state == STATUS_WAITPID) {}
+            //thread_waitPid(parent);
+            while(!child->died) {}
         }
     }
 }

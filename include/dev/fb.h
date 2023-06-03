@@ -19,4 +19,6 @@ void fb_setpos(int x,int y);
 void fb_disableCursor();
 void fb_enableCursor();
 void fbdev_init();
+int fb_getX();
+int fb_getY();
 #endif

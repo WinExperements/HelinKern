@@ -39,10 +39,10 @@ void kshell_main() {
     argv[2] = "/bin/initrd.cpio";
     argv[3] = "/initrd";
     parseCommand(4,argv);
+    argv[0] = "exit";
+    //argv[1] = "/bin/mbr.mod";
+    parseCommand(1,argv);
     /*argv[0] = "loadm";
-    argv[1] = "/bin/mbr.mod";
-    parseCommand(2,argv);
-    argv[0] = "loadm";
     argv[1] = "/bin/fat32.mod";
     parseCommand(2,argv);
     argv[0] = "mount";
@@ -65,7 +65,11 @@ void kshell_main() {
 	}
 	kfree(buff);
     kfree(argv);
-    start_module();
+    int (*exec)(char *) = ((int (*)(char *))syscall_get(13));
+    int pid = exec("/initrd/init");
+    void (*waitpid)(int) = ((void (*)(int))syscall_get(22));
+    waitpid(pid);
+    kprintf("Child %d exited, exit\r\n",pid);
 	thread_killThread(self,0);
 }
 static void parseCommand(int argc,char *cmd[]) {

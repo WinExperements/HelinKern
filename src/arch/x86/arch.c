@@ -25,6 +25,8 @@ extern int syscall_num;
 static int stack_addr = 0;
 extern char kernel_end[];
 extern void x86_switchToNew(int esp);
+extern void vga_change();
+static bool dontFB = true;
 void arch_entry_point(void *arg) {
 	// arg is our multiboot structure description
 	// Basically, we need just to extract the arguments from the sctructure then pass it to the global entry point
@@ -65,6 +67,7 @@ void arch_init() {
     outb(0x40,divisor);
     outb(0x40,divisor >> 8);
     initAcpi();
+    if (dontFB) vga_change();
     //apic_init();
     //smp_init();
 }
@@ -76,6 +79,7 @@ void arch_cli() {
 }
 bool arch_getFBInfo(fbinfo_t *fb_info) {
     if (!fb_info) return false;
+    if (dontFB) return false;
     fb_info->addr = (void *)(uint32_t)info->framebuffer_addr;
     fb_info->width = info->framebuffer_width;
     fb_info->height = info->framebuffer_height;
@@ -168,6 +172,9 @@ void arch_destroyArchStack(void *stack) {
     kfree(stack);
 }
 void arch_post_init() {
+    /*if (dontFB) {
+	vga_change();
+    }*/
     symbols_init(info);
     // Copy all modules into rootfs
     vfs_node_t *node = vfs_find("/bin");
@@ -260,7 +267,6 @@ bool arch_relocSymbols(module_t *mod,void *ehdr) {
 }
 void arch_poweroff() {
     DEBUG_N("Warrning: Using unstable ACPI shutdown code!\r\n");
-    kwait(5000);
     acpiPowerOff();
 }
 void arch_reschedule() {

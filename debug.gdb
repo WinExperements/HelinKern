@@ -35,5 +35,8 @@ b src/kshell.c:53
 #b sys_exec 
 #b thread_schedule
 #b src/thread.c:60
-b cpio_finddir
+#b cpio_finddir
+#b vga_putc
+b src/syscall.c:208
+b src/thread.c:61
 c

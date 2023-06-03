@@ -26,6 +26,7 @@ static void fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff);
 static void *fbdev_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
 static dev_t *fbdev;
 static int paddr;
+static char charBuff[88*40];
 void fb_init(fbinfo_t *fb) {
     if (!fb) return;
     psf_init();
@@ -35,13 +36,14 @@ void fb_init(fbinfo_t *fb) {
     addr = (uint32_t)fb->addr;
     paddr = addr;
     ws_row = height/16;
- 	ws_col = width/9;
+    ws_col = width/9;
     output_write("FB initialized\r\n");
 }
 void fb_enable() {
     // Must disable UART output and enable this FB output
     if (width == 0) return;
     fb_clear(BLACK);
+    DEBUG("ws_col: %d, ws_row: %d\r\n",ws_col,ws_row);
 }
 void fb_putchar(
     /* note that this is int, not char as it's a unicode character */
@@ -79,11 +81,11 @@ void fb_putchar(
         /* display a row */
         for(x=0;x<font->width;x++)
         {
-            /*if (c == 0)
+            if (c == 0)
             {
                 *((uint32_t*)((uint8_t*)addr + line)) = bg;
             }
-            else*/ if (c != 0)
+            else if (c != 0)
             {
                 *((uint32_t*)((uint8_t*)addr + line)) = ((int)*glyph) & (mask) ? fg : bg;
             }
@@ -171,6 +173,7 @@ void fb_putc(char ch) {
     {
       // Calculate the Address of the Cursor Position
       fb_putchar(ch,cursor_x,cursor_y,fcolor,bcolor);
+      charBuff[cursor_y * 88  + cursor_x] = ch;
       cursor_x++;
     }
 
@@ -188,7 +191,7 @@ static void printCursor(int x,int y) {
 }
 /* Called when the FB need to be mapped to the memory, usually at startup and when creating new process */
 void fb_map() {
-	if (mapped) return;
+    if (mapped) return;
     if (addr != NULL) {
         // Map the FB
         uint32_t p_address = (uint32_t)addr;
@@ -222,10 +225,22 @@ void fb_clear(int color) {
 }
 static void scroll() {
     if (cursor_y >= ws_row) {
-	int fb_size = height * pitch;
-        int size = 1 * 16 * pitch;
-	memcpy((void *)addr,(void *)addr+size,fb_size - size);
-	memset((void *)addr + fb_size - size,0,size);
+	int x  = 0;
+	int y = 0;
+	for (int i = 0; i < ws_row*ws_col; i++) {
+		charBuff[i] = charBuff[i+ws_col];
+		fb_putchar(charBuff[i],x,y,fcolor,bcolor);
+		x++;
+		if (x >= ws_col) {
+			y++;
+			x = 0;
+		}
+	}
+    x = 0;
+    y = ws_row-1;
+    /*for (; x <= ws_col; x++) {
+        fb_putchar(' ',x,y,fcolor,bcolor);
+    }*/
 	cursor_y = ws_row - 1;
     }
 }
@@ -259,4 +274,10 @@ void fbdev_init() {
     fbdev->write = fbdev_write;
     fbdev->mmap = fbdev_mmap;
     dev_add(fbdev);
+}
+int fb_getX() {
+    return cursor_x;
+}
+int fb_getY() {
+    return cursor_y;
 }

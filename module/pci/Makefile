@@ -6,6 +6,6 @@ INC_DIR = ../../include
 	gcc -m32 -march=i486 -mtune=i486 -c -o $@ $< -ffreestanding -fno-pic -I$(INC_DIR) -I../
 all: $(OBJECTS)
 	ld -melf_i386 -r -o pci.mod $(OBJECTS)
-	cp pci.mod ../../iso/boot
+	cp pci.mod ../../userland/initrd
 clean:
 	@rm -rf $(OBJECTS) pci.mod

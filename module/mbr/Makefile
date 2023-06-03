@@ -6,6 +6,6 @@ INC_DIR = ../../include
 	gcc -m32 -march=i486 -mtune=i486 -c -o $@ $< -ffreestanding -fno-pic -I$(INC_DIR) -I../
 all: $(OBJECTS)
 	ld -melf_i386 -r -o mbr.mod $(OBJECTS)
-	cp mbr.mod ../../iso/boot
+	cp mbr.mod ../../userland/initrd
 clean:
 	@rm -rf $(OBJECTS) mbr.mod

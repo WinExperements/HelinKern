@@ -28,7 +28,7 @@ all: $(OBJECTS) $(MODULE_OBJS)
 	@echo [LD] kernel.bin
 	@$(CCPATH)ld -melf_i386 -T src/arch/$(ARCH)/linker.ld -Map=kernel.map -o kernel.bin $(OBJECTS) $(MODULE_OBJS)
 clean:
-	rm -rf $(OBJECTS) kernel.map iso/kernel iso/boot/*.mod iso/boot/init iso/boot/lo iso/boot/mount iso/boot/test
+	rm -rf $(OBJECTS) kernel.map iso/kernel userland/initrd/*.mod userland/initrd/init userland/initrd/mount userland/initrd/windowserver
 	make -C userland/init clean
 	make -C module/atapi clean
 	make -C module/mbr clean

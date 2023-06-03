@@ -26,7 +26,8 @@ static void PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
     info.subclass = PciRead8(id, PCI_CONFIG_SUBCLASS);
     info.classCode = PciRead8(id, PCI_CONFIG_CLASS_CODE);
 
-    kprintf("0x%x:0x%x:%d 0x%x/0x%x: %s\n",
+    kprintf("ID: %d, 0x%x:0x%x:%d 0x%x/0x%x: %s\n",
+        id,
         bus, dev, func,
         info.vendorId, info.deviceId,
         PciClassName(info.classCode, info.subclass, info.progIntf)
