@@ -33,4 +33,5 @@ void arch_reschedule();
 void arch_detect();
 // Save context of current process
 void arch_saveContext(void *context,void *prcContext);
+void arch_sysinfo();
 #endif

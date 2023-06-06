@@ -20,12 +20,12 @@ int main(int argcf,char **argvf) {
     //if (strcmp(argvf[1],"init")) return 0;
     pid = getpid(); // remember pid for waitpid
     ppid = getppid();
-    FILE *init_script = fopen("/bin/init.sh","r");
-    if (!init_script) {
+    FILE *init_script = fopen("/initrd/init.sh","r");
+    if (init_script < 0) {
 		printf("init: no init.sh found at /bin. Droping to shell\n");
     } else {
-	process_initScript(init_script);
-	while(1) {}
+	    process_initScript(init_script);
+	    //while(1) {}
     }
     FILE *f = fopen("/dev/keyboard","rw");
     if (!f) {
@@ -72,9 +72,9 @@ void sh_parseCommand(char **argv,int argc) {
             d = opendir(path);
         }
         if (!d) {
-		printf("%s: I/O error\n",(argc > 1 ? argv[1] : path));
-		return;
-	}
+		    printf("%s: I/O error\n",(argc > 1 ? argv[1] : path));
+		    return;
+	    }
         struct dirent *di = NULL;
         while((di = readdir(d)) != 0) {
             printf("%s\n",di->name);
@@ -178,19 +178,16 @@ bool execute(char *command,char **argv,int argc) {
 	    parallel = true;
             argc--;
         }
-        new_argv = malloc(100);
+        /*new_argv = malloc(100);
         for (int i = 0; i < argc; i++) {
             new_argv[i] = argv[i];
-        }
+        }*/
 	//printf("u %u\n",new_argc);
     }
     sprintf(buff,"%s/%s",run_path,command);
-    if ((_pid = execv(buff,new_argc,new_argv)) > 0) {
+    if ((_pid = execv(buff,0,NULL)) > 0) {
         if (!parallel) {
             waitpid(_pid,NULL,0);
-            if (new_argv != NULL) {
-                free(new_argv);
-            }
         }
         return true;
     } else {

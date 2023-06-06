@@ -133,3 +133,47 @@ aspace_t *arch_mmu_getAspace() {
 aspace_t *arch_mmu_getKernelSpace() {
     return kernel_pg;
 }
+void arch_mmu_destroyAspace(aspace_t *space) {
+    arch_cli();
+
+    uint32_t* pd = (uint32_t*)0xFFFFF000;
+
+    uint32_t cr3 = read_cr3();
+
+    CHANGE_PD(space);
+
+    //this 1023 is very important
+    //we must not touch pd[1023] since PD is mapped to itself. Otherwise we corrupt the whole system's memory.
+    for (int pd_index = 256; pd_index < 1023; ++pd_index)
+    {
+        if ((pd[pd_index] & PG_PRESENT) == PG_PRESENT)
+        {
+            uint32_t* pt = ((uint32_t*)0xFFC00000) + (0x400 * pd_index);
+
+            for (int pt_index = 0; pt_index < 1024; ++pt_index)
+            {
+                if ((pt[pt_index] & PG_PRESENT) == PG_PRESENT)
+                {
+                    if ((pt[pt_index] & PG_OWNED) == PG_OWNED)
+                    {
+                        uint32_t physicalFrame = pt[pt_index] & ~0xFFF;
+
+                        alloc_freePage(physicalFrame);
+                    }
+                }
+                pt[pt_index] = 0;
+            }
+
+            if ((pd[pd_index] & PG_OWNED) == PG_OWNED)
+            {
+                uint32_t physicalFramePT = pd[pd_index] & ~0xFFF;
+                alloc_freePage(physicalFramePT);
+            }
+        }
+
+        pd[pd_index] = 0;
+    }
+    arch_sti();
+    //return to caller's Page Directory
+    CHANGE_PD(cr3);
+}

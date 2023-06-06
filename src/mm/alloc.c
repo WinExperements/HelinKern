@@ -200,3 +200,6 @@ void *krealloc(void *p,int size) {
     kfree(p);
     return newchunk;
 }
+void alloc_freePage(int addr) {
+	SET_PAGEFRAME_USED(phys_map,addr);
+}

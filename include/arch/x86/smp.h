@@ -121,4 +121,5 @@ extern int nr_mpcirqs;
 void smp_init();
 void apic_init();
 void smp_post_init();
+int smp_getCPUCount();
 #endif

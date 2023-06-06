@@ -25,6 +25,8 @@ typedef struct process {
     bool died;
     // Memory information
     uint32_t brk_begin,brk_end,brk_next_unallocated_page_begin;
+    file_descriptor_t **fds;
+    int next_fd;
 } process_t;
 void thread_init();
 process_t *thread_create(char *name,int entryPoint,bool isUser);
@@ -32,6 +34,7 @@ void *thread_schedule(); // interrupt handler
 void *clock_handler(void *stack);
 void kwait(int ms);
 int clock_getUptimeSec();
+int clock_getUptimeMsec();
 void clock_setShedulerEnabled(bool enabled);
 int thread_getCurrent();
 process_t *thread_getThread(int pid);

@@ -36,4 +36,5 @@ void alloc_initProcess(process_t *prc,int size);
 int alloc_getUsedSize();
 // Required by FAT32!
 void *krealloc(void *p,int size);
+void alloc_freePage(int addr);
 #endif

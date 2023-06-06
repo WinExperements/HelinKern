@@ -60,7 +60,6 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
         vfs_read(dev,data_offset,hdr.namesize,path);
         if (strcmp(path,".")) continue;
         if (strcmp(path,"TRAILER!!!")) break;
-        DEBUG("File %s\r\n",path);
         char *name = NULL;
         for (int i = hdr.namesize-1; i >= 0; i--) {
             if (path[i] == '/') {

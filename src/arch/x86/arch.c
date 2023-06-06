@@ -26,7 +26,7 @@ static int stack_addr = 0;
 extern char kernel_end[];
 extern void x86_switchToNew(int esp);
 extern void vga_change();
-static bool dontFB = true;
+static bool dontFB = false;
 void arch_entry_point(void *arg) {
 	// arg is our multiboot structure description
 	// Basically, we need just to extract the arguments from the sctructure then pass it to the global entry point
@@ -350,4 +350,9 @@ void arch_detect() {
 
         DEBUG("CPU Name: %s\r\n", p);
     }
+}
+void arch_sysinfo() {
+	kprintf("This OS is builded for X86 PC\r\n");
+	kprintf("Is ACPI Shutdown Available: %s\r\n",(acpiIsOn() ? "Yes" : "No"));
+	kprintf("Detected cores: %d\r\n",smp_getCPUCount());
 }

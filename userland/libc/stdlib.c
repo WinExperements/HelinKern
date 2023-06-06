@@ -21,7 +21,7 @@ void *malloc(int size) {
 		printf("malloc: Too large chunk\n");
         return NULL;
 	}
-	void *ret = (void *)helin_syscall(11,1,0,0,0,0);
+	void *ret = (void *)helin_syscall(11,size,0,0,0,0);
 	/*if (first_page_addr == 0) {
 		first_page_addr = (int)ret;
 	}

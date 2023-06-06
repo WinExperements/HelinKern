@@ -39,12 +39,9 @@ typedef struct vfs_fs {
     struct vfs_fs *next;
 } vfs_fs_t;
 typedef struct file_descriptor {
-	int id; // the FD identificator
 	int pid; // owner of the FD
-	int node; // address of node
+	vfs_node_t *node; // address of node
 	int offset;
-	int en_addr; // file descriptor clist entry address
-	struct file_descriptor *next;
 } file_descriptor_t;
 void vfs_init();
 void vfs_addFS(vfs_fs_t *fs);

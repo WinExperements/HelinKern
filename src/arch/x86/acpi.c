@@ -289,8 +289,10 @@ int initAcpi(void)
 void acpiPowerOff(void)
 {
    // SCI_EN is set to 1 if acpi shutdown is possible
-   if (SCI_EN == 0)
-      return;
+   if (SCI_EN == 0) {
+	kprintf("ACPI shutdown not available\r\n");
+	return;
+   }
 
    acpiEnable();
 
@@ -300,4 +302,7 @@ void acpiPowerOff(void)
       outw((unsigned int) PM1b_CNT, SLP_TYPb | SLP_EN );
 
    kprintf("acpi poweroff failed.\n");
+}
+bool acpiIsOn() {
+	return SCI_EN != 0;
 }

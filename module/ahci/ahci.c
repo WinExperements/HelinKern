@@ -3,6 +3,7 @@
 #include <pci/driver.h> // PCI
 #include <pci/registry.h>
 #include <mm/alloc.h>
+#include <arch/mmu.h>
 
 __attribute__((section(".modname"))) char *name = "ahci";
 
@@ -88,11 +89,17 @@ static void PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
     info.subclass = PciRead8(id, PCI_CONFIG_SUBCLASS);
     info.classCode = PciRead8(id, PCI_CONFIG_CLASS_CODE);
     if (((info.classCode << 8) | info.subclass) == PCI_STORAGE_SATA) {
-        kprintf("found\r\n");
-	    bar = kmalloc(sizeof(PciBar));
-	    memset(bar,0,sizeof(PciBar));
+            kprintf("found\r\n");
+        int addr = PciRead32(id,PCI_CONFIG_BAR5);
+	    PciWrite16(id,PCI_CONFIG_COMMAND,PciRead16(id,PCI_CONFIG_COMMAND) | 0x0002 | 0x0004);
+	    ctrl_data = (HBA_MEM *)(addr & ~0xf);
+        // Map the space
+        int pages = (sizeof(HBA_MEM))+1;
+        for (int page = 0; page < pages; page++) {
+            int align = page*4096;
+            arch_mmu_mapPage(NULL,addr+align,addr+align,7);
+        }
         ctrl_id = id;
-	    ctrl_data = (HBA_MEM *)PciRead32(id,(0x24|0x0));
         kprintf("ctrl_data: 0x%x, version: %d\r\n",ctrl_data,ctrl_data->vs);
 	    kprintf("PCI device info: Read address(BAR5): [0x%x], Read Address:c [0x%x]\r\n",PciRead32(id,(0x24 | 0x0)),PciRead32(id,(0x3c|0x0))& 0x000000000000ff00);
     }
@@ -102,7 +109,6 @@ static int check_type(HBA_PORT *port) {
 	uint16_t ssts = port->ssts;
 	uint8_t ipm = (ssts >> 8) & 0x0F;
 	uint8_t det = ssts & 0x0F;
-	kprintf("ipm %d, det %d, sig: %d\r\n",ipm,det,port->sig);
 	if (det != HBA_PORT_DET_PRESENT) {
 		return AHCI_DEV_NULL;
 	}
@@ -151,12 +157,41 @@ static void module_main() {
 		int type = check_type((HBA_PORT *)&ctrl_data->ports[i]);
 		if (type == AHCI_DEV_SATA) {
 			kprintf("Found hard drive on port %d\r\n",i);
-		} else {
-			kprintf("Unknown type: %d\r\n",type);
-		}
+		} else if (type == AHCI_DEV_SATAPI) {
+           		 kprintf("Found CDROM drive on port %d\r\n",i);
+        	} else {
+			switch(type) {
+				case AHCI_DEV_SEMB:
+				kprintf("SEMB device found on port %d, but the driver doesn't work with it, sorry :(\r\n",i);
+				break;
+				case AHCI_DEV_PM:
+				kprintf("PM device found on port %d, but the driver doesn't work with it, sorry :(\r\n",i);
+				break;
+				default:
+				kprintf("Skipping other work cez port %d reported unknown type :(\r\n",i);
+				break;
+			}
+            		pi >>= 1;
+			i++;
+			continue;
+        	}
+        if (!(ctrl_data->bohc & 2)) {
+            kprintf("Requesting ownership for port %d\r\n",i);
+            ctrl_data->bohc = (ctrl_data->bohc &~8) | 2;
+            int endtime = clock_getUptimeMsec()+100;
+            while((ctrl_data->bohc & 1) && clock_getUptimeMsec() < endtime);
+            if ((ctrl_data->bohc & 1)) {
+                kprintf("BIOS! It's MY drive, i'll get it force!\r\n");
+                ctrl_data->bohc = 2;
+                ctrl_data->bohc |= 8;
+            } else {
+                kprintf("Thank you, BIOS for the permission!\r\n");
+            }
+        } else {
+            kprintf("Oh! The firmware is automatically switch the drive into OS mode, i like this!\r\n");
+        }
 	}
 	pi >>= 1;
 	i++;
     }
-    kfree(bar);
 }

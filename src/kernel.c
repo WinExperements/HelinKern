@@ -25,6 +25,7 @@ void *memset(void *dest,char val,int count) {
 }
 void panic(char *file,int line,char *msg) {
     arch_cli();
+    kprintf("Sorry, but the OS seems crashed by unknown reason. Send the information above to the system administrator for help.\r\n");
     kprintf("PANIC: %s:%d %s\r\n",file,line,msg);
     while(1) {}
 }
@@ -38,6 +39,7 @@ void kernel_main(const char *args) {
         fb_init(&fb);
         fb_enable();
         fb_addr = (int)fb.addr;
+	    //output_changeToFB(); // important!
     }
     // Hi!
     fb_disableCursor();
@@ -62,14 +64,14 @@ void kernel_main(const char *args) {
     #ifdef X86
     keyboard_init();
     fbdev_init();
- //   ps2mouse_init();
+    ps2mouse_init();
     #endif
     thread_create("shell",(int)kshell_main,false);
     arch_post_init();
     clock_setShedulerEnabled(true);
     arch_detect();
     if (fb_addr != 0) {
-	output_changeToFB();
+	    output_changeToFB();
     }
     /*int (*exec)(char *) = ((int (*)(char *))syscall_get(13));
     exec("/bin/init");*/

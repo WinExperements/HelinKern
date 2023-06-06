@@ -12,10 +12,10 @@ static void sys_default() {}
 static void sys_exit(int exitCode);
 static void sys_kill(int pid,int code);
 static int sys_getpid();
-static vfs_node_t *sys_open(char *path,int flags);
-static void sys_close(vfs_node_t *node);
-static void sys_read(vfs_node_t *node,int offset,int size,void *buff);
-static void sys_write(vfs_node_t *node,int offset,int size,void *buff);
+static int sys_open(char *path,int flags);
+static void sys_close(int fd);
+static void sys_read(int fd,int offset,int size,void *buff);
+static void sys_write(int fd,int offset,int size,void *buff);
 static void *sys_alloc(int size);
 static void sys_free(void *ptr);
 static void sys_print(char *msg);
@@ -23,17 +23,17 @@ static int sys_exec(char *path);
 static void sys_reboot(int reason);
 static void sys_chdir(char *to);
 static void sys_pwd(char *buff,int len);
-static vfs_node_t *sys_opendir(char *path);
-static void sys_closedir(vfs_node_t *node);
-static void *sys_readdir(vfs_node_t *node,int p);
+static int sys_opendir(char *path);
+static void sys_closedir(int fd);
+static void *sys_readdir(int fd,int p);
 static int sys_mount(char *dev,char *mount_point,char *fs);
 static void sys_waitpid(int pid);
 static int sys_getppid();
 static void sys_sysinfo();
 static int sys_getuid();
 static void sys_setuid(int uid);
-static void sys_seek(vfs_node_t *node,int type,int how);
-static int sys_tell(vfs_node_t *node);
+static void sys_seek(int fd,int type,int how);
+static int sys_tell(int fd);
 static void *sys_mmap(vfs_node_t *node,int addr,int size,int offset,int flags);
 static int sys_insmod(char *path);
 static void sys_rmmod(char *name);
@@ -94,7 +94,9 @@ static void sys_kill(int pid,int code) {
 static int sys_getpid() {
     return thread_getCurrent();
 }
-static vfs_node_t *sys_open(char *path,int flags) {
+static int sys_open(char *path,int flags) {
+    // get caller
+    process_t *caller = thread_getThread(thread_getCurrent());
     int m = strlen(path);
     char *path_copy = kmalloc(m+1);
     memset(path_copy,0,m);
@@ -104,14 +106,32 @@ static vfs_node_t *sys_open(char *path,int flags) {
         node = vfs_creat(vfs_getRoot(),path,flags);
     }
     kfree(path_copy);
-    return node;
+    file_descriptor_t *fd = kmalloc(sizeof(file_descriptor_t));
+    memset(fd,0,sizeof(file_descriptor_t));
+    fd->node = node;
+    int id = caller->next_fd;
+    caller->fds[id] = fd;
+    caller->next_fd++;
+    return id;
 }
-static void sys_close(vfs_node_t *node) {}
-static void sys_read(vfs_node_t *node,int offset,int size,void *buff) {
-    vfs_read(node,offset,size,buff);
+static void sys_close(int fd) {
+    /*process_t *caller = thread_getThread(thread_getCurrent());
+    file_descriptor_t *d = caller->fds[fd];
+    vfs_close(d->node);
+    kfree(d);
+    caller->fds[fd] = NULL;*/
 }
-static void sys_write(vfs_node_t *node,int offset,int size,void *buff) {
-    vfs_write(node,offset,size,buff);
+static void sys_read(int _fd,int offset,int size,void *buff) {
+    process_t *caller = thread_getThread(thread_getCurrent());
+    file_descriptor_t *fd = caller->fds[_fd];
+    vfs_read(fd->node,fd->offset,size,buff);
+    fd->offset+=size;
+}
+static void sys_write(int _fd,int offset,int size,void *buff) {
+    process_t *caller = thread_getThread(thread_getCurrent());
+    file_descriptor_t *fd = caller->fds[_fd];
+    vfs_write(fd->node,fd->offset,size,buff);
+    fd->offset+=size;
 }
 static void *sys_alloc(int size) {
     return kmalloc(size);
@@ -162,9 +182,17 @@ exit:
 static void sys_pwd(char *buff,int len) {
     vfs_node_path(thread_getThread(thread_getCurrent())->workDir,buff,len);
 }
-static vfs_node_t *sys_opendir(char *path) {return vfs_find(path);}
-static void sys_closedir(vfs_node_t *node) {}
-static void *sys_readdir(vfs_node_t *node,int p) {return vfs_readdir(node,p);}
+static int sys_opendir(char *path) {
+    return sys_open(path,0);
+}
+static void sys_closedir(int fd) {
+    sys_close(fd);
+}
+static void *sys_readdir(int fd,int p) {
+    process_t *caller = thread_getThread(thread_getCurrent());
+    file_descriptor_t *_fd = caller->fds[fd];
+    return vfs_readdir(_fd->node,p);
+}
 static int sys_mount(char *dev,char *mount_point,char *fs) {
     char *dev_copy = strdup(dev);
     char *mountptr = strdup(mount_point);
@@ -203,7 +231,6 @@ static void sys_waitpid(int pid) {
         struct process *child = thread_getThread(pid);
         process_t *parent = thread_getThread(thread_getCurrent());
         if (child != NULL && child->parent == parent) {
-            //thread_waitPid(parent);
             while(!child->died) {}
         }
     }
@@ -215,11 +242,28 @@ static int sys_getppid() {
     }
     return -1;
 }
-static void sys_sysinfo() {}
+static void sys_sysinfo() {
+	kprintf("HelinKern System Info report\r\n");
+	kprintf("Used kernel heap: %dKB\r\n",alloc_getUsedSize()/1024);
+	kprintf("Running tasks: %d\r\n",thread_getNextPID());
+	arch_sysinfo();
+}
 static int sys_getuid() {return 0;}
 static void sys_setuid(int uid) {}
-static void sys_seek(vfs_node_t *node,int type,int how) {}
-static int sys_tell(vfs_node_t *node) {return 0;}
+static void sys_seek(int _fd,int type,int how) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+    file_descriptor_t *fd = caller->fds[_fd];
+    if (type == 2) {
+        fd->offset = how;
+    } else if (type == 3) {
+        fd->offset = fd->node->size;
+    }
+}
+static int sys_tell(int _fd) {
+    process_t *caller = thread_getThread(thread_getCurrent());
+    file_descriptor_t *fd = caller->fds[_fd];
+    return fd->offset;
+}
 static void *sys_mmap(vfs_node_t *node,int addr,int size,int offset,int flags) {
     if (node != NULL) {
         return vfs_mmap(node,addr,size,offset,flags);

@@ -1,5 +1,6 @@
 #include <kernel.h>
 #include <output.h>
+#include <debug.h>
 static kernel_irq_handler handlers[256];
 void *interrupt_handler(int irq_no,void *arch_stack) {
     if (irq_no < 256) {

@@ -27,7 +27,7 @@ void keyboard_init() {
 	outb(0x64,0xAE);
 	outb(0x64,0xA8);
     interrupt_add(33,keyboard_handler);
-    interrupt_add(IRQ12,keyboard_handler);
+    //interrupt_add(IRQ12,keyboard_handler);
     // Register keyboard in devfs
     keyboard_dev = kmalloc(sizeof(dev_t));
     memset(keyboard_dev,0,sizeof(dev_t));

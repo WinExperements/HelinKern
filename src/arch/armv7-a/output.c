@@ -22,3 +22,4 @@ void output_changeToFB() {}
 void putc(char c) {
     uart_write(c);
 }
+void output_clear() {}

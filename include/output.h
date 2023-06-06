@@ -10,4 +10,5 @@ void output_printHex(int n);
 void output_changeToFB();
 void kprintf(char *format,...);
 void putc(char c);
+void output_clear();
 #endif

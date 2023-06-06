@@ -30,3 +30,4 @@ bool arch_relocSymbols(module_t *mod,void *ehdr) {}
 void arch_reschedule() {}
 /* Print all CPU information */
 void arch_detect() {}
+void arch_sysinfo() {}

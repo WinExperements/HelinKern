@@ -49,6 +49,7 @@ void *thread_schedule(void *stack) {
             // Simply select new task
             nextTask = dequeue(running_list);
             nextTask->quota = 0;
+	    enqueue(running_list,runningTask);
     } else {
         nextTask = dequeue(running_list);
     }
@@ -60,13 +61,24 @@ void *thread_schedule(void *stack) {
         arch_destroyContext(nextTask->stack);
         arch_destroyArchStack(nextTask->arch_info);
         kfree(nextTask->name);
-        //queue_remove(task_list,nextTask);
+        // close all file descriptors
+        for (int i = 0; i < nextTask->next_fd; i++) {
+            file_descriptor_t *fd = nextTask->fds[i];
+            if (fd != NULL) {
+                DEBUG("Closing FD %d\r\n",i);
+                vfs_close(fd->node);
+                kfree(fd);
+            }
+        }
+        queue_remove(task_list,nextTask);
 	    if (nextTask->parent == NULL) {
 		    DEBUG("No parent for %d! Switching to idle!\r\n",nextTask->pid);
 		    kfree(nextTask);
 		    nextTask = idle;
 	    } else {
         	process_t *parent = nextTask->parent;
+		arch_mmu_switch(parent->aspace);
+		arch_mmu_destroyAspace(nextTask->aspace);
         	kfree(nextTask);
         	nextTask = parent;
 	    }
@@ -94,6 +106,7 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     th->parent = runningTask;
     th->child = NULL;
     th->died = false;
+    th->fds = kmalloc(200);
     enqueue(task_list,th);
     enqueue(running_list,th);
     //kprintf("PID of new process: %d\r\n",th->pid);
@@ -102,8 +115,8 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
 // Clock implementation
 static int num_clocks = 0;
 static bool schedulerEnabled = true;
-static int seconds;
-static int nextClocks = 0;
+//static int seconds;
+//static int nextClocks = 0;
 void *clock_handler(void *stack) {
     num_clocks++;
     /*nextClocks++;
@@ -152,8 +165,8 @@ void thread_killThread(process_t *prc,int code) {
     // insert it to the list
     runningTask = NULL;
     prc->died = true;
-    enqueue(running_list,prc);
-    enqueue(running_list,prc->parent);
+    //enqueue(running_list,prc);
+    //enqueue(running_list,prc->parent);
     arch_sti();
     arch_reschedule();
 }
@@ -172,4 +185,7 @@ void thread_changeName(process_t *prc,char *n) {
         prc->name = kmalloc(newlen);
     }
     strcpy(prc->name,n);
+}
+int clock_getUptimeMsec() {
+    return num_clocks;
 }

@@ -5,10 +5,10 @@
 #include <kernel.h> // panic
 #define NULL 0
 #define BLACK         0
-#define BLUE          0x0000FF
-#define GREEN         0x00FF00
-#define RED           0xFF0000
-#define WHITE         0xFFFFFF
+#define BLUE          1
+#define GREEN         2
+#define RED           4
+#define WHITE         0xF
 #define PRINTK_INFO 1
 #define PRINTK_ERR 2
 #define min(a,b)    ((a) < (b) ? (a) : (b))

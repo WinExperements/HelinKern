@@ -332,3 +332,6 @@ void smp_post_init() {
 	}
     DEBUG("Total count of usable CPU(s): %d\r\n",nr_cpus);
 }
+int smp_getCPUCount() {
+	return nr_cpus;
+}

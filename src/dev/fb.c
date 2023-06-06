@@ -26,7 +26,8 @@ static void fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff);
 static void *fbdev_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
 static dev_t *fbdev;
 static int paddr;
-static char charBuff[88*40];
+static char *charBuff;
+static void syncFB(); // draw all characters from charBuff
 void fb_init(fbinfo_t *fb) {
     if (!fb) return;
     psf_init();
@@ -77,7 +78,7 @@ void fb_putchar(
     for(y=0;y<font->height;y++){
         /* save the starting position of the line */
         line=offs;
-        mask=1<<(font->width-1);
+        mask=1<<(font->width);
         /* display a row */
         for(x=0;x<font->width;x++)
         {
@@ -149,7 +150,7 @@ void fb_putc(char ch) {
     // Handle a backspace, by moving the cursor back one space
   if (ch == 0x08 && cursor_x)
     {
-      fb_putchar(' ',cursor_x,cursor_y,WHITE,BLACK);
+      fb_putchar(' ',cursor_x,cursor_y,0xffffff,BLACK);
       cursor_x--;
     }
 
@@ -163,8 +164,8 @@ void fb_putc(char ch) {
   // Handle newline by moving cursor back to left and increasing the row
   else if (ch == '\n')
     {
-      fb_putchar(' ',cursor_x,cursor_y,WHITE,BLACK);
-      cursor_x = 0;
+      fb_putchar(' ',cursor_x,cursor_y,0xffffff,BLACK);
+      cursor_x = 1;
       cursor_y++;
     }
 
@@ -173,14 +174,14 @@ void fb_putc(char ch) {
     {
       // Calculate the Address of the Cursor Position
       fb_putchar(ch,cursor_x,cursor_y,fcolor,bcolor);
-      charBuff[cursor_y * 88  + cursor_x] = ch;
+      if (charBuff != NULL )charBuff[cursor_y * ws_col  + cursor_x] = ch;
       cursor_x++;
     }
 
   // IF after all the printing we need to insert a new line
-  if (cursor_x >= ws_col)
+  if (cursor_x >= ws_col-1)
     {
-      cursor_x = 0;
+      cursor_x = 1;
       cursor_y++;
     }
     scroll();
@@ -208,12 +209,12 @@ void fb_map() {
     DEBUG("FB mapped: from 0x%x to 0x%x\r\n",addr,(addr)+(pitch*width));
 }
 void fb_clear(int color) {
-    if (color == WHITE) {
+    if (color == 0xffffff) {
         fcolor = color;
         bcolor = BLACK;
     } else if (color == BLACK) {
         bcolor = color;
-        fcolor = WHITE;
+        fcolor = 0xffffff;
     }
     uint32_t *fb = (uint32_t *)addr;
     for (int y = 0; y < height; y++) {
@@ -224,24 +225,16 @@ void fb_clear(int color) {
     cursor_x = cursor_y = 0;
 }
 static void scroll() {
-    if (cursor_y >= ws_row) {
-	int x  = 0;
-	int y = 0;
-	for (int i = 0; i < ws_row*ws_col; i++) {
+    if (charBuff == NULL) return;
+    if (cursor_y >= ws_row-1) {
+	for (int i = 1; i < ws_row*(ws_col-1); i++) {
 		charBuff[i] = charBuff[i+ws_col];
-		fb_putchar(charBuff[i],x,y,fcolor,bcolor);
-		x++;
-		if (x >= ws_col) {
-			y++;
-			x = 0;
-		}
 	}
-    x = 0;
-    y = ws_row-1;
-    /*for (; x <= ws_col; x++) {
-        fb_putchar(' ',x,y,fcolor,bcolor);
-    }*/
-	cursor_y = ws_row - 1;
+    for (int i = (ws_row-2)*ws_col; i < ws_row*ws_col-1; i++) {
+        charBuff[i] = 0;
+    }
+	syncFB();
+	cursor_y = ws_row - 2;
     }
 }
 void fb_setpos(int x,int y) {
@@ -274,10 +267,44 @@ void fbdev_init() {
     fbdev->write = fbdev_write;
     fbdev->mmap = fbdev_mmap;
     dev_add(fbdev);
+    charBuff = kmalloc(ws_row*ws_col);
+    memset(charBuff,0,ws_row*ws_col);
+    // Намалюємо рамку
+    fb_disableCursor();
+    bcolor = 0x0000FF;
+    for (int i = 1; i < ws_row-1; i++) {
+		fb_putchar('|',0,i,fcolor,bcolor);
+		fb_putchar('|',ws_col-1,i,fcolor,bcolor);
+	}
+	for (int i = 0; i < ws_col; i++) {
+		fb_putchar('-',i,0,fcolor,bcolor);
+		fb_putchar('-',i,ws_row-1,fcolor,bcolor);
+	}
+    // Не забуваємо про напис HelinKern!
+    cursor_x = (ws_col / 2)-12;
+    cursor_y = 0;
+    bcolor = 0x0;    
+    char *msg = "HelinKern";
+    int i = 0;
+    while(msg[i]) {
+        fb_putchar(msg[i],cursor_x,cursor_y,fcolor,bcolor);
+        i++;
+        cursor_x++;
+    }
+    fb_enableCursor();
+    cursor_x = cursor_y = 1;
 }
 int fb_getX() {
     return cursor_x;
 }
 int fb_getY() {
     return cursor_y;
+}
+static void syncFB() {
+    // Ми не чіпаємо рамки тому все починається з 1
+	for (int y = 1; y < ws_row-1; y++) {
+		for (int x =1; x <  ws_col-1; x++) {
+			fb_putchar(charBuff[y * ws_col + x],x,y,fcolor,bcolor);
+		}
+	}
 }
