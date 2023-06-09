@@ -46,7 +46,7 @@ void arch_reset() {
     uint8_t good = 0x02;
     while (good & 0x02)
         good = inb(0x64);
-    outb(0x64, 0xFE);void arch_jumpToUser(int entryPoint,int userstack);
+    outb(0x64, 0xFE);
 loop:
     asm volatile ("hlt"); 
 	goto loop;
@@ -372,9 +372,7 @@ void arch_sysinfo() {
 	kprintf("Detected cores: %d\r\n",smp_getCPUCount());
 }
 static void thread_main(int entryPoint,int esp,bool isUser) {
-    /* Не залежно від типу задачі(ядра чи користувача) ми будемо викликані тут.
-        Задача цього коду полягає у створенні та підготовці стеку переривання для кращої реалізації.
-        Цей стек буде викоритсано лише ОДИН раз за весь життєвий цикл процессу.
+    /* Через те, що наш метод переключення контексту процесів працює лише з задачами ядра, ми будемо перемикатися в режим користувача.
     */
     process_t *prc = thread_getThread(thread_getCurrent());
     // На данний момент часу ми працюємо в кільці ядра!
