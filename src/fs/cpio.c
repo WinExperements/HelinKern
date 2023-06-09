@@ -37,6 +37,9 @@ static void new_child_node(vfs_node_t *parent,vfs_node_t *child) {
 
 static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *params) {
     DEBUG("Loading CPIO initrd from %s\r\n",dev->name);
+    // HACK!
+    process_t *me = thread_getThread(thread_getCurrent());
+    vfs_node_t *home = me->workDir;
     struct cpio_hdr hdr;
     int offset = 0;
     int size = 0;
@@ -48,11 +51,13 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
     memset(p,0,sizeof(struct cpio));
     root->priv_data = p;
     int dev_size = dev->size;
+    me->workDir = mountpoint;
     for (; offset < dev_size; offset +=sizeof(struct cpio_hdr)+(hdr.namesize+1)/2*2 + (size+1)/2*2) {
         int data_offset = offset;
         vfs_read(dev,data_offset,sizeof(struct cpio_hdr),&hdr);
         if (hdr.magic != CPIO_MAGIC) {
             DEBUG_N("Invalid magic\r\n");
+            me->workDir = home;
             return false;
         }
         size = hdr.filesize[0] * 0x10000 + hdr.filesize[1];
@@ -62,10 +67,12 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
         if (strcmp(path,".")) continue;
         if (strcmp(path,"TRAILER!!!")) break;
         char *name = NULL;
+        char *dir = NULL;
         for (int i = hdr.namesize-1; i >= 0; i--) {
             if (path[i] == '/') {
                 path[i] = '\0';
                 name = &path[i+1];
+                dir = path;
                 break;
             }
         }
@@ -74,8 +81,12 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
         }
         data_offset += hdr.namesize + (hdr.namesize % 2);
         vfs_node_t *node = new_node(name,&hdr,size,data_offset);
-        new_child_node(root,node);
+        vfs_node_t *parent = dir != NULL ? vfs_find(dir) : root;
+        parent->flags = VFS_DIRECTORY;
+        new_child_node(parent,node);
     }
+    me->workDir = home;
+    return true;
 }
 
 static void cpio_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {

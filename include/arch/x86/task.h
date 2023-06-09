@@ -6,5 +6,7 @@ typedef struct x86_task {
     int stack;
     int userESP;
     int kesp_start;
+    // User mode
+    int argc,argv;
 } x86_task_t;
 #endif

@@ -3,6 +3,7 @@
 #include <dev/fb.h>
 #include <typedefs.h>
 #include <module.h>
+#include <thread.h>
 void arch_entry_point(void *arg);
 void arch_pre_init();
 /*
@@ -34,4 +35,5 @@ void arch_detect();
 // Save context of current process
 void arch_saveContext(void *context,void *prcContext);
 void arch_sysinfo();
+void arch_putArgs(process_t *prc,int argc,char **argv);
 #endif

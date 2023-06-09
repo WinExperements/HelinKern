@@ -20,6 +20,7 @@ static void start_module();
 static void load_m(void *);
 void kshell_main() {
 	//output_changeToFB();
+    arch_sti();
 	kprintf("KShell V0.1\r\n");
     	kprintf("Please not that you are running in the kernel address space\r\n");
 	// open keyboard device
@@ -42,7 +43,7 @@ void kshell_main() {
     argv[1] = "/initrd/init";
     parseCommand(2,argv);
     argv[0] = "exec";
-    argv[1] = "/initrd/windowserver";
+    argv[1] = "/initrd/test";
     parseCommand(2,argv);
     /*argv[0] = "mount";
     argv[1] = "fat32";
@@ -78,7 +79,7 @@ static void parseCommand(int argc,char *cmd[]) {
         } else {
             vfs_node_t *in = vfs_getRoot();
             if (argc > 1) {
-                in = vfs_finddir(in,cmd[1]);
+                in = vfs_find(cmd[1]);
                 if (!in){
                     kprintf("ls: %s: no such file or directory\n");
                 }
@@ -162,8 +163,8 @@ static void parseCommand(int argc,char *cmd[]) {
         }
     } else if (strcmp(cmd[0],"exec")) {
         if (argc > 1) {
-           int (*exec)(char *) = ((int (*)(char *))syscall_get(13));
-            int pid = exec(cmd[1]);
+           int (*exec)(char *,int,char **) = ((int (*)(char *,int,char **))syscall_get(13));
+            int pid = exec(cmd[1],0,NULL); // Ядро передасть параметри за замовчуванням.
             void (*waitpid)(int) = ((void (*)(int))syscall_get(22));
             waitpid(pid);
         }

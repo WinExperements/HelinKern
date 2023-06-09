@@ -34,6 +34,7 @@ void thread_init() {
     idle->state = 0;
     runningTask = idle;
 }
+/* Допоможіть :( */
 void *thread_schedule(void *stack) {
     // scheduler v1, taked code from my old osdev project
     // Edited version
@@ -71,17 +72,18 @@ void *thread_schedule(void *stack) {
                 kfree(fd);
             }
         }
-        queue_remove(task_list,nextTask);
+        //queue_remove(task_list,nextTask);
 	    if (nextTask->parent == NULL) {
 		    DEBUG("No parent for %d! Switching to idle!\r\n",nextTask->pid);
 		    kfree(nextTask);
 		    nextTask = idle;
 	    } else {
         	process_t *parent = nextTask->parent;
-		arch_mmu_switch(parent->aspace);
-		arch_mmu_destroyAspace(nextTask->aspace);
+		    arch_mmu_switch(idle->aspace);
+		    arch_mmu_destroyAspace(nextTask->aspace);
         	kfree(nextTask);
         	nextTask = parent;
+            DEBUG("Switching to %s\r\n",nextTask->name);
 	    }
     }
     if (nextTask->aspace == NULL) {
@@ -150,6 +152,7 @@ int thread_getCurrent() {
     return (runningTask == NULL ? 0 : runningTask->pid);
 }
 process_t *thread_getThread(int pid) {
+    //DEBUG("G: %d\r\n",pid);
     for (struct queue_node *n = task_list->head; n; n = n->next) {
         process_t *p = (process_t *)n->value;
         if (p->pid == pid) {
@@ -167,7 +170,7 @@ void thread_killThread(process_t *prc,int code) {
     runningTask = NULL;
     prc->died = true;
     enqueue(running_list,prc);
-    enqueue(running_list,prc->parent);
+    queue_remove(task_list,prc);
     arch_sti();
     arch_reschedule();
 }

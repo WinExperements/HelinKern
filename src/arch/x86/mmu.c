@@ -135,7 +135,6 @@ aspace_t *arch_mmu_getKernelSpace() {
     return kernel_pg;
 }
 void arch_mmu_destroyAspace(aspace_t *space) {
-    arch_cli();
 
     uint32_t* pd = (uint32_t*)0xFFFFF000;
 
@@ -174,7 +173,6 @@ void arch_mmu_destroyAspace(aspace_t *space) {
 
         pd[pd_index] = 0;
     }
-    arch_sti();
     //return to caller's Page Directory
     CHANGE_PD(cr3);
 }

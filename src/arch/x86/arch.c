@@ -18,7 +18,13 @@
 #include <module.h>
 #include <arch/x86/cpuid.h>
 #include <arch/x86/smp.h>
-#define PUSH(tos,val) (*(-- tos) = val)
+// Why my previous define is very starnge, like the stack is increments to 200!
+// Now all works fine as planed.
+#define PUSH(stack, type, value)\
+    do {\
+        (stack) -= sizeof(type);\
+        *((type *) (stack)) = (type) (value);\
+    } while (0)
 static multiboot_info_t *info;
 void x86_switchContext(void *);
 extern int syscall_num;
@@ -100,23 +106,23 @@ int arch_getMemSize() {
     return size/1024;
 }
 void *arch_prepareContext(int entry,bool isUser) {
-    int *frame = (kmalloc(4096)+4096);
+    int frame = (kmalloc(4096)+4096);
     stack_addr = ((int)frame-4096);
     if (!isUser) {
-        PUSH(frame,0);
-        PUSH(frame,entry);
+        PUSH(frame,int,0);
+        PUSH(frame,int,entry);
     } else {
-        PUSH(frame,isUser);
-        PUSH(frame,0);
-        PUSH(frame,entry);
-        PUSH(frame,0);
-        PUSH(frame, (int)thread_main);
+        PUSH(frame,int,isUser);
+        PUSH(frame,int,0);
+        PUSH(frame,int,entry);
+        PUSH(frame,int,0);
+        PUSH(frame,int, (int)thread_main);
     }
-    PUSH(frame, 0);           // EBP
-    PUSH(frame, 0);           // EDI
-    PUSH(frame, 0);           // ESI
-    PUSH(frame, 0);           // EBX
-    return (void *)(int)frame;
+    PUSH(frame,int, 0);           // EBP
+    PUSH(frame,int, 0);           // EDI
+    PUSH(frame,int, 0);           // ESI
+    PUSH(frame,int, 0);           // EBX
+    return (void *)frame;
 }
 void *arch_preapreArchStack(bool isUser) {
     x86_task_t *t = kmalloc(sizeof(x86_task_t));
@@ -388,8 +394,14 @@ static void thread_main(int entryPoint,int esp,bool isUser) {
     regs->useresp = _esp+4096;
     archStack->regs = regs;*/
     archStack->userESP = _esp;
-    int *stack = (int *)_esp+4096;
-    PUSH(stack,0);
-    PUSH(stack,0);
+    uint32_t stack = (uint32_t )_esp+4096;
+    PUSH(stack,int,(int)archStack->argv);
+    PUSH(stack,int,archStack->argc);
     x86_jumpToUser(entryPoint,(int)stack);
+}
+void arch_putArgs(process_t *prc,int argc,char **argv) {
+    if (prc == NULL || argv == 0) return;
+    x86_task_t *s = (x86_task_t *)prc->arch_info;
+    s->argc = argc;
+    s->argv = (int)argv;
 }

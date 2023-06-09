@@ -26,5 +26,16 @@ target remote localhost:1234
 #b src/thread.c:162
 #b thread_main
 #b thread_changeName
-b cpio_finddir
+#b cpio_finddir
+#b src/fs/cpio.c:82
+#b new_child_node
+#b cpio_readdir
+#b arch_putArgs
+#b src/thread.c:172
+#b src/kshell.c:82
+#b elf_load_file
+#b sys_exit
+#b queue_remove
+#b thread_getThread
+b sys_exec
 c

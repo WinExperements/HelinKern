@@ -16,6 +16,8 @@ typedef struct queue {
     struct queue_node *tail;
 } queue_t;
 
+#define queue_for(n, q) for (struct queue_node *(n) = (q)->head; (n); (n) = (n)->next)
+
 static inline queue_t *queue_new() {
     queue_t *q = kmalloc(sizeof(queue_t));
     if (!q) return NULL;
@@ -54,24 +56,25 @@ static inline void *dequeue(queue_t *q) {
     kfree(head);
     return value;
 }
-
-static inline void queue_remove(queue_t *q,void *value) {
-    if (!q || !q->size) return;
-    for (struct queue_node *n = q->head; n; n = n->next) {
-        if (n->value == value) {
-            if (n->prev) {
-                dequeue(q);
-            } else if (!n->next) {
-                --q->size;
-                q->tail = q->tail->prev;
-                q->tail->next = NULL;
-                kfree(n);
+// Copy paste is always works
+static inline void queue_remove(queue_t *queue,void *value) {
+    if (!queue || !queue->size) return;
+     queue_for (node, queue) {
+        if (node->value == value) {
+            if (!node->prev) {    /* Head */
+                dequeue(queue);
+            } else if (!node->next) {   /* Tail */
+                --queue->size;
+                queue->tail = queue->tail->prev;
+                queue->tail->next = NULL;
+                kfree(node);
             } else {
-                --q->size;
-                n->prev->next = n->next;
-                n->next->prev = n->prev;
-                kfree(n);
+                --queue->size;
+                node->prev->next = node->next;
+                node->next->prev = node->prev;
+                kfree(node);
             }
+
             break;
         }
     }

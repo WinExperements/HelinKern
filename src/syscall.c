@@ -19,7 +19,7 @@ static void sys_write(int fd,int offset,int size,void *buff);
 static void *sys_alloc(int size);
 static void sys_free(void *ptr);
 static void sys_print(char *msg);
-static int sys_exec(char *path);
+static int sys_exec(char *path,int argc,char **argv);
 static void sys_reboot(int reason);
 static void sys_chdir(char *to);
 static void sys_pwd(char *buff,int len);
@@ -141,7 +141,7 @@ static void *sys_alloc(int size) {
 static void sys_free(void *ptr) {
     kfree(ptr);
 }
-static int sys_exec(char *path) {
+static int sys_exec(char *path,int argc,char **argv) {
     int m = strlen(path);
     char *buff = kmalloc(m+1);
     strcpy(buff,path);
@@ -160,6 +160,14 @@ static int sys_exec(char *path) {
     thread_changeName(prc,file->name);
     kfree(file_buff);
     kfree(buff);
+    if (argc == 0) {
+        // Передамо звичайні параметри(ім'я файлу і т.д)
+        char **params = kmalloc(1);
+        params[0] = strdup(path);
+        arch_putArgs(prc,1,params);
+    } else {
+        arch_putArgs(prc,argc,argv);
+    }
     vfs_close(file);
     //DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize()/1024);
     arch_sti();

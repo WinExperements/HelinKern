@@ -88,7 +88,7 @@ void sh_parseCommand(char **argv,int argc) {
         waitpid(pid,NULL,0);
     } else if (!strcmp(argv[0],"args")) {
         printf("arguments: %u\n",__argc);
-        for (int i = 0; i < __argc+1; i++) {
+        for (int i = 0; i < __argc; i++) {
             printf("%s\n",__argv[i]);
         }
     } else if (argv[0][0] == '/') {
@@ -155,6 +155,27 @@ void sh_parseCommand(char **argv,int argc) {
 	}
     } else if (!strcmp(argv[0],"mountfat")) {
         int ret = helin_syscall(21,(int)"/dev/hdap0",(int)"/initrd",(int)"fat32",0,0);
+    } else if (!strcmp(argv[0],"cat")) {
+        if (argc > 1) {
+            FILE *init_sh = fopen(argv[1],"r");
+            if (init_sh < 0) {
+                printf("cat: %s: not found\r\n",argv[1]);
+                return;
+            }
+            fseek(init_sh,0,SEEK_END);
+	        int offset = ftell(init_sh);
+	        fseek(init_sh,0,SEEK_SET);
+            if (offset == 0) {
+                fclose(init_sh);
+                return;
+            }
+	        // now try to read it!
+	        char *buf = malloc(offset);
+	        fread(buf,offset,1,init_sh);
+	        fclose(init_sh);
+            printf("%s",buf);
+            free(buf);
+        }
     } else {
         if (!execute(argv[0],argv,argc)) {
             printf("Commmand %s not found\n",argv[0]);
@@ -175,22 +196,24 @@ bool execute(char *command,char **argv,int argc) {
         // check if we need to execute it paralell
         if (!strcmp(argv[argc-1],"&")) {
             //printf("parallel running\n");
-	    parallel = true;
+	        parallel = true;
             argc--;
         }
-        /*new_argv = malloc(100);
+        new_argv = malloc(100);
         for (int i = 0; i < argc; i++) {
             new_argv[i] = argv[i];
-        }*/
+        }
 	//printf("u %u\n",new_argc);
     }
     sprintf(buff,"%s/%s",run_path,command);
-    if ((_pid = execv(buff,0,NULL)) > 0) {
+    if ((_pid = execv(buff,argc,new_argv)) > 0) {
         if (!parallel) {
             waitpid(_pid,NULL,0);
+            if (new_argv)free(new_argv);
         }
         return true;
     } else {
+        if (new_argv)free(new_argv);
         return false;
     }
     return false;
