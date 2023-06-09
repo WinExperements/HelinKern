@@ -20,15 +20,15 @@ int main(int argcf,char **argvf) {
     //if (strcmp(argvf[1],"init")) return 0;
     pid = getpid(); // remember pid for waitpid
     ppid = getppid();
-    FILE *init_script = fopen("/initrd/init.sh","r");
+    /*FILE *init_script = fopen("/initrd/init.sh","r");
     if (init_script < 0) {
 		printf("init: no init.sh found at /bin. Droping to shell\n");
     } else {
 	    process_initScript(init_script);
 	    //while(1) {}
-    }
+    }*/
     FILE *f = fopen("/dev/keyboard","rw");
-    if (!f) {
+    if (f < 0) {
         printf("Failed to open keyboard device!\r\n");
         return 1;
     }

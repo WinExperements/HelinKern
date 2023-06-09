@@ -19,6 +19,7 @@ static vfs_node_t *new_node(const char *name,struct cpio_hdr *hdr,size_t sz,size
     node->fs = cpio_fs;
     p->name = strdup(name);
     p->data = data;
+    node->name = p->name;
     return node;
 }
 

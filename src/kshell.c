@@ -19,8 +19,7 @@ static bool exit = false;
 static void start_module();
 static void load_m(void *);
 void kshell_main() {
-	arch_sti();
-	output_changeToFB();
+	//output_changeToFB();
 	kprintf("KShell V0.1\r\n");
     	kprintf("Please not that you are running in the kernel address space\r\n");
 	// open keyboard device
@@ -39,13 +38,13 @@ void kshell_main() {
     argv[2] = "/bin/initrd.cpio";
     argv[3] = "/initrd";
     parseCommand(4,argv);
-    argv[0] = "exit";
-    //argv[1] = "/bin/mbr.mod";
-    parseCommand(1,argv);
-    /*argv[0] = "loadm";
-    argv[1] = "/bin/fat32.mod";
+    argv[0] = "exec";
+    argv[1] = "/initrd/init";
     parseCommand(2,argv);
-    argv[0] = "mount";
+    argv[0] = "exec";
+    argv[1] = "/initrd/windowserver";
+    parseCommand(2,argv);
+    /*argv[0] = "mount";
     argv[1] = "fat32";
     argv[2] = "/dev/hdap0";
     argv[3] = "/initrd";

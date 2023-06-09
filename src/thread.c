@@ -48,8 +48,9 @@ void *thread_schedule(void *stack) {
             if (running_list->size == 0) return stack;
             // Simply select new task
             nextTask = dequeue(running_list);
+            if (nextTask->state > 3) nextTask = idle;
             nextTask->quota = 0;
-	    enqueue(running_list,runningTask);
+	        //enqueue(running_list,runningTask);
     } else {
         nextTask = dequeue(running_list);
     }
@@ -97,7 +98,7 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     memset(th,0,sizeof(process_t));
     th->pid = freePid++;
     th->name = strdup(name);
-    th->stack = arch_prepareContext(entryPoint);
+    th->stack = arch_prepareContext(entryPoint,isUser);
     th->arch_info = arch_preapreArchStack(isUser);
     th->aspace = arch_mmu_getKernelSpace();
     th->state = STATUS_RUNNING;
@@ -165,8 +166,8 @@ void thread_killThread(process_t *prc,int code) {
     // insert it to the list
     runningTask = NULL;
     prc->died = true;
-    //enqueue(running_list,prc);
-    //enqueue(running_list,prc->parent);
+    enqueue(running_list,prc);
+    enqueue(running_list,prc->parent);
     arch_sti();
     arch_reschedule();
 }

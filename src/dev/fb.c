@@ -28,6 +28,7 @@ static dev_t *fbdev;
 static int paddr;
 static char *charBuff;
 static void syncFB(); // draw all characters from charBuff
+static int fb_ioctl(struct vfs_node *node,int request,void *argp);
 void fb_init(fbinfo_t *fb) {
     if (!fb) return;
     psf_init();
@@ -78,7 +79,7 @@ void fb_putchar(
     for(y=0;y<font->height;y++){
         /* save the starting position of the line */
         line=offs;
-        mask=1<<(font->width);
+        mask=1<<(font->width-1);
         /* display a row */
         for(x=0;x<font->width;x++)
         {
@@ -266,10 +267,12 @@ void fbdev_init() {
     fbdev->buffer_sizeMax = pitch * height;
     fbdev->write = fbdev_write;
     fbdev->mmap = fbdev_mmap;
+    fbdev->ioctl = fb_ioctl;
     dev_add(fbdev);
     charBuff = kmalloc(ws_row*ws_col);
     memset(charBuff,0,ws_row*ws_col);
     // Намалюємо рамку
+    if (width == 0 || height == 0) return;
     fb_disableCursor();
     bcolor = 0x0000FF;
     for (int i = 1; i < ws_row-1; i++) {
@@ -307,4 +310,20 @@ static void syncFB() {
 			fb_putchar(charBuff[y * ws_col + x],x,y,fcolor,bcolor);
 		}
 	}
+}
+static int fb_ioctl(struct vfs_node *node,int request,void *argp) {
+    int *arg = (int *)argp;
+    switch(request) {
+        case 1:
+        // get width
+        *arg = width;
+        break;
+        case 2:
+        *arg = height;
+        break;
+        case 3:
+        *arg = pitch;
+        break;
+    }
+    return -1;
 }

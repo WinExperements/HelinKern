@@ -87,7 +87,7 @@ bool elf_load_file(void *addr) {
     aspace_t *space = arch_mmu_getAspace();
     arch_mmu_switch(arch_mmu_getKernelSpace());
     // create process
-    process_t *prc = thread_create("ELF",header->e_entry,false);
+    process_t *prc = thread_create("ELF",header->e_entry,true);
     if (!prc) {
         kprintf("Failed to create process!\r\n");
         return false;

@@ -170,7 +170,25 @@ void *x86_irq_handler(registers_t *regs) {
 		asm volatile("movl %%cr2, %0" : "=r"(addr));
         if (int_no == 14) {
             // get faulting address
-		    kprintf("Addr: 0x%x\n",addr);
+             int present = regs->error_code & 0x1;
+            int rw = regs->error_code & 0x2;
+            int us = regs->error_code & 0x4;
+            int reserved = regs->error_code & 0x8;
+            int id = regs->error_code & 0x10;
+		    kprintf("Page fault!!! When trying to %s %x - IP:%x\n", rw ? "write to" : "read from", addr, regs->eip);
+
+            kprintf("The page was %s\n", present ? "present" : "not present");
+             if (reserved)
+            {
+                kprintf("Reserved bit was set\n");
+            }
+
+            if (id)
+            {
+                kprintf("Caused by an instruction fetch\n");
+            }
+
+            kprintf("CPU was in %s\n", us ? "user-mode" : "supervisor mode");
         } else if (int_no == 13) {
             kprintf("Error code: %d, faulting address: 0x%x\r\n",regs->error_code,addr);
         }

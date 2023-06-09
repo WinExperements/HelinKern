@@ -20,6 +20,19 @@
 #define MOUSE_F_BIT  0x20
 #define MOUSE_V_BIT  0x08
 
+static int mouse_cycle = 0;
+static char mouse_byte[3];
+static char old_x,old_y;
+
+// dev/fb.c
+extern void fb_putchar(
+    /* note that this is int, not char as it's a unicode character */
+    unsigned short int c,
+    /* cursor position on screen, in characters not in pixels */
+    int cx, int cy,
+    /* foreground and 0 0s, say 0xFFFFFF and 0x000000 */
+    int fg, int bg);
+
 void mouse_wait(uint8_t a_type) {
 	uint32_t timeout = 100000;
 	if (!a_type) {
@@ -41,9 +54,44 @@ void mouse_wait(uint8_t a_type) {
 	}
 }
 
-static void *mouse_intr(void *stack) {
-    kprintf("Mouse interrupt!\r\n");
-	return stack;
+static void *mouse_intr(void *st) {
+	uint8_t status = inb(MOUSE_STATUS);
+	while(status & MOUSE_BBIT) {
+		uint8_t mouse_in = inb(MOUSE_PORT);
+        if (status & MOUSE_F_BIT) {
+            switch(mouse_cycle) {
+                case 0:
+                mouse_byte[0] = mouse_in;
+                if (!(mouse_in & MOUSE_V_BIT)) return;
+                ++mouse_cycle;
+                break;
+                case 1:
+                mouse_byte[1] = mouse_in;
+                ++mouse_cycle;
+                break;
+                case 2:
+                mouse_byte[2] = mouse_in;
+                if (mouse_byte[0] & 0x80 || mouse_byte[0] & 0x40) {
+                    // something is really wrong, but what?
+                    break;
+                } 
+                if (mouse_byte[1] < 0) {
+                    mouse_byte[1] = 0;
+                }
+                if (mouse_byte[2] < 0) {
+                    mouse_byte[2] = 0;
+                }
+                mouse_cycle = 0;
+                /*fb_putchar(' ',old_x,old_y,0x0,0x0); // remove character
+                fb_putchar(' ',mouse_byte[1],mouse_byte[2],0x0,0xffffff);
+                old_x = mouse_byte[1];
+                old_y = mouse_byte[2];*/
+                break;
+            }
+        }
+        status = inb(MOUSE_STATUS);
+	}
+	return st;
 }
 
 void mouse_write(uint8_t write) {
@@ -74,6 +122,6 @@ void ps2mouse_init() {
 	mouse_read();
 	mouse_write(0xF4);
 	mouse_read();
-    	interrupt_add(IRQ12,mouse_intr);
+    interrupt_add(IRQ12,mouse_intr);
 	DEBUG_N("PS/2 Initialization done\r\n");
 }

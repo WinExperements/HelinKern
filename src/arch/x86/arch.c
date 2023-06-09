@@ -27,6 +27,9 @@ extern char kernel_end[];
 extern void x86_switchToNew(int esp);
 extern void vga_change();
 static bool dontFB = false;
+static void thread_main(int entryPoint,int esp,bool isUser);
+extern void x86_switch(registers_t *to);
+extern void x86_jumpToUser(int entryPoint,int userstack);
 void arch_entry_point(void *arg) {
 	// arg is our multiboot structure description
 	// Basically, we need just to extract the arguments from the sctructure then pass it to the global entry point
@@ -43,7 +46,7 @@ void arch_reset() {
     uint8_t good = 0x02;
     while (good & 0x02)
         good = inb(0x64);
-    outb(0x64, 0xFE);
+    outb(0x64, 0xFE);void arch_jumpToUser(int entryPoint,int userstack);
 loop:
     asm volatile ("hlt"); 
 	goto loop;
@@ -96,11 +99,19 @@ int arch_getMemSize() {
 	}
     return size/1024;
 }
-void *arch_prepareContext(int entry) {
+void *arch_prepareContext(int entry,bool isUser) {
     int *frame = (kmalloc(4096)+4096);
     stack_addr = ((int)frame-4096);
-    PUSH(frame, 0);        // entry point
-    PUSH(frame, entry);  // startup function
+    if (!isUser) {
+        PUSH(frame,0);
+        PUSH(frame,entry);
+    } else {
+        PUSH(frame,isUser);
+        PUSH(frame,0);
+        PUSH(frame,entry);
+        PUSH(frame,0);
+        PUSH(frame, (int)thread_main);
+    }
     PUSH(frame, 0);           // EBP
     PUSH(frame, 0);           // EDI
     PUSH(frame, 0);           // ESI
@@ -109,7 +120,8 @@ void *arch_prepareContext(int entry) {
 }
 void *arch_preapreArchStack(bool isUser) {
     x86_task_t *t = kmalloc(sizeof(x86_task_t));
-    t->kernelESP = (isUser ? (int)kmalloc(4096) : 0);
+    t->kesp_start = (isUser ? (int)kmalloc(4096) : 0);
+    t->kernelESP = t->kesp_start+4096;
     t->stack = stack_addr;
     return t;
     //return NULL; // test
@@ -165,10 +177,13 @@ void arch_destroyContext(void *context) {
 }
 void arch_destroyArchStack(void *stack) {
     x86_task_t *task = (x86_task_t *)stack;
-    if (task->kernelESP != 0) {
-        kfree((void *)task->kernelESP);
+    if (task->kesp_start != 0) {
+        kfree((void *)task->kesp_start);
     }
     kfree((void *)task->stack);
+    if (task->userESP != 0) {
+        kfree((void *)task->userESP);
+    }
     kfree(stack);
 }
 void arch_post_init() {
@@ -355,4 +370,28 @@ void arch_sysinfo() {
 	kprintf("This OS is builded for X86 PC\r\n");
 	kprintf("Is ACPI Shutdown Available: %s\r\n",(acpiIsOn() ? "Yes" : "No"));
 	kprintf("Detected cores: %d\r\n",smp_getCPUCount());
+}
+static void thread_main(int entryPoint,int esp,bool isUser) {
+    /* Не залежно від типу задачі(ядра чи користувача) ми будемо викликані тут.
+        Задача цього коду полягає у створенні та підготовці стеку переривання для кращої реалізації.
+        Цей стек буде викоритсано лише ОДИН раз за весь життєвий цикл процессу.
+    */
+    process_t *prc = thread_getThread(thread_getCurrent());
+    // На данний момент часу ми працюємо в кільці ядра!
+    int _esp = (int)kmalloc(4096);
+    x86_task_t *archStack = (x86_task_t *)prc->arch_info;
+    /*registers_t *regs = kmalloc(sizeof(registers_t));
+    memset(regs,0,sizeof(registers_t));
+    regs->ds = 0x23;
+    regs->cs = 0x1b;
+    regs->eip = entryPoint;
+    regs->ss = regs->ds;
+    regs->eflags = 0x200;
+    regs->useresp = _esp+4096;
+    archStack->regs = regs;*/
+    archStack->userESP = _esp;
+    int *stack = (int *)_esp+4096;
+    PUSH(stack,0);
+    PUSH(stack,0);
+    x86_jumpToUser(entryPoint,(int)stack);
 }

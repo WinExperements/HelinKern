@@ -34,10 +34,11 @@ static int sys_getuid();
 static void sys_setuid(int uid);
 static void sys_seek(int fd,int type,int how);
 static int sys_tell(int fd);
-static void *sys_mmap(vfs_node_t *node,int addr,int size,int offset,int flags);
+static void *sys_mmap(int _fd,int addr,int size,int offset,int flags);
 static int sys_insmod(char *path);
 static void sys_rmmod(char *name);
-int syscall_table[32] = {
+static int sys_ioctl(int fd,int req,void *argp);
+int syscall_table[33] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -70,8 +71,9 @@ int syscall_table[32] = {
     (int)sys_mmap,
     (int)sys_insmod,
     (int)sys_rmmod,
+    (int)sys_ioctl,
 };
-int syscall_num = 32;
+int syscall_num = 33;
 static void sys_print(char *msg) {
     kprintf(msg);
 }
@@ -115,11 +117,11 @@ static int sys_open(char *path,int flags) {
     return id;
 }
 static void sys_close(int fd) {
-    /*process_t *caller = thread_getThread(thread_getCurrent());
+    process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *d = caller->fds[fd];
     vfs_close(d->node);
     kfree(d);
-    caller->fds[fd] = NULL;*/
+    caller->fds[fd] = NULL;
 }
 static void sys_read(int _fd,int offset,int size,void *buff) {
     process_t *caller = thread_getThread(thread_getCurrent());
@@ -153,12 +155,15 @@ static int sys_exec(char *path) {
     void *file_buff = kmalloc(len);
     vfs_read(file,0,len,file_buff);
     elf_load_file(file_buff);
+    process_t *prc = thread_getThread(thread_getNextPID()-1);
+    // Change name to actual file name
+    thread_changeName(prc,file->name);
     kfree(file_buff);
     kfree(buff);
     vfs_close(file);
     //DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize()/1024);
     arch_sti();
-    return thread_getNextPID()-1;
+    return prc->pid;
 }
 static void sys_reboot(int reason) {
 	if (reason == POWEROFF_MAGIC) {
@@ -264,7 +269,10 @@ static int sys_tell(int _fd) {
     file_descriptor_t *fd = caller->fds[_fd];
     return fd->offset;
 }
-static void *sys_mmap(vfs_node_t *node,int addr,int size,int offset,int flags) {
+static void *sys_mmap(int _fd,int addr,int size,int offset,int flags) {
+    process_t *caller = thread_getThread(thread_getCurrent());
+    file_descriptor_t *fd = caller->fds[_fd];
+    vfs_node_t *node = fd->node;
     if (node != NULL) {
         return vfs_mmap(node,addr,size,offset,flags);
     }
@@ -312,5 +320,13 @@ static int sys_insmod(char *path) {
 }
 static void sys_rmmod(char *name) {
     kprintf("Comming soon!\r\n");
+}
+static int sys_ioctl(int fd,int req,void *argp) {
+    kprintf("sys_ioctl\r\n");
+    // Generally used by the compositor to draw windows!
+    process_t *caller = thread_getThread(thread_getCurrent());
+    file_descriptor_t *file_desc = caller->fds[fd];
+    if (file_desc == NULL || file_desc->node == NULL) return -1;
+    return vfs_ioctl(file_desc->node,req,argp);
 }
 

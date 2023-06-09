@@ -144,9 +144,9 @@ void vfs_writeBlock(vfs_node_t *node,int blockN,int how,void *buff) {
     if (!node || !node->fs->writeBlock) return;
     node->fs->writeBlock(node,blockN,how,buff);
 }
-void vfs_ioctl(vfs_node_t *node,int request,void *argp) {
-    if (!node || !node->fs->ioctl) return;
-    node->fs->ioctl(node,request,argp);
+int vfs_ioctl(vfs_node_t *node,int request,void *argp) {
+    if (!node || !node->fs->ioctl) return -1;
+    return node->fs->ioctl(node,request,argp);
 }
 static vfs_node_t *vfs_find_impl(vfs_node_t *start,char *path) {
     char *t = strtok(path,"/");

@@ -6,13 +6,17 @@
 #include <dev.h>
 #include <mm/alloc.h>
 #include <lib/clist.h>
-static char keyCode;
+#include <debug.h>
 static void *keyboard_handler(void *);
-static bool shift,ctrl,hasKey = false;
+static bool shift,ctrl = false;
 static void keyboard_keyHandler(char key);
 static dev_t *keyboard_dev;
 static void keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
 static void readers_foreach(clist_head_t *element,va_list args);
+static int setBit(int n, int k);
+static int clearBit(int n, int k);
+int toggleBit(int n, int k);
+static int keyboardBits = 0;
 struct keyboard_reader {
     bool hasKey;
     char key;
@@ -26,6 +30,9 @@ void keyboard_init() {
 	// re-enable disabled ports
 	outb(0x64,0xAE);
 	outb(0x64,0xA8);
+	// Do self-test?
+	// Used the BOCHS source code
+	
     interrupt_add(33,keyboard_handler);
     //interrupt_add(IRQ12,keyboard_handler);
     // Register keyboard in devfs
@@ -106,8 +113,22 @@ static void *keyboard_handler(void *stack) {
             case 0x2b: keyboard_keyHandler('\\'); break;
             case 0x2a: {shift = !shift;} break;
             case 0x1d: {ctrl = !ctrl;} break;
+            case 0x3a: {
+                // Toogle the bit
+                toggleBit(keyboardBits,2);
+                // Send it to the PS/2 controller
+                outb(0x60,keyboardBits);
+                outb(0x60,0xED);
+                // Wait for keyboard ACK
+                int timeout = 1000;
+                while(inb(0x64) != 0xFA) {
+                    if (timeout <= 0) break;
+                    timeout--;
+                }
+            } break;
             default:
             {
+                //DEBUG("Unhandled key: 0x%x\r\n",key);
                 break;
             }
 	}
@@ -149,4 +170,17 @@ static void keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,voi
     }
    }
     clist_delete_entry(readers,d);
+}
+static int setBit(int n, int k)
+{
+    return (n|(1<<(k-1)));
+}
+// Function to clear the kth bit of n
+static int clearBit(int n, int k)
+{
+    return (n & (~(1 << (k - 1))));
+}
+int toggleBit(int n, int k)
+{
+    return (n^(1<<(k-1)));
 }

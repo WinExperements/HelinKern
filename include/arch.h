@@ -19,7 +19,7 @@ void arch_poweroff();
 bool arch_getFBInfo(fbinfo_t *info);
 int arch_getMemSize();
 void arch_switchContext(void *prSt);
-void *arch_prepareContext(int entry);
+void *arch_prepareContext(int entry,bool isUser);
 void *arch_preapreArchStack(bool isUser);
 void arch_syscall_init();
 int arch_getModuleAddress();
