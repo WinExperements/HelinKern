@@ -27,6 +27,7 @@ void panic(char *file,int line,char *msg) {
     arch_cli();
     kprintf("Sorry, but the OS seems crashed by unknown reason. Send the information above to the system administrator for help.\r\n");
     kprintf("PANIC: %s:%d %s\r\n",file,line,msg);
+    arch_trace();
     while(1) {}
 }
 void kernel_main(const char *args) {

@@ -5,6 +5,7 @@
 #include "stdarg.h"
 char __stdio_buf[200];
 /* Print string on screen */
+FILE *stdin = 0;
 int printf(const char *message,...) {
 	va_list l;
 	va_start(l,message);

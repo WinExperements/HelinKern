@@ -24,11 +24,13 @@ all: $(OBJECTS) $(MODULE_OBJS)
 	make -C userland/mount
 	make -C userland/windowserver
 	make -C module/pci
+	make -C userland/login
+	make -C userland/sh
 	make -C userland/initrd
 	@echo [LD] kernel.bin
 	@$(CCPATH)ld -melf_i386 -T src/arch/$(ARCH)/linker.ld -Map=kernel.map -o kernel.bin $(OBJECTS) $(MODULE_OBJS)
 clean:
-	rm -rf $(OBJECTS) kernel.map iso/kernel userland/initrd/*.mod userland/initrd/init userland/initrd/mount userland/initrd/windowserver
+	rm -rf $(OBJECTS) kernel.map iso/kernel userland/initrd/*.mod userland/initrd/init userland/initrd/mount userland/initrd/windowserver userland/initrd/test userland/initrd/login userland/initrd/sh
 	make -C userland/init clean
 	make -C module/atapi clean
 	make -C module/mbr clean
@@ -38,6 +40,8 @@ clean:
 	make -C userland/windowserver clean
 	make -C module/pci clean
 	make -C userland/initrd clean
+	make -C userland/login clean
+	make -C userland/sh clean
 makeiso:
 	cp kernel.bin iso/kernel
 	grub-mkrescue iso -o m.iso

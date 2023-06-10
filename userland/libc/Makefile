@@ -7,4 +7,4 @@ OBJECTS = stdio.o stdlib.o start.o message.o syscall.o string.o unistd.o dirent.
 all: $(OBJECTS)
 	ar rc libcc.a $(OBJECTS)
 clean:
-	rm -rf *.o *.a *.so
+	rm -rf $(OBJECTS) *.a *.so

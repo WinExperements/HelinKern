@@ -18,4 +18,5 @@ int fclose(FILE *file);
 int fwrite(char *,int size,int how,FILE *f);
 int fseek(FILE *stream,long offset,int origin);
 int ftell(FILE *stream);
+// Я не знаю, потрібен фікс!!
 #endif

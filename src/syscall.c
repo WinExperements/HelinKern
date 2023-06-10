@@ -108,13 +108,8 @@ static int sys_open(char *path,int flags) {
         node = vfs_creat(vfs_getRoot(),path,flags);
     }
     kfree(path_copy);
-    file_descriptor_t *fd = kmalloc(sizeof(file_descriptor_t));
-    memset(fd,0,sizeof(file_descriptor_t));
-    fd->node = node;
-    int id = caller->next_fd;
-    caller->fds[id] = fd;
-    caller->next_fd++;
-    return id;
+    
+    return thread_openFor(caller,node);
 }
 static void sys_close(int fd) {
     process_t *caller = thread_getThread(thread_getCurrent());
@@ -244,6 +239,7 @@ static void sys_waitpid(int pid) {
         struct process *child = thread_getThread(pid);
         process_t *parent = thread_getThread(thread_getCurrent());
         if (child != NULL && child->parent == parent) {
+            while(!child->started) {}
             while(!child->died) {}
         }
     }

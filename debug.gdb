@@ -37,5 +37,5 @@ target remote localhost:1234
 #b sys_exit
 #b queue_remove
 #b thread_getThread
-b sys_exec
+b sys_read
 c

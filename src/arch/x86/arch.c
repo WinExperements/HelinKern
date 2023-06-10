@@ -405,3 +405,15 @@ void arch_putArgs(process_t *prc,int argc,char **argv) {
     s->argc = argc;
     s->argv = (int)argv;
 }
+struct stackframe {
+  struct stackframe* ebp;
+  uint32_t eip;
+};
+void arch_trace() {
+    struct stackframe *stk;
+    asm ("movl %%ebp,%0" : "=r"(stk) ::);    
+    for(unsigned int frame = 0; stk && frame < 10; ++frame) {
+        kprintf("0x%x, %s\r\n",stk->eip,symbols_findName(stk->eip));
+        stk = stk->ebp;
+    }
+}

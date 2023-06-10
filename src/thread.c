@@ -86,6 +86,10 @@ void *thread_schedule(void *stack) {
             DEBUG("Switching to %s\r\n",nextTask->name);
 	    }
     }
+    if (!nextTask->started) {
+        // Інколи waitpid викликається занабто пізно
+        nextTask->started = true;
+    }
     if (nextTask->aspace == NULL) {
         PANIC("Process structure has been rewriten by something!\r\n");
     }
@@ -192,4 +196,13 @@ void thread_changeName(process_t *prc,char *n) {
 }
 int clock_getUptimeMsec() {
     return num_clocks;
+}
+int thread_openFor(process_t *caller,vfs_node_t *node) {
+    file_descriptor_t *fd = kmalloc(sizeof(file_descriptor_t));
+    memset(fd,0,sizeof(file_descriptor_t));
+    fd->node = node;
+    int id = caller->next_fd;
+    caller->fds[id] = fd;
+    caller->next_fd++;
+    return id;
 }

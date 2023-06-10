@@ -5,51 +5,52 @@
 #include "syscall.h"
 #include "dirent.h"
 #include "wait.h"
+
+void sh_parseCommand(char **argv,int argc);
+bool execute(char *command,char **argv,int argc);
+
 bool doexit = false;
 char path[128];
 int pid,ppid;
-char buff[128];
-void sh_parseCommand(char **argv,int argc);
-bool execute(char *command,char **argv,int argc);
-int __argc;
-char **__argv;
-void process_initScript(FILE *);
+char buff[100];
+
 int main(int argcf,char **argvf) {
-    __argc = argcf;
-    __argv = argvf;
-    //if (strcmp(argvf[1],"init")) return 0;
-    pid = getpid(); // remember pid for waitpid
-    ppid = getppid();
-    /*FILE *init_script = fopen("/initrd/init.sh","r");
+    FILE *init_script = fopen("/initrd/init.sh","r");
     if (init_script < 0) {
 		printf("init: no init.sh found at /bin. Droping to shell\n");
     } else {
 	    process_initScript(init_script);
-	    //while(1) {}
-    }*/
-    FILE *f = fopen("/dev/keyboard","rw");
-    if (f < 0) {
-        printf("Failed to open keyboard device!\r\n");
-        return 1;
-    }
-    char buff[100];
-    char *argv[100];
-    while(doexit != true) {
-        int argc = 0;
-       printf(pwd(path,128));
-       printf(" $ ");
-       fread(buff,1,100,f);
-       argv[argc] = strtok(buff," ");
-       while(argv[argc]) {
-        argc++;
-        argv[argc] = strtok(NULL," ");
-       }
-       if (argc > 0) {
-        sh_parseCommand(argv,argc);
-       }
+	    //  while(1) {}
     }
     return 0;
 }
+
+void process_initScript(FILE *init_sh) {
+	fseek(init_sh,0,SEEK_END);
+	int offset = ftell(init_sh);
+	fseek(init_sh,0,SEEK_SET);
+	// now try to read it!
+	char *buf = malloc(offset);
+	fread(buf,offset,1,init_sh);
+	fclose(init_sh);
+	char *line = strtok(buf,"\n");
+	int argc = 0;
+	char *argv[100];
+	char *last_ptr = NULL;
+	while(line) {
+		last_ptr = line;
+		argv[argc] = strtok_r(last_ptr," ",&last_ptr);
+		while(argv[argc]) {
+			argc++;
+			argv[argc] = strtok_r(last_ptr," ",&last_ptr);
+		}
+		sh_parseCommand(argv,argc);
+		argc = 0;
+		line = strtok(NULL,"\n");
+	}
+	free(buf);
+}
+
 void sh_parseCommand(char **argv,int argc) {
     if (argv[0][0] == '#') return;
     if (!strcmp(argv[0],"reboot")) {
@@ -86,11 +87,6 @@ void sh_parseCommand(char **argv,int argc) {
     } else if (!strcmp(argv[0],"mpe")) {
         helin_syscall(21,0,0,0,0,0);
         waitpid(pid,NULL,0);
-    } else if (!strcmp(argv[0],"args")) {
-        printf("arguments: %u\n",__argc);
-        for (int i = 0; i < __argc; i++) {
-            printf("%s\n",__argv[i]);
-        }
     } else if (argv[0][0] == '/') {
         int _pid = 0;
         if ((_pid = execv(argv[0],0,NULL)) > 0) {
@@ -217,29 +213,4 @@ bool execute(char *command,char **argv,int argc) {
         return false;
     }
     return false;
-}
-void process_initScript(FILE *init_sh) {
-	fseek(init_sh,0,SEEK_END);
-	int offset = ftell(init_sh);
-	fseek(init_sh,0,SEEK_SET);
-	// now try to read it!
-	char *buf = malloc(offset);
-	fread(buf,offset,1,init_sh);
-	fclose(init_sh);
-	char *line = strtok(buf,"\n");
-	int argc = 0;
-	char *argv[100];
-	char *last_ptr = NULL;
-	while(line) {
-		last_ptr = line;
-		argv[argc] = strtok_r(last_ptr," ",&last_ptr);
-		while(argv[argc]) {
-			argc++;
-			argv[argc] = strtok_r(last_ptr," ",&last_ptr);
-		}
-		sh_parseCommand(argv,argc);
-		argc = 0;
-		line = strtok(NULL,"\n");
-	}
-	free(buf);
 }

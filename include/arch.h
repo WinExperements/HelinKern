@@ -36,4 +36,5 @@ void arch_detect();
 void arch_saveContext(void *context,void *prcContext);
 void arch_sysinfo();
 void arch_putArgs(process_t *prc,int argc,char **argv);
+void arch_trace();
 #endif

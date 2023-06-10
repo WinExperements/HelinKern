@@ -160,17 +160,6 @@ static void module_main() {
 		} else if (type == AHCI_DEV_SATAPI) {
            		 kprintf("Found CDROM drive on port %d\r\n",i);
         	} else {
-			switch(type) {
-				case AHCI_DEV_SEMB:
-				kprintf("SEMB device found on port %d, but the driver doesn't work with it, sorry :(\r\n",i);
-				break;
-				case AHCI_DEV_PM:
-				kprintf("PM device found on port %d, but the driver doesn't work with it, sorry :(\r\n",i);
-				break;
-				default:
-				kprintf("Skipping other work cez port %d reported unknown type :(\r\n",i);
-				break;
-			}
             		pi >>= 1;
 			i++;
 			continue;

@@ -73,7 +73,6 @@ int symbols_findValue(char *f_name) {
 		}
         }
         // try to find using our modules entryes
-        kprintf("Trying to find %s in registred symbols\n",f_name);
         clist_head_t *sym = clist_find(module_symbols,symbols_nameFindDispatcher,f_name);
         if (sym != NULL) {
                 return ((sym_t *)sym->data)->value;

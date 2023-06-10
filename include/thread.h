@@ -27,6 +27,7 @@ typedef struct process {
     uint32_t brk_begin,brk_end,brk_next_unallocated_page_begin;
     file_descriptor_t **fds;
     int next_fd;
+    bool started;
 } process_t;
 void thread_init();
 process_t *thread_create(char *name,int entryPoint,bool isUser);
@@ -42,4 +43,5 @@ void thread_killThread(process_t *prc,int code);
 void thread_waitPid(process_t *prc);
 int thread_getNextPID();
 void thread_changeName(process_t *prc,char *n);
+int thread_openFor(process_t *prc,vfs_node_t *node);
 #endif

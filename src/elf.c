@@ -7,6 +7,7 @@
 #include <lib/string.h>
 #include <module.h>
 #include <debug.h>
+static vfs_node_t *keyboard = NULL;
 bool elf_check_file(Elf32_Ehdr *hdr) {
     if (!hdr) {
         kprintf("elf: given header are null\n");
@@ -119,6 +120,11 @@ bool elf_load_file(void *addr) {
     }
     // back to original space
     arch_mmu_switch(space);
+    if (!keyboard) keyboard = vfs_find("/dev/keyboard");
+    vfs_node_t *ke = keyboard;
+    if (ke) {
+	thread_openFor(prc,ke);
+    } 
     return true;
 }
 /*

@@ -42,14 +42,14 @@ void kshell_main() {
     argv[0] = "exec";
     argv[1] = "/initrd/init";
     parseCommand(2,argv);
-    argv[0] = "exec";
+    /*argv[0] = "exec";
     argv[1] = "/initrd/test";
-    parseCommand(2,argv);
-    /*argv[0] = "mount";
-    argv[1] = "fat32";
+    parseCommand(2,argv);*/
+    //argv[0] = "exit";
+    /*argv[1] = "fat32";
     argv[2] = "/dev/hdap0";
-    argv[3] = "/initrd";
-    parseCommand(4,argv);*/
+    argv[3] = "/initrd";*/
+    //parseCommand(1,argv);
 	while(exit != true) {
         argc = 0;
 		kprintf("> ");
@@ -65,11 +65,6 @@ void kshell_main() {
 	}
 	kfree(buff);
     kfree(argv);
-    int (*exec)(char *) = ((int (*)(char *))syscall_get(13));
-    int pid = exec("/initrd/init");
-    void (*waitpid)(int) = ((void (*)(int))syscall_get(22));
-    waitpid(pid);
-    kprintf("Child %d exited, exit\r\n",pid);
 	thread_killThread(self,0);
 }
 static void parseCommand(int argc,char *cmd[]) {
@@ -245,6 +240,8 @@ static void parseCommand(int argc,char *cmd[]) {
         vfs_close(initrd);
         cpio_load(buff,initrd->size);
         kprintf("done\r\n");
+    } else if (strcmp(cmd[0],"panic")) {
+        PANIC("PP");
     } else {
         kprintf("Unknown commmand: %s\r\n",cmd[0]);
     }
