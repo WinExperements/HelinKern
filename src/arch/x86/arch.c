@@ -190,6 +190,9 @@ void arch_destroyArchStack(void *stack) {
     if (task->userESP != 0) {
         kfree((void *)task->userESP);
     }
+    if (task->argc != 0) {
+        kfree(task->argv);
+    }
     kfree(stack);
 }
 void arch_post_init() {
@@ -400,6 +403,7 @@ static void thread_main(int entryPoint,int esp,bool isUser) {
     x86_jumpToUser(entryPoint,(int)stack);
 }
 void arch_putArgs(process_t *prc,int argc,char **argv) {
+    DEBUG("%s: put %s arguments with pointer to 0x%x\r\n",__func__,argc,argv);
     if (prc == NULL || argv == 0) return;
     x86_task_t *s = (x86_task_t *)prc->arch_info;
     s->argc = argc;

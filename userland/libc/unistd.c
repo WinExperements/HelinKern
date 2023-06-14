@@ -19,3 +19,9 @@ uid_t getuid() {
 int setuid(uid_t uid) {
     return helin_syscall(26,uid,0,0,0,0);
 }
+void setgid(int gid) {
+    helin_syscall(33,gid,0,0,0,0);
+}
+int getgid() {
+    return helin_syscall(34,0,0,0,0,0);
+}

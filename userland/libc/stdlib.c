@@ -17,10 +17,6 @@ void exit(int exitcode) {
 	for (;;) {}
 }
 void *malloc(int size) {
-	if (size > 4096) {
-		printf("malloc: Too large chunk\n");
-        return NULL;
-	}
 	void *ret = (void *)helin_syscall(11,size,0,0,0,0);
 	/*if (first_page_addr == 0) {
 		first_page_addr = (int)ret;

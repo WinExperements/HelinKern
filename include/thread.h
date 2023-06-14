@@ -9,6 +9,7 @@
 #define STATUS_WAITPID 5
 #define PROCESS_QUOTA 10
 typedef struct process {
+    // Base information
     void *stack;
     char *name;
     int pid;
@@ -16,9 +17,9 @@ typedef struct process {
     void *aspace;
     int state;
     int wait_time;
+    // Waitpid
     struct process  *parent;
     struct process *child;
-    int lAddr;
     int quota;
     bool reschedule;
     vfs_node_t *workDir;
@@ -28,6 +29,8 @@ typedef struct process {
     file_descriptor_t **fds;
     int next_fd;
     bool started;
+    // User information
+    int uid,gid;
 } process_t;
 void thread_init();
 process_t *thread_create(char *name,int entryPoint,bool isUser);

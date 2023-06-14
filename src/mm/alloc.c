@@ -3,9 +3,11 @@
 #include <arch.h>
 #include <output.h>
 #include <lib/string.h>
+#include <debug.h>
 /*
     Ported version of https://github.com/ozkl/soso/blob/master/kernel/alloc.c
 */
+// Ядро дуже не стабільне!
 static uint8_t *phys_map;
 static int total_pages = 0;
 static char *m_kheap = NULL;
@@ -87,7 +89,8 @@ void *kmalloc(int size) {
 		chunk = (MallocHeader *)((char *)chunk + chunk->size);
 		if (chunk == (struct MallocHeader *)m_kheap) {
 			if ((int)(ksbrk_page(realsize/PAGESIZE_4K + 1)) < 0) {
-				PANIC("Out of kernel memory!");
+                kprintf("Attempt to allocate %d bytes\r\n",size);
+				//PANIC("Out of kernel memory!");
 				return NULL;
 			}
 		} else if (chunk > (struct MallocHeader *)m_kheap) {
@@ -116,7 +119,7 @@ void kfree(void *addr) {
     chunk = (struct MallocHeader *)((uint32_t)addr-sizeof(struct MallocHeader));
     //kprintf("kfree: address: 0x%x, chunk address: 0x%x\r\n",addr,chunk);    
     if (!chunk->used) {
-        kprintf("0x%x isn't allocated\r\n",addr);
+        DEBUG("0x%x isn't allocated\r\n",addr);
         return;
     }
     chunk->used = 0;

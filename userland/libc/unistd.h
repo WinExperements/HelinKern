@@ -8,4 +8,6 @@ int execv(char *file,int argc,char *argv[]);
 pid_t getppid();
 uid_t getuid();
 int setuid(uid_t uid);
+void setgid(int gid);
+int getgid();
 #endif

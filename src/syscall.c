@@ -38,7 +38,10 @@ static void *sys_mmap(int _fd,int addr,int size,int offset,int flags);
 static int sys_insmod(char *path);
 static void sys_rmmod(char *name);
 static int sys_ioctl(int fd,int req,void *argp);
-int syscall_table[33] = {
+static void sys_setgid(int gid);
+static int sys_getgid();
+static void *sys_sbrk(int increment);
+int syscall_table[36] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -72,8 +75,11 @@ int syscall_table[33] = {
     (int)sys_insmod,
     (int)sys_rmmod,
     (int)sys_ioctl,
+    (int)sys_setgid,
+    (int)sys_getgid,
+    (int)sys_sbrk,
 };
-int syscall_num = 33;
+int syscall_num = 36;
 static void sys_print(char *msg) {
     kprintf(msg);
 }
@@ -92,6 +98,7 @@ static void sys_exit(int exitCode) {
 }
 static void sys_kill(int pid,int code) {
     thread_killThread(thread_getThread(pid),code);
+    arch_reschedule();
 }
 static int sys_getpid() {
     return thread_getCurrent();
@@ -155,7 +162,7 @@ static int sys_exec(char *path,int argc,char **argv) {
     thread_changeName(prc,file->name);
     kfree(file_buff);
     kfree(buff);
-    if (argc == 0) {
+    if (argc == 0 || argv == 0) {
         // Передамо звичайні параметри(ім'я файлу і т.д)
         char **params = kmalloc(1);
         params[0] = strdup(path);
@@ -164,7 +171,7 @@ static int sys_exec(char *path,int argc,char **argv) {
         arch_putArgs(prc,argc,argv);
     }
     vfs_close(file);
-    //DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize()/1024);
+    DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize());
     arch_sti();
     return prc->pid;
 }
@@ -233,16 +240,24 @@ static int sys_mount(char *dev,char *mount_point,char *fs) {
     return 0;
 }
 static void sys_waitpid(int pid) {
-    // most important syscall!
+    // Most important syscall!
     if (pid > 0) {
-        //check if given process has spawned by current caller
-        struct process *child = thread_getThread(pid);
-        process_t *parent = thread_getThread(thread_getCurrent());
-        if (child != NULL && child->parent == parent) {
-            while(!child->started) {}
-            while(!child->died) {}
+    // Check if the given process has been spawned by the current caller
+    struct process *child = thread_getThread(pid);
+    process_t *parent = thread_getThread(thread_getCurrent());
+
+    DEBUG("sys_waitpid called from %s to wait for %s\r\n", parent->name, child->name);
+
+    if (child != NULL && child->parent == parent) {
+        thread_waitPid(parent);
+
+        // Wait for the child process to start and die
+        while (!child->started || !child->died) {
+            // Perform a blocking wait until the child process status changes
+            arch_reschedule();
         }
     }
+}
 }
 static int sys_getppid() {
     process_t *prc = thread_getThread(thread_getCurrent());
@@ -256,9 +271,22 @@ static void sys_sysinfo() {
 	kprintf("Used kernel heap: %dKB\r\n",alloc_getUsedSize()/1024);
 	kprintf("Running tasks: %d\r\n",thread_getNextPID());
 	arch_sysinfo();
+    for (int i = 0; i < thread_getNextPID(); i++) {
+        process_t *prc = thread_getThread(i);
+        if (!prc) continue;
+        kprintf("%s, %d\r\n",prc->name,prc->pid);
+    }
 }
-static int sys_getuid() {return 0;}
-static void sys_setuid(int uid) {}
+static int sys_getuid() {
+     process_t *prc = thread_getThread(thread_getCurrent());
+    if (!prc) return 0;
+    return prc->uid;
+}
+static void sys_setuid(int uid) {
+     process_t *prc = thread_getThread(thread_getCurrent());
+    if (!prc) return;
+    prc->uid = uid;
+}
 static void sys_seek(int _fd,int type,int how) {
 	process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *fd = caller->fds[_fd];
@@ -333,4 +361,18 @@ static int sys_ioctl(int fd,int req,void *argp) {
     if (file_desc == NULL || file_desc->node == NULL) return -1;
     return vfs_ioctl(file_desc->node,req,argp);
 }
-
+static void sys_setgid(int gid) {
+    process_t *prc = thread_getThread(thread_getCurrent());
+    if (!prc) return;
+    prc->gid = gid;
+}
+static int sys_getgid() {
+    process_t *prc = thread_getThread(thread_getCurrent());
+    if (!prc) return 0;
+    return prc->gid;
+}
+static void *sys_sbrk(int increment) {
+    process_t *prc = thread_getThread(thread_getCurrent());
+    if (!prc) return -1;
+    return sbrk(prc,increment);
+}

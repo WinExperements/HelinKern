@@ -244,7 +244,7 @@ x86_jumpToUser:
 
     push 0x23
     push ebx
-    pushf
+    push 0x200
     ; code segment selector, rpl = 3
     push 0x1b
     push eax

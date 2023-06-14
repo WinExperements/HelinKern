@@ -36,6 +36,9 @@ target remote localhost:1234
 #b elf_load_file
 #b sys_exit
 #b queue_remove
-#b thread_getThread
-b sys_read
+#b src/arch/x86/gdt.c:173
+#b sys_kill
+#b arch_jumpToStack
+#b arch_destroyArchStack
+b src/thread.c:167
 c

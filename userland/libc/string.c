@@ -444,3 +444,14 @@ char *strtok(char *s, const char *delim)
 
 	return word;
 }
+// Розширення функціоналу
+char *strstr(const char *X,const char *Y) {
+    int size = strlen(Y);
+    while(*X) {
+        if ((*X == *Y) && !strcmp(X,Y)) {
+            return X;
+        }
+        X++;
+    }
+    return NULL;
+}

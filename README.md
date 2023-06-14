@@ -1,4 +1,7 @@
 # HelinKern
+## Warrning
+The kernel is unstable and in any moment can be crashed, this is caused by scheduling code, but it's fixed as soon as posible. Also there some problems with VFS
+
 just new implementation of my old osdev project. Many components are based on open source implementation, check the files for more information.
 # Sources
 The kernel uses source code and/or the design from there projects:
@@ -11,6 +14,7 @@ The kernel uses source code and/or the design from there projects:
 - At some point ReactOS
 - And many many others projects(all there repos just named as osdev)
 - OSDEV wiki
+- GRUB(module loading,AHCI and many many other thinks)
 # See also
 See also there projects and their branches that i used to make the version:
 - [SOSO OS](https://github.com/ozkl/soso)
@@ -18,6 +22,7 @@ See also there projects and their branches that i used to make the version:
 - [cuteOS](https://github.com/a-darwish/cuteOS)
 - Project where you can find USB,SATA,PCI realization and many more are [here](https://github.com/pdoane/osdev)
 - [ReactOS](https://github.com/reactos/reactos)
+- [Used GRUB](https://github.com/rhboot/grub2)
 # Whats new?
 In this project i make main goal to do the most portatable kernel as posible. Also with the SOSO OS allocator and VMM design i can finally implement FAT driver.
 # Build

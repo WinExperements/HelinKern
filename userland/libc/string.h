@@ -24,4 +24,5 @@ extern unsigned int snprintf(char* s1, uint32_t n, const char* s2, ...);
 extern unsigned int vsprintf(char* s1, const char* s2, va_list list);
 extern unsigned int vsnprintf(char* s1, unsigned int n, const char* s2, va_list list);
 char *strtok(char *s, const char *delim);
+char *strstr(const char *X,const char *Y);
 #endif

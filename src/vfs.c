@@ -23,6 +23,7 @@ void vfs_addFS(vfs_fs_t *fs) {
 }
 void vfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
     if (!node) {
+        if (how <= 0) return;
         kprintf("vfs: file seems broken, or you trying to read don't exists file\n");
         return;
     } else {
@@ -31,6 +32,7 @@ void vfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
 }
 void vfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
     if (!node) {
+        if (how <= 0) return;
         kprintf("vfs: file seems broken, or you trying to write to don't exists file\n");
         return;
     } else {
@@ -49,7 +51,7 @@ void vfs_open(vfs_node_t *node,bool r,bool w) {
 }
 void vfs_close(vfs_node_t *node) {
     if (!node || !node->fs->close) {
-        kprintf("vfs: file seems broken, or you trying to read close, didn't oppened file\n");
+        kprintf("vfs: file seems broken, or you trying to close, didn't oppened file\n");
         return;
     } else {
         node->fs->close(node);

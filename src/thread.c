@@ -36,66 +36,38 @@ void thread_init() {
 }
 /* Допоможіть :( */
 void *thread_schedule(void *stack) {
-    // scheduler v1, taked code from my old osdev project
-    // Edited version
-    process_t *nextTask;
-    //kprintf("Schedule\r\n");
+     // scheduler v1, code optimized for performance
     if (runningTask != NULL) {
-        // Okay we need to find a new if the quota is ended
         if (runningTask->quota < PROCESS_QUOTA && !runningTask->reschedule) {
-                runningTask->quota++;
-                return stack;
-            }
-            if (running_list->size == 0) return stack;
-            // Simply select new task
-            nextTask = dequeue(running_list);
-            if (nextTask->state > 3) nextTask = idle;
-            nextTask->quota = 0;
-	        //enqueue(running_list,runningTask);
-    } else {
-        nextTask = dequeue(running_list);
-    }
-    if (!nextTask) {
-        // no tasks left, goto idle thread
-        nextTask = idle;
-    } else if (nextTask->died) {
-        kprintf("Died task: %s!\r\n",nextTask->name);
-        arch_destroyContext(nextTask->stack);
-        arch_destroyArchStack(nextTask->arch_info);
-        kfree(nextTask->name);
-        // close all file descriptors
-        for (int i = 0; i < nextTask->next_fd; i++) {
-            file_descriptor_t *fd = nextTask->fds[i];
-            if (fd != NULL) {
-                DEBUG("Closing FD %d\r\n",i);
-                vfs_close(fd->node);
-                kfree(fd);
-            }
+            runningTask->quota++;
+            return stack;
         }
-        //queue_remove(task_list,nextTask);
-	    if (nextTask->parent == NULL) {
-		    DEBUG("No parent for %d! Switching to idle!\r\n",nextTask->pid);
-		    kfree(nextTask);
-		    nextTask = idle;
-	    } else {
-        	process_t *parent = nextTask->parent;
-		    arch_mmu_switch(idle->aspace);
-		    arch_mmu_destroyAspace(nextTask->aspace);
-        	kfree(nextTask);
-        	nextTask = parent;
-            DEBUG("Switching to %s\r\n",nextTask->name);
-	    }
+        if (running_list->size == 0) {
+            return stack;
+        }
     }
+    
+    process_t *nextTask = dequeue(running_list);
+    nextTask = (nextTask && nextTask->state > 3) ? idle : nextTask;
+    
+    if (!nextTask) {
+        nextTask = idle;
+    }
+    
     if (!nextTask->started) {
-        // Інколи waitpid викликається занабто пізно
         nextTask->started = true;
     }
+    
     if (nextTask->aspace == NULL) {
-        PANIC("Process structure has been rewriten by something!\r\n");
+        PANIC("Process structure has been rewritten by something!\r\n");
     }
+    
+    enqueue(running_list, nextTask);
+    
     // switch the address space
     arch_mmu_switch(nextTask->aspace);
     arch_switchContext(nextTask);
+
     return stack;
 }
 process_t *thread_create(char *name,int entryPoint,bool isUser) {
@@ -114,6 +86,8 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     th->child = NULL;
     th->died = false;
     th->fds = kmalloc(200);
+    th->uid = runningTask == NULL ? 0 : runningTask->uid;
+    th->gid = runningTask == NULL ? 0 : runningTask->gid;
     enqueue(task_list,th);
     enqueue(running_list,th);
     //kprintf("PID of new process: %d\r\n",th->pid);
@@ -126,16 +100,6 @@ static bool schedulerEnabled = true;
 //static int nextClocks = 0;
 void *clock_handler(void *stack) {
     num_clocks++;
-    /*nextClocks++;
-    if (nextClocks == 1000) {
-        nextClocks = 0;
-        seconds++;
-        int x = fb_getX();
-        int y = fb_getY();
-        fb_setpos(0,0);
-        kprintf("%d seconds\r\n",seconds);
-        fb_setpos(x,y);
-    }*/
     if (schedulerEnabled) {
         return thread_schedule(stack);
     }
@@ -166,21 +130,43 @@ process_t *thread_getThread(int pid) {
     return NULL;
 }
 void thread_killThread(process_t *prc,int code) {
-    DEBUG("Killing thread %s with code %d\r\n",prc->name,code);
-    // called when thread killed by an exception or its want to exit
-    // remove the process from processes list and insert it to the died list
+    DEBUG("Killing thread %s with code %d\r\n", prc->name, code);
+    // called when thread is killed by an exception or wants to exit
+    // remove the process from processes list and insert it into the died list
     arch_cli();
-    // insert it to the list
-    runningTask = NULL;
+    // Remove the process from the lists
     prc->died = true;
-    enqueue(running_list,prc);
-    queue_remove(task_list,prc);
+    queue_remove(task_list, prc);
+    queue_remove(running_list, prc);
+    // Switch to idle address space
+    arch_mmu_switch(idle->aspace);
+    DEBUG("Died task: %s!\r\n", prc->name);
+    // Cleanup resources
+    arch_destroyContext(prc->stack);
+    arch_destroyArchStack(prc->arch_info);
+    kfree(prc->name);
+    // Close all file descriptors
+    for (int i = 0; i < prc->next_fd; i++) {
+        file_descriptor_t *fd = prc->fds[i];
+        if (fd != NULL) {
+            DEBUG("Closing FD %d\r\n", i);
+            vfs_close(fd->node);
+            kfree(fd);
+        }
+    }
+    kfree(prc->fds);
+    process_t *parent = prc->parent;
+    if (parent->state == STATUS_WAITPID) {
+        parent->state = STATUS_RUNNING;
+        enqueue(running_list, parent);
+    }
     arch_sti();
     arch_reschedule();
 }
 void thread_waitPid(process_t *prc) {
     DEBUG("Waitpid for %d\r\n",prc->pid);
     prc->state = STATUS_WAITPID;
+    queue_remove(running_list,prc);
 }
 int thread_getNextPID() {
     return freePid;
@@ -198,6 +184,8 @@ int clock_getUptimeMsec() {
     return num_clocks;
 }
 int thread_openFor(process_t *caller,vfs_node_t *node) {
+    if (!node) return -1;
+    DEBUG("%s: open: %s for %s\r\n",__func__,node->name,caller->name);
     file_descriptor_t *fd = kmalloc(sizeof(file_descriptor_t));
     memset(fd,0,sizeof(file_descriptor_t));
     fd->node = node;

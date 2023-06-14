@@ -5,7 +5,7 @@
 #include "sys/ioctl.h"
 int main(int argc,char **argv) {
 	if (argc > 1) {
-		printf("windowserver: no arguments support\n");
+		printf("windowserver: no arguments support,  passed: %d arguments!\n");
 		return 1;
 	}
 	// try to open the FB

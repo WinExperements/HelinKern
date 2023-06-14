@@ -6,6 +6,8 @@
 #include "dirent.h"
 #include "wait.h"
 
+#define	USER_MMAP_START     	0x80000000
+
 
 bool doexit = false;
 char path[128];
@@ -113,6 +115,8 @@ void sh_parseCommand(char **argv,int argc) {
         int pid = atou(argv[1]);
         helin_syscall(3,pid,0,0,0,0);
     } else if (!strcmp(argv[0],"sysinfo")) {
+        printf("Custom Shell for HelinOS\r\n");
+        printf("UID: %x, GID: %x\r\n",getuid(),getgid());
         helin_syscall(24,0,0,0,0,0);
     } else if (!strcmp(argv[0],"id")) {
         int uid = getuid();
@@ -159,8 +163,13 @@ void sh_parseCommand(char **argv,int argc) {
                 fclose(init_sh);
                 return;
             }
+            if (offset < 0) {
+                printf("WTF?\r\n");
+                fclose(init_sh);
+                return;
+            }
 	        // now try to read it!
-	        char *buf = malloc(offset);
+	        char *buf = helin_syscall(35,offset,0,0,0,0);
 	        fread(buf,offset,1,init_sh);
 	        fclose(init_sh);
             printf("%s",buf);
@@ -198,8 +207,11 @@ bool execute(char *command,char **argv,int argc) {
     sprintf(buff,"%s/%s",run_path,command);
     if ((_pid = execv(buff,argc,new_argv)) > 0) {
         if (!parallel) {
+            printf("Waitpid!\r\n");
             waitpid(_pid,NULL,0);
             if (new_argv)free(new_argv);
+        } else {
+            printf("[%u]\r\n",_pid);
         }
         return true;
     } else {

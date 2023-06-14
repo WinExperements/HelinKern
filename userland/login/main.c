@@ -62,8 +62,10 @@ int main(int argc,char **argv) {
 	        // У нас немає оболонки, тому виходимо :(
             int pid = 0;
             if ((pid = execv("/initrd/sh",0,NULL)) > 0) {
-                waitpid(ppid,NULL,0);
+                waitpid(pid,NULL,0);
                 user = NULL; // Не забуваємо!
+            } else {
+                printf("Failed to execute shell!\n");
             }
         }
 	}
