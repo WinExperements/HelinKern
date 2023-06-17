@@ -18,6 +18,8 @@ static uint32_t read_cr3()
     return value;
 }
 
+extern char kernel_end[];
+
 void arch_mmu_init() {
     int i = 0;
     for (i = 0; i < 4; ++i)
@@ -28,7 +30,6 @@ void arch_mmu_init() {
     {
         kernel_pg[i] = 0;
     }
-
     //Recursive page directory strategy
     kernel_pg[1023] = (uint32_t)kernel_pg | PG_PRESENT | PG_WRITE;
     //zero out PD area

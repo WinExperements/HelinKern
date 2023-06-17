@@ -11,12 +11,13 @@ static void *keyboard_handler(void *);
 static bool shift,ctrl = false;
 static void keyboard_keyHandler(char key);
 static dev_t *keyboard_dev;
-static void keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+static int keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
 static void readers_foreach(clist_head_t *element,va_list args);
 static int setBit(int n, int k);
 static int clearBit(int n, int k);
 int toggleBit(int n, int k);
 static int keyboardBits = 0;
+static int readedI = 0;
 struct keyboard_reader {
     bool hasKey;
     char key;
@@ -146,20 +147,20 @@ static void keyboard_keyHandler(char key) {
     clist_for_each(readers,readers_foreach,key);
     kprintf("%c",key);
 }
-static void keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
+static int keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
   if (how <= 0 || buf == NULL) return;
     // Create then add reader to the structure!
     clist_head_t *d = clist_insert_entry_after(readers,readers->head);
     struct keyboard_reader *reader = d->data;
   char *buff = (char *)buf;
-  uint64_t i = 0;
+  int i = 0;
    while(i < (how-1)) {
     reader->hasKey = false;
     while(!reader->hasKey);
     char c = reader->key;
     if (c == '\n') {
         buff[i] = 0;
-        return;
+        return i;
     } else if (c == '\b') {
         if (i > 0) {
             i--;
@@ -170,6 +171,8 @@ static void keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,voi
     }
    }
     clist_delete_entry(readers,d);
+    readedI = i;
+    return i;
 }
 static int setBit(int n, int k)
 {

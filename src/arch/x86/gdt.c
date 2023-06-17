@@ -164,13 +164,6 @@ void *x86_irq_handler(registers_t *regs) {
     int int_no = regs->int_no;
     if (int_no < IRQ0) {
         arch_cli();
-        if (regs->eflags != 518) {
-            kprintf("%s\r\n",exception_names[int_no]);
-            thread_killThread(thread_getThread(thread_getCurrent()),18198);
-            arch_reschedule(); // never return?
-         }
-        kprintf("Exception: %s, halt\r\n",exception_names[int_no]);
-        // Halt
         int addr = 0;
 		asm volatile("movl %%cr2, %0" : "=r"(addr));
         if (int_no == 14) {
@@ -183,6 +176,13 @@ void *x86_irq_handler(registers_t *regs) {
 		    kprintf("Page fault!!! When trying to %s %x - IP:%x\n", rw ? "write to" : "read from", addr, regs->eip);
             kprintf("The page was %s\n", present ? "present" : "not present");
         }
+        if (regs->eflags != 518) {
+            kprintf("%s in %s\r\n",exception_names[int_no],thread_getThread(thread_getCurrent())->name);
+            thread_killThread(thread_getThread(thread_getCurrent()),18198);
+            arch_reschedule(); // never return?
+         }
+        kprintf("Exception: %s, halt\r\n",exception_names[int_no]);
+        // Halt
         while(1) {}
     }
     return interrupt_handler(int_no,regs);

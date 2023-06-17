@@ -126,6 +126,7 @@ void *arch_prepareContext(int entry,bool isUser) {
 }
 void *arch_preapreArchStack(bool isUser) {
     x86_task_t *t = kmalloc(sizeof(x86_task_t));
+    memset(t,0,sizeof(x86_task_t));
     t->kesp_start = (isUser ? (int)kmalloc(4096) : 0);
     t->kernelESP = t->kesp_start+4096;
     t->stack = stack_addr;
@@ -219,6 +220,9 @@ void arch_post_init() {
 				DEBUG_N("Failed\r\n");
 			}
 		}
+	    // Map all modules into memory :)
+	    int module_size = mod->mod_end-mod->mod_start;
+	    arch_mmu_map(NULL,(int)mod->mod_start,module_size);
         }
     }
 	apic_init();

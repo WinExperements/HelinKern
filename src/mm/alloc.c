@@ -12,12 +12,17 @@ static uint8_t *phys_map;
 static int total_pages = 0;
 static char *m_kheap = NULL;
 static int heap_used;
+static bool mapped = false;
+static int pagesUsedBeforeMapping = 0;
+static int kernel_endAddress;
+static int end_address;
 void alloc_init(int kernel_end,int high_mem) {
     // Place map at the end of kernel address
     phys_map = (uint8_t *)kernel_end;
     // Clean the map
     total_pages = (high_mem*1024)/4096;
     int pg = 0;
+    kernel_endAddress = (int)kernel_end;
     for (pg = 0; pg < total_pages / 8; ++pg) {
         phys_map[pg] = 0x0;
     }
@@ -25,8 +30,14 @@ void alloc_init(int kernel_end,int high_mem) {
     for (pg = 0; pg < (int)(PAGE_INDEX_4K(kernel_end+bitmapSize)); ++pg) {
         SET_PAGEFRAME_USED(phys_map,pg);
     }
+    end_address = kernel_end+(total_pages*8);
+    // BUG: The phys_map isn't mapped when size of initrd is too high, so we need to propertly map it in the kernel heap initialization code
 }
 int alloc_getPage() {
+    if (!mapped) {
+        pagesUsedBeforeMapping++;
+        return end_address+(pagesUsedBeforeMapping*PAGESIZE_4K);
+    }
     int byte, bit;
     uint32_t page = -1;
     for (byte = 0; byte < total_pages / 8; byte++)
@@ -48,6 +59,16 @@ int alloc_getPage() {
 }
 void kheap_init() {
 	m_kheap = (char *)KERN_HEAP_BEGIN;
+	// Fix of major bug
+	// Map the phys_map even if it is already mapped(double check)
+	DEBUG_N("Mapping phys_map...");
+	/*int addr = (int)phys_map;
+	aspace_t *space = arch_mmu_getAspace();
+	for (int i = 0; i < total_pages; i++) {
+		arch_mmu_mapPage(space,(void *)addr,addr,7);
+		addr+=4096;
+	}
+	kprintf("done\r\n");*/
 	ksbrk_page(1);
 }
 void *ksbrk_page(int n) {
@@ -204,5 +225,19 @@ void *krealloc(void *p,int size) {
     return newchunk;
 }
 void alloc_freePage(int addr) {
-	SET_PAGEFRAME_USED(phys_map,addr);
+	SET_PAGEFRAME_UNUSED(phys_map,addr);
+}
+int alloc_getBitmapSize() {
+    return total_pages*sizeof(uint16_t);
+}
+void alloc_mapItself() {
+    arch_mmu_map(arch_mmu_getAspace(),(int)phys_map,alloc_getBitmapSize(),7);
+    mapped = true;
+    int page = PAGE_INDEX_4K(kernel_endAddress+alloc_getBitmapSize());
+    for (int i = page; i < pagesUsedBeforeMapping; i++) {
+        SET_PAGEFRAME_USED(phys_map,i);
+    }
+}
+int alloc_getEnd() {
+    return kernel_endAddress+alloc_getBitmapSize();
 }

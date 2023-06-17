@@ -22,13 +22,14 @@ static uint32_t ws_row,ws_col;
 static void scroll();
 static int width,height,pitch,addr,fcolor,bcolor;
 static bool enableCursor = true;
-static void fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff);
+static int fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff);
 static void *fbdev_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
 static dev_t *fbdev;
 static int paddr;
 static char *charBuff;
 static void syncFB(); // draw all characters from charBuff
 static int fb_ioctl(struct vfs_node *node,int request,void *argp);
+static int GFX_MEMORY = 0;
 void fb_init(fbinfo_t *fb) {
     if (!fb) return;
     psf_init();
@@ -195,17 +196,18 @@ static void printCursor(int x,int y) {
 void fb_map() {
     if (mapped) return;
     if (addr != NULL) {
+        GFX_MEMORY = 0x01400000;
         // Map the FB
         uint32_t p_address = (uint32_t)addr;
-	uint32_t v_address = (uint32_t)GFX_MEMORY;
-	uint32_t size = pitch * height;
-	uint32_t pages = size / PAGESIZE_4K;
-	for (uint32_t i = 0; i < pages; i++) {
-		uint32_t offset = i * PAGESIZE_4K;
-		arch_mmu_mapPage(NULL,v_address + offset,p_address + offset,7);
-	}
-	addr = GFX_MEMORY;
-	mapped = true;
+	    uint32_t v_address = (uint32_t)GFX_MEMORY;
+	    uint32_t size = pitch * height;
+	    uint32_t pages = size / PAGESIZE_4K;
+	    for (uint32_t i = 0; i < pages; i++) {
+		    uint32_t offset = i * PAGESIZE_4K;
+		    arch_mmu_mapPage(NULL,v_address + offset,p_address + offset,7);
+	    }
+	    addr = GFX_MEMORY;
+	    mapped = true;
     }
     DEBUG("FB mapped: from 0x%x to 0x%x\r\n",addr,(addr)+(pitch*width));
 }
@@ -248,8 +250,9 @@ void fb_disableCursor() {
 void fb_enableCursor() {
     enableCursor = true;
 }
-static void fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff) {
+static int fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff) {
     // Nothing!
+    return size;
 }
 static void *fbdev_mmap(struct vfs_node *node,int _addr,int size,int offset,int flags) {
     // First allocate requested space

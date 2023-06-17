@@ -24,8 +24,8 @@ struct dirent {
 typedef struct vfs_fs {
     char *fs_name;
     bool (*mount)(struct vfs_node *dev,struct vfs_node *mountpoint,void *);
-    void (*read)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
-    void (*write)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+    int (*read)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+    int (*write)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
     void (*open)(struct vfs_node *node,bool w,bool r);
     void (*close)(struct vfs_node *node);
     struct vfs_node *(*finddir)(struct vfs_node *in,char *name);
@@ -46,8 +46,8 @@ typedef struct file_descriptor {
 void vfs_init();
 void vfs_addFS(vfs_fs_t *fs);
 vfs_fs_t *vfs_findFS(char *name);
-void vfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
-void vfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
+int vfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
+int vfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
 void vfs_open(vfs_node_t *node,bool w,bool r);
 void vfs_close(vfs_node_t *node);
 struct dirent *vfs_readdir(vfs_node_t *in,uint32_t index);

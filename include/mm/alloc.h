@@ -37,4 +37,7 @@ int alloc_getUsedSize();
 // Required by FAT32!
 void *krealloc(void *p,int size);
 void alloc_freePage(int addr);
+int alloc_getBitmapSize();
+void alloc_mapItself();
+int alloc_getEnd(); // needed for FB :(
 #endif

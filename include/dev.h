@@ -5,8 +5,8 @@
 typedef struct dev {
     char *name;
     int buffer_sizeMax;
-    void (*write)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
-    void (*read)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+    int (*write)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+    int (*read)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
     void *(*mmap)(struct vfs_node *node,int addr,int size,int offset,int flags);
     void (*readBlock)(struct vfs_node *node,int blockNo,int how,void *buf);
     void (*writeBlock)(struct vfs_node *node,int blockNo,int how,void *buf);

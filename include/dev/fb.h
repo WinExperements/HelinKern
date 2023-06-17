@@ -1,6 +1,6 @@
 #ifndef FB_H
 #define FB_H
-#define GFX_MEMORY 0x01000000
+//#define GFX_MEMORY 0x01400000
 typedef struct fbinfo {
     void *addr;
     int width;

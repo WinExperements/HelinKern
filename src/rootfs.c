@@ -8,11 +8,11 @@ static vfs_node_t *root;
 static vfs_fs_t *rootfs_fs;
 static struct dirent rootfs_dirent;
 static int files = 0;
-static void rootfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
+static int rootfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
 static struct dirent *rootfs_readdir(vfs_node_t *in,uint32_t index);
 static vfs_node_t *rootfs_finddir(vfs_node_t *root,char *name);
 static vfs_node_t *rootfs_creat(vfs_node_t *node,char *name,int flags);
-static void rootfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
+static int rootfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
 static void rootfs_truncate(vfs_node_t *in,int size);
 static void rootfs_close(vfs_node_t *in);
 static bool __rootfs_mount(vfs_node_t *,vfs_node_t *mptr,void *);
@@ -39,10 +39,11 @@ void rootfs_init() {
     data = kmalloc(100);
     memset(data,0,100);
 }
-static void rootfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
+static int rootfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
     if ((node->flags & 0x7) != VFS_DIRECTORY) {
         memcpy(buf,data[node->inode]+offset,how);
     }
+    return how;
 }
 static struct dirent *rootfs_readdir(vfs_node_t *in,uint32_t index) {
     // find node
@@ -99,8 +100,8 @@ static vfs_node_t *rootfs_creat(vfs_node_t *node,char *name,int flags) {
 void rootfs_mount(char *to) {
     vfs_mount(rootfs_fs,NULL,to);
 }
-static void rootfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
-   
+static int rootfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
+   return 0;
 }
 static void rootfs_truncate(vfs_node_t *node,int size) {
     node->size = size;

@@ -14,8 +14,8 @@ static void sys_kill(int pid,int code);
 static int sys_getpid();
 static int sys_open(char *path,int flags);
 static void sys_close(int fd);
-static void sys_read(int fd,int offset,int size,void *buff);
-static void sys_write(int fd,int offset,int size,void *buff);
+static int sys_read(int fd,int offset,int size,void *buff);
+static int sys_write(int fd,int offset,int size,void *buff);
 static void *sys_alloc(int size);
 static void sys_free(void *ptr);
 static void sys_print(char *msg);
@@ -89,7 +89,7 @@ void syscall_init() {
 }
 int syscall_get(int n) {
 	if (n > syscall_num) return 0;
-	//DEBUG("Get syscall %d\r\n",n);
+	DEBUG("Get syscall %d from %s\r\n",n,thread_getThread(thread_getCurrent())->name);
 	return syscall_table[n];
 }
 static void sys_exit(int exitCode) {
@@ -125,17 +125,18 @@ static void sys_close(int fd) {
     kfree(d);
     caller->fds[fd] = NULL;
 }
-static void sys_read(int _fd,int offset,int size,void *buff) {
+static int sys_read(int _fd,int offset,int size,void *buff) {
     process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *fd = caller->fds[_fd];
-    vfs_read(fd->node,fd->offset,size,buff);
-    fd->offset+=size;
+    int how = vfs_read(fd->node,fd->offset,size,buff);
+    fd->offset+=how;
+    return how;
 }
-static void sys_write(int _fd,int offset,int size,void *buff) {
+static int sys_write(int _fd,int offset,int size,void *buff) {
     process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *fd = caller->fds[_fd];
-    vfs_write(fd->node,fd->offset,size,buff);
-    fd->offset+=size;
+    int wr = vfs_write(fd->node,fd->offset,size,buff);
+    fd->offset+=wr;
 }
 static void *sys_alloc(int size) {
     return kmalloc(size);
@@ -168,7 +169,12 @@ static int sys_exec(char *path,int argc,char **argv) {
         params[0] = strdup(path);
         arch_putArgs(prc,1,params);
     } else {
-        arch_putArgs(prc,argc,argv);
+        // We need to copy arguments from caller to prevent #PG when process is exitng!
+        char **new_argv = kmalloc(argc);
+        for (int i = 0; i < argc; i++) {
+            new_argv[i] = strdup(argv[i]);
+        }
+        arch_putArgs(prc,argc,new_argv);
     }
     vfs_close(file);
     DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize());

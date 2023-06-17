@@ -120,10 +120,12 @@ bool elf_load_file(void *addr) {
     }
     // back to original space
     arch_mmu_switch(space);
-    if (!keyboard) keyboard = vfs_find("/dev/keyboard");
+    if (!keyboard) keyboard = vfs_find("/dev/tty");
     vfs_node_t *ke = keyboard;
     if (ke) {
 	thread_openFor(prc,ke);
+	thread_openFor(prc,ke);
+	thread_openFor(prc,ke); // yeah 3 times
     } 
     return true;
 }

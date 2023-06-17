@@ -79,6 +79,7 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
         if (!name) {
             name = path;
         }
+	DEBUG("Processing file: %s\r\n",path);
         data_offset += hdr.namesize + (hdr.namesize % 2);
         vfs_node_t *node = new_node(name,&hdr,size,data_offset);
         vfs_node_t *parent = dir != NULL ? vfs_find(dir) : root;
@@ -89,14 +90,14 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
     return true;
 }
 
-static void cpio_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
+static int cpio_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
     if ((size_t)offset >= node->size) return;
     how = min(how,node->size - offset);
     struct cpio *p = node->priv_data;
     vfs_read(d,p->data + offset,how,buf);
-    
+    return how;
 }
-static void cpio_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {}
+static int cpio_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {return 0;}
 
 struct vfs_node *cpio_finddir(struct vfs_node *di,char *name) {
     struct cpio *p = (struct cpio *)di->priv_data;

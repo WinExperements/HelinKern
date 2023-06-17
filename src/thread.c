@@ -38,7 +38,7 @@ void thread_init() {
 void *thread_schedule(void *stack) {
      // scheduler v1, code optimized for performance
     if (runningTask != NULL) {
-        if (runningTask->quota < PROCESS_QUOTA && !runningTask->reschedule) {
+        if (runningTask->quota < PROCESS_QUOTA) {
             runningTask->quota++;
             return stack;
         }
@@ -143,7 +143,9 @@ void thread_killThread(process_t *prc,int code) {
     DEBUG("Died task: %s!\r\n", prc->name);
     // Cleanup resources
     arch_destroyContext(prc->stack);
+    arch_mmu_switch(prc->aspace);
     arch_destroyArchStack(prc->arch_info);
+    arch_mmu_switch(idle->aspace);
     kfree(prc->name);
     // Close all file descriptors
     for (int i = 0; i < prc->next_fd; i++) {
@@ -160,6 +162,7 @@ void thread_killThread(process_t *prc,int code) {
         parent->state = STATUS_RUNNING;
         enqueue(running_list, parent);
     }
+    runningTask->quota = 10;
     arch_sti();
     arch_reschedule();
 }

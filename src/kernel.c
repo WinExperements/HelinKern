@@ -16,6 +16,7 @@
 #include <kshell.h>
 #include <debug.h>
 #include <fs/cpio.h>
+#include <tty.h>
 static int fb_addr;
 extern int *syscall_table;
 void *memset(void *dest,char val,int count) {
@@ -48,6 +49,7 @@ void kernel_main(const char *args) {
     int mem = arch_getMemSize();
     alloc_init(arch_getKernelEnd(),mem);
     arch_mmu_init();
+    alloc_mapItself();
     fb_map();
     fb_enableCursor();
     kheap_init();
@@ -67,6 +69,7 @@ void kernel_main(const char *args) {
     fbdev_init();
     ps2mouse_init();
     #endif
+    tty_init();
     thread_create("shell",(int)kshell_main,false);
     arch_post_init();
     clock_setShedulerEnabled(true);
@@ -74,8 +77,5 @@ void kernel_main(const char *args) {
     if (fb_addr != 0) {
 	    output_changeToFB();
     }
-    /*int (*exec)(char *) = ((int (*)(char *))syscall_get(13));
-    exec("/bin/init");*/
     arch_sti();
-    //kshell_main();
 }
