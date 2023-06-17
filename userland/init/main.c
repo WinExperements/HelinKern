@@ -15,6 +15,7 @@ int pid,ppid;
 char buff[100];
 
 int main(int argcf,char **argvf) {
+    printf("init starting up...\r\n");
     FILE *init_script = fopen("/initrd/init.sh","r");
     if (init_script < 0) {
 		printf("init: no init.sh found at /bin. Droping to shell\n");

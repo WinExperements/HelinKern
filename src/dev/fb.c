@@ -266,6 +266,7 @@ static void *fbdev_mmap(struct vfs_node *node,int _addr,int size,int offset,int 
 }
 void fbdev_init() {
      fbdev = kmalloc(sizeof(dev_t));
+    memset(fbdev,0,sizeof(dev_t));
     fbdev->name = "fb0";
     fbdev->buffer_sizeMax = pitch * height;
     fbdev->write = fbdev_write;

@@ -12,7 +12,6 @@ void arch_pre_init();
     - Timer
 */
 void arch_init();
-void arch_idleLoop();
 void arch_cli();
 void arch_sti();
 void arch_reset();
@@ -32,8 +31,6 @@ bool arch_relocSymbols(module_t *mod,void *ehdr);
 void arch_reschedule();
 /* Print all CPU information */
 void arch_detect();
-// Save context of current process
-void arch_saveContext(void *context,void *prcContext);
 void arch_sysinfo();
 void arch_putArgs(process_t *prc,int argc,char **argv);
 void arch_trace();

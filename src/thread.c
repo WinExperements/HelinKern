@@ -9,11 +9,6 @@
 #include <lib/string.h>
 #include <debug.h>
 #include <dev/fb.h>
-#ifdef X86
-#define TIMER_NO 32
-#else
-#define TIMER_NO 0
-#endif
 process_t *runningTask;
 queue_t *task_list,*running_list;
 static int freePid;
@@ -24,8 +19,7 @@ static void idle_main() {
     while(1) {}
 }
 void thread_init() {
-    // Setup the interrupt handler
-    interrupt_add(TIMER_NO,clock_handler);
+    // The interrupt handler for timer must be called from ARCH IRQ handler, see porting section in README
     task_list = queue_new();
     running_list = queue_new();
     idle = thread_create("idle",(int)idle_main,false);

@@ -14,9 +14,6 @@
 #define KERN_PD_AREA_BEGIN      0x00C00000 //12 mb
 #define KERN_PD_AREA_END        0x01000000 //16 mb
 
-#define KERN_HEAP_BEGIN 		0x02000000 //32 mb
-#define KERN_HEAP_END    		0x40000000 // 1 gb
-
 #define	PAGING_FLAG 		0x80000000	// CR0 - bit 31
 #define PSE_FLAG			0x00000010	// CR4 - bit 4 //For 4M page support.
 #define PG_PRESENT			0x00000001	// page directory / table

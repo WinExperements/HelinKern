@@ -28,6 +28,7 @@ forced to be within the first 8 KiB of the kernel file.
 .long 32 # Bit depth
 .section .bss
 .align 16
+
 stack_bottom:
 .skip 16384 # 16 KiB
 stack_top:

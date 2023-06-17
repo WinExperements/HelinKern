@@ -9,11 +9,11 @@
 #define IS_PAGEFRAME_USED(bitmap, page_index)	(bitmap[((uint32_t) page_index)/8] & (1 << (((uint32_t) page_index)%8)))
 #define	PAGESIZE_4K 		0x00001000
 #define	PAGESIZE_4M			0x00400000
-#define KERN_HEAP_BEGIN 		0x02000000 //32 mb
-#define KERN_HEAP_END    		0x40000000 // 1 gb
-#define	USER_OFFSET         	0x40000000
-#define	USER_MMAP_START     	0x80000000 //This is just for mapping starts searching vmem from here not to conflict with sbrk. It can start from USER_OFFSET if sbrk not used!
-#define	MEMORY_END              0xFFC00000 //After this address is not usable. Because Page Tables sit there!
+extern int KERN_HEAP_BEGIN;
+extern int KERN_HEAP_END; // must be defined somewhere
+extern int USER_OFFSET;
+extern int USER_MMAP_START;
+extern int MEMORY_END;
 
 #define KMALLOC_MINSIZE		16
 void alloc_init(int kernel_end,int high_mem);

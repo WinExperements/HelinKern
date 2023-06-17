@@ -12,7 +12,10 @@ target remote localhost:1234
 #b src/syscall.c:172
 #b arch_destroyArchStack
 #b arch_putArgs
-b tty_read
-b keyboard_read
+#b tty_read
+#b keyboard_read
 #b src/dev/keyboard.c:159
+#b thread_create
+#b dev_add
+b src/kernel.c:75
 c

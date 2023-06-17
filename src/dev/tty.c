@@ -30,6 +30,6 @@ static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) 
 }
 
 static int tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
-	if (!keyboard) return;
+	if (!keyboard) return 0;
 	return vfs_read(keyboard,offset,size,buff);
 }

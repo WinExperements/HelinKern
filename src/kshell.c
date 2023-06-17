@@ -34,22 +34,6 @@ void kshell_main() {
 	char *buff = kmalloc(100);
     int argc = 0;
     char **argv = kmalloc(100);
-    argv[0] = "mount";
-    argv[1] = "cpio";
-    argv[2] = "/bin/initrd.cpio";
-    argv[3] = "/initrd";
-    parseCommand(4,argv);
-    argv[0] = "exec";
-    argv[1] = "/initrd/init";
-    parseCommand(2,argv);
-    /*argv[0] = "exec";
-    argv[1] = "/initrd/test";
-    parseCommand(2,argv);*/
-    //argv[0] = "exit";
-    /*argv[1] = "fat32";
-    argv[2] = "/dev/hdap0";
-    argv[3] = "/initrd";*/
-    //parseCommand(1,argv);
 	while(exit != true) {
         argc = 0;
 		kprintf("> ");

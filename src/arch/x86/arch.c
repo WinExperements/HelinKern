@@ -18,6 +18,12 @@
 #include <module.h>
 #include <arch/x86/cpuid.h>
 #include <arch/x86/smp.h>
+/* Define some defines that needed for kernel allocator */
+extern int KERN_HEAP_BEGIN=0x02000000; //32 mb
+extern int KERN_HEAP_END=0x40000000; // 1 gb
+extern int USER_OFFSET=0x40000000;
+extern int USER_MMAP_START=0x80000000; //This is just for mapping starts searching vmem from here not to conflict with sbrk. It can start from USER_OFFSET if sbrk not used!
+extern int MEMORY_END=0xFFC00000; //After this address is not usable. Because Page Tables sit there!
 // Why my previous define is very starnge, like the stack is increments to 200!
 // Now all works fine as planed.
 #define PUSH(stack, type, value)\

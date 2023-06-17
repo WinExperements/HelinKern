@@ -70,12 +70,30 @@ void kernel_main(const char *args) {
     ps2mouse_init();
     #endif
     tty_init();
-    thread_create("shell",(int)kshell_main,false);
     arch_post_init();
     clock_setShedulerEnabled(true);
     arch_detect();
+    // Directly try to mount initrd and run init if it fails then panic like Linux kernel or spawn kshell
+    vfs_node_t *initrd = vfs_find("/bin/initrd.cpio");
+    if (!initrd) {
+	PANIC("Cannot find initrd. Pass it as module with initrd.cpio argument");
+    }
+    vfs_fs_t *cpio = vfs_findFS("cpio");
+    if (!cpio) {
+	PANIC("Cannot find CPIO FS in kernel!");
+    }
+    vfs_mount(cpio,initrd,"/initrd");
+    vfs_node_t *mounted = vfs_find("/initrd");
+    if (!mounted || !strcmp(mounted->fs->fs_name,"cpio")) {
+	PANIC("Failed to mount initrd");
+    }
     if (fb_addr != 0) {
 	    output_changeToFB();
     }
+    int (*exec)(char *,int,char **) = ((int (*)(char *,int,char **))syscall_get(13));
+    int pid = exec("/initrd/init",0,NULL); // Ядро передасть параметри за замовчуванням.
+    if (pid < 0) {
+	PANIC("Failed to execute init");
+   }
     arch_sti();
 }
