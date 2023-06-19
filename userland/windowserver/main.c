@@ -21,7 +21,7 @@ int main(int argc,char **argv) {
     ioctl(fb,1,&w);
     ioctl(fb,2,&h);    
     ioctl(fb,3,&p);
-    printf("mmap: %d, %d, %d, 0x%x,0x%x\r\n",w,h,p,&w,&h);
+    printf("mmap: %u, %u, %u, 0x%x,0x%x\r\n",w,h,p,&w,&h);
 	int *fb_b = mmap(fb,0,w*p,0,0);
 	if (fb_b == 0) {
 		printf("Failed to mmap FB\n");

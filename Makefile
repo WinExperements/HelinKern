@@ -46,7 +46,7 @@ makeiso:
 	cp kernel.bin iso/kernel
 	grub-mkrescue iso -o m.iso
 run:
-	qemu-system-i386 -cdrom m.iso -accel kvm
+	qemu-system-i386 -cdrom m.iso
 debug:
 	qemu-system-i386 -cdrom m.iso -boot d -smp 2 -s -S &
 	gdb -tui kernel.bin -x  debug.gdb

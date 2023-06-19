@@ -176,11 +176,11 @@ void *x86_irq_handler(registers_t *regs) {
 		    kprintf("Page fault!!! When trying to %s %x - IP:%x\n", rw ? "write to" : "read from", addr, regs->eip);
             kprintf("The page was %s\n", present ? "present" : "not present");
         }
-        /*if (regs->eflags != 518) {
+        if (regs->eflags != 518) {
             kprintf("%s in %s\r\n",exception_names[int_no],thread_getThread(thread_getCurrent())->name);
             thread_killThread(thread_getThread(thread_getCurrent()),18198);
             arch_reschedule(); // never return?
-         }*/
+         }
         kprintf("Exception: %s, halt\r\n",exception_names[int_no]);
         // Halt
         while(1) {}

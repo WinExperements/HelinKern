@@ -9,6 +9,10 @@
 #include <stdbool.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <sys/dirent.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mount.h>
 
 int helin_syscall(int num,int p1,int p2,int p3,int p4,int p5) {
     // use asm macro for it
@@ -36,7 +40,6 @@ char **environ; /* pointer to array of char * strings that define the current en
 int execve(char *name, char **argv, char **env) {
     int pid = helin_syscall(13,(int)name,sizeof(argv)/sizeof(argv[1]),argv,0,0);
     if (pid < 0) return -1;
-    helin_syscall(22,pid,0,0,0,0);
     return 0;
 }
 int fork() {
@@ -56,7 +59,9 @@ int kill(int pid, int sig){
     return 0;
 }
 int link(char *old, char *new){}
-int lseek(int file, int ptr, int dir){}
+int lseek(int file, int ptr, int dir){
+    return helin_syscall(27,file,dir,ptr,0,0);
+}
 int open(const char *name, int flags, ...){
     return helin_syscall(7,(int)name,flags,0,0,0);
 }
@@ -80,4 +85,74 @@ int ioctl(int fd,unsigned long request,...) {
 }
 void *mmap(void *addr,size_t len,int prot,int flags,int fd,off_t offset) {
     return (void *)helin_syscall(29,fd,addr,len,offset,flags);
+}
+DIR *opendir(const char *path) {
+    int fd = open(path,0);
+    if (fd < 0) {
+        return NULL;
+    }
+    DIR *ret = (DIR *)malloc(sizeof(DIR));
+    memset(ret,0,sizeof(DIR));
+    ret->_fd = fd;
+    ret->_pos = 0;
+    ret->pointer = (struct dirent *)malloc(sizeof(struct dirent));
+    memset(ret->pointer,0,sizeof(struct dirent));
+    return ret;
+}
+
+struct dirent *readdir(DIR *d) {
+    if (!d) return NULL;
+    // get platform specific dirent then convert it to system
+    struct _helin_dirent *native = (struct _helin_dirent *)helin_syscall(20,d->_fd,d->_pos,0,0,0);
+    if (native == NULL) {
+        // End of directory
+        return NULL;
+    }
+    // Increment the file position
+    d->_pos++;
+    struct dirent *dire = (struct dirent *)d->pointer;
+    dire->d_name = native->name;
+    return dire;
+}
+
+int closedir(DIR *dir) {
+    // The closedir syscall is redirected to sys_close in HelinKern source code, so just call
+    // the close syscall and free the structure
+    if (dir == NULL) {
+        return -1;
+    }
+    // Free our pointer of struct dirent
+    free(dir->pointer);
+    close(dir->_fd);
+    free(dir);
+    return 0;
+}
+int chdir (const char *path) {
+    return helin_syscall(17,(int)path,0,0,0,0);
+}
+int getgid (void) {
+    return helin_syscall(34,0,0,0,0,0);
+}
+int setgid(int uid) {
+    helin_syscall(33,uid,0,0,0,0);
+}
+int setuid(int uid) {
+    helin_syscall(26,0,0,0,0,0);
+}
+char *getcwd (char *__buf, size_t __size) {
+    return (char *)helin_syscall(16,(int)__buf,__size,0,0,0);
+}
+
+int mount(const char *source,const char *target,
+              const char *filesystemtype,unsigned long mountflags,
+              const void *data) {
+    return helin_syscall(21,(int)source,(int)target,(int)filesystemtype,mountflags,(int)data);
+}
+
+// waitpid
+pid_t waitpid(pid_t pid,int *status,int options) {
+    if (pid <= 0) {
+        return -1; // doesn't supported currently
+    }
+    helin_syscall(22,pid,0,0,0,0);
 }
