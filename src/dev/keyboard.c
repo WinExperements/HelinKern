@@ -159,7 +159,7 @@ static int keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void
     while(!reader->hasKey);
     char c = reader->key;
     if (c == '\n') {
-        buff[i] = 0;
+	    buff[i] = 0;
         return i;
     } else if (c == '\b') {
         if (i > 0) {

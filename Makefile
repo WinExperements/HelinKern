@@ -4,7 +4,7 @@ CCOPTIONS =-std=gnu99 -m32 -ffreestanding -Wall -Wextra -Wno-unused-parameter -W
 CCPATH = /home/sergij/gcc/bin/i686-elf-
 %.o: %.c
 	@echo [CC] $<
-	$(CCPATH)gcc $(CCOPTIONS) -Iinclude -Imodule -c -o $@ $<
+	@$(CCPATH)gcc $(CCOPTIONS) -Iinclude -Imodule -c -o $@ $<
 %.o: %.s
 	@echo [ASM] $<
 	@$(CCPATH)as --32 -g -o $@ $<

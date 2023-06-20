@@ -17,5 +17,6 @@ target remote localhost:1234
 #b src/dev/keyboard.c:159
 #b thread_create
 #b dev_add
-b src/kernel.c:75
+#b src/kernel.c:75
+b syscall_get
 c

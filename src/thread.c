@@ -121,7 +121,7 @@ process_t *thread_getThread(int pid) {
             return p;
         }
     }
-    return NULL;
+    return idle;
 }
 void thread_killThread(process_t *prc,int code) {
     DEBUG("Killing thread %s with code %d\r\n", prc->name, code);

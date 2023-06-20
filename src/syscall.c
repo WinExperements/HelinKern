@@ -41,6 +41,7 @@ static int sys_ioctl(int fd,int req,void *argp);
 static void sys_setgid(int gid);
 static int sys_getgid();
 static void *sys_sbrk(int increment);
+static int sys_dup(int oldfd,int newfd);
 int syscall_table[36] = {
     (int)sys_default,
     (int)sys_print,
@@ -78,8 +79,9 @@ int syscall_table[36] = {
     (int)sys_setgid,
     (int)sys_getgid,
     (int)sys_sbrk,
+    (int)sys_dup,
 };
-int syscall_num = 36;
+int syscall_num = 37;
 static void sys_print(char *msg) {
     kprintf(msg);
 }
@@ -204,6 +206,7 @@ static void sys_pwd(char *buff,int len) {
     vfs_node_path(thread_getThread(thread_getCurrent())->workDir,buff,len);
 }
 static int sys_opendir(char *path) {
+    kprintf("%s: %s\r\n",__func__,path);
     return sys_open(path,0);
 }
 static void sys_closedir(int fd) {
@@ -381,4 +384,22 @@ static void *sys_sbrk(int increment) {
     process_t *prc = thread_getThread(thread_getCurrent());
     if (!prc) return -1;
     return sbrk(prc,increment);
+}
+static int sys_dup(int oldfd,int newfd) {
+	process_t *prc = thread_getThread(thread_getCurrent());
+	if (!prc) return -1;
+	// Duplicate there FD
+	file_descriptor_t *fd = prc->fds[oldfd];
+	if (!fd) return -1;
+	file_descriptor_t *copy = (file_descriptor_t *)kmalloc(sizeof(file_descriptor_t));
+	// We don't clear memory because we gonna copy it
+	memcpy(copy,fd,sizeof(file_descriptor_t));
+	// Incrmenet the next FD pointer
+	int fd_id = prc->next_fd;
+	prc->next_fd++;
+	if (newfd > 0) {
+		fd_id = newfd;
+	}
+	prc->fds[fd_id] = copy;
+	return fd_id;
 }
