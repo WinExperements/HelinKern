@@ -43,10 +43,12 @@ int main(int argc,char **argv) {
 		if (needUsername) {
 			printf("Username: ");
 			fread(username,1,100,stdin);
+			username[strlen(username)-1] = 0;
 		}
 		// Ми повинні вимикати відображення вводу, але поки що не реалізовано
 		printf("Password: ");
 		fread(password,1,100,stdin);
+		password[strlen(password)-1] = 0;
 		// Перевіряємо!
 		for (int i = 0; i < numUsers; i++) {
 			if (strcmp(username,users[i].name) == 0 && strcmp(password,users[i].password) == 0) {

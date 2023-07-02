@@ -1,5 +1,5 @@
 all:
-	cp ../init/init .
+	#cp ../init/init .
 	find . -print | cpio -ov > ../../iso/boot/initrd.cpio
 clean:
 	rm -rf init

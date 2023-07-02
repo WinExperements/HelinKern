@@ -37,12 +37,12 @@ static int sys_tell(int fd);
 static void *sys_mmap(int _fd,int addr,int size,int offset,int flags);
 static int sys_insmod(char *path);
 static void sys_rmmod(char *name);
-static int sys_ioctl(int fd,int req,void *argp);
+static int sys_ioctl(int fd,int req,void *argp,va_list list);
 static void sys_setgid(int gid);
 static int sys_getgid();
 static void *sys_sbrk(int increment);
 static int sys_dup(int oldfd,int newfd);
-int syscall_table[36] = {
+int syscall_table[37] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -107,17 +107,15 @@ static int sys_getpid() {
 }
 static int sys_open(char *path,int flags) {
     // get caller
+    // Finnaly i found this fucking bug
     process_t *caller = thread_getThread(thread_getCurrent());
-    int m = strlen(path);
-    char *path_copy = kmalloc(m+1);
-    memset(path_copy,0,m);
-    strcpy(path_copy,path);
-    vfs_node_t *node = vfs_find(path);
+    char *path_copy = strdup(path);
+    vfs_node_t *node = vfs_find(path_copy);
     if (!node && flags == 7) {
-        node = vfs_creat(vfs_getRoot(),path,flags);
+	strcpy(path_copy,path);
+        node = vfs_creat(vfs_getRoot(),path_copy,flags);
     }
     kfree(path_copy);
-    
     return thread_openFor(caller,node);
 }
 static void sys_close(int fd) {
@@ -132,6 +130,9 @@ static int sys_read(int _fd,int offset,int size,void *buff) {
     file_descriptor_t *fd = caller->fds[_fd];
     int how = vfs_read(fd->node,fd->offset,size,buff);
     fd->offset+=how;
+    if (offset >= fd->node->size) {
+        return 0;
+    }
     return how;
 }
 static int sys_write(int _fd,int offset,int size,void *buff) {
@@ -139,9 +140,12 @@ static int sys_write(int _fd,int offset,int size,void *buff) {
     file_descriptor_t *fd = caller->fds[_fd];
     int wr = vfs_write(fd->node,fd->offset,size,buff);
     fd->offset+=wr;
+    return wr;
 }
 static void *sys_alloc(int size) {
-    return kmalloc(size);
+    process_t *prc = thread_getThread(thread_getCurrent());
+    //kprintf("Process %s is trying to allocate space using kernel heap! FIX THIS SHIT\r\n",prc->name);
+    return kmalloc(size); // don't use this!
 }
 static void sys_free(void *ptr) {
     kfree(ptr);
@@ -157,7 +161,7 @@ static int sys_exec(char *path,int argc,char **argv) {
     }
     arch_cli();
     int len = file->size;
-    void *file_buff = kmalloc(len);
+    void *file_buff = kmalloc(len+1);
     vfs_read(file,0,len,file_buff);
     elf_load_file(file_buff);
     process_t *prc = thread_getThread(thread_getNextPID()-1);
@@ -167,12 +171,12 @@ static int sys_exec(char *path,int argc,char **argv) {
     kfree(buff);
     if (argc == 0 || argv == 0) {
         // Передамо звичайні параметри(ім'я файлу і т.д)
-        char **params = kmalloc(1);
+        char **params = kmalloc(2);
         params[0] = strdup(path);
         arch_putArgs(prc,1,params);
     } else {
         // We need to copy arguments from caller to prevent #PG when process is exitng!
-        char **new_argv = kmalloc(argc);
+        char **new_argv = kmalloc(argc+1);
         for (int i = 0; i < argc; i++) {
             new_argv[i] = strdup(argv[i]);
         }
@@ -192,7 +196,7 @@ static void sys_reboot(int reason) {
 static void sys_chdir(char *to) {
     process_t *prc = thread_getThread(thread_getCurrent());
     int size = strlen(to);
-    char *copy = kmalloc(size);
+    char *copy = kmalloc(size+1);
     strcpy(copy,to);
     vfs_node_t *node = vfs_find(copy);
     if (!node) {
@@ -206,7 +210,6 @@ static void sys_pwd(char *buff,int len) {
     vfs_node_path(thread_getThread(thread_getCurrent())->workDir,buff,len);
 }
 static int sys_opendir(char *path) {
-    kprintf("%s: %s\r\n",__func__,path);
     return sys_open(path,0);
 }
 static void sys_closedir(int fd) {
@@ -362,13 +365,15 @@ static int sys_insmod(char *path) {
 static void sys_rmmod(char *name) {
     kprintf("Comming soon!\r\n");
 }
-static int sys_ioctl(int fd,int req,void *argp) {
+static int sys_ioctl(int fd,int req,void *argp,va_list list) {
     kprintf("sys_ioctl\r\n");
     // Generally used by the compositor to draw windows!
     process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *file_desc = caller->fds[fd];
     if (file_desc == NULL || file_desc->node == NULL) return -1;
-    return vfs_ioctl(file_desc->node,req,argp);
+    // Sanity check
+    if (file_desc->node->fs == NULL|| file_desc->node->fs->ioctl == NULL) return -1;
+    return file_desc->node->fs->ioctl(file_desc->node,req,argp,list);
 }
 static void sys_setgid(int gid) {
     process_t *prc = thread_getThread(thread_getCurrent());
@@ -382,7 +387,7 @@ static int sys_getgid() {
 }
 static void *sys_sbrk(int increment) {
     process_t *prc = thread_getThread(thread_getCurrent());
-    if (!prc) return -1;
+    if (!prc) return (void *)-1;
     return sbrk(prc,increment);
 }
 static int sys_dup(int oldfd,int newfd) {

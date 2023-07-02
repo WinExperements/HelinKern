@@ -29,7 +29,8 @@ int main(int argcf,char **argvf) {
         int argc = 0;
        printf(pwd(path,128));
        printf(" $ ");
-       fread(buff,1,100,f);
+       int len = fread(buff,1,90,f);
+       buff[len-1] = 0;
        argv[argc] = strtok(buff," ");
        while(argv[argc]) {
         argc++;
@@ -63,8 +64,8 @@ void sh_parseCommand(char **argv,int argc) {
         } else {
             d = opendir(path);
         }
-        if (!d) {
-		    printf("%s: I/O error\n",(argc > 1 ? argv[1] : path));
+        if (d < 0) {
+		    printf("%s: no such file or directory\n",(argc > 1 ? argv[1] : path));
 		    return;
 	    }
         struct dirent *di = NULL;
@@ -198,8 +199,8 @@ bool execute(char *command,char **argv,int argc) {
 	        parallel = true;
             argc--;
         }
-        new_argv = malloc(100);
-        for (int i = 0; i < argc; i++) {
+        new_argv = malloc(new_argc);
+        for (int i = 0; i < new_argc; i++) {
             new_argv[i] = argv[i];
         }
 	//printf("u %u\n",new_argc);
@@ -207,7 +208,6 @@ bool execute(char *command,char **argv,int argc) {
     sprintf(buff,"%s/%s",run_path,command);
     if ((_pid = execv(buff,argc,new_argv)) > 0) {
         if (!parallel) {
-            printf("Waitpid!\r\n");
             waitpid(_pid,NULL,0);
             if (new_argv)free(new_argv);
         } else {

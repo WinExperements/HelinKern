@@ -147,33 +147,50 @@ static void keyboard_keyHandler(char key) {
     clist_for_each(readers,readers_foreach,key);
     kprintf("%c",key);
 }
-static int keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
-  if (how <= 0 || buf == NULL) return;
-    // Create then add reader to the structure!
-    clist_head_t *d = clist_insert_entry_after(readers,readers->head);
+static int keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, void *buf) {
+    if (how <= 0 || buf == NULL)
+        return -1;
+
+    // Create and add reader to the structure
+    clist_head_t *d = clist_insert_entry_after(readers, readers->head);
     struct keyboard_reader *reader = d->data;
-  char *buff = (char *)buf;
-  int i = 0;
-   while(i < (how-1)) {
-    reader->hasKey = false;
-    while(!reader->hasKey);
-    char c = reader->key;
-    if (c == '\n') {
-	    buff[i] = 0;
-        return i;
-    } else if (c == '\b') {
-        if (i > 0) {
-            i--;
+
+    char *buff = (char *)buf;
+    int i = 0;
+
+    // Enable interrupts as operations like sys_read are executed with interrupts disabled
+    arch_sti();
+
+    while (i < (how - 1)) {
+        reader->hasKey = false;
+        while (!reader->hasKey)
+            ;
+
+        char c = reader->key;
+
+        if (c >= 8 && c <= 0x7e) {
+            buff[i] = c;
+            i++;
         }
-    } else if (c >= 0x20 && c <= 0x7e) {
-        buff[i] = c;
-        i++;
+        if (c == '\n') {
+            buff[i] = '\0';
+            clist_delete_entry(readers, d);
+            readedI = i;
+            return i;
+        }
+        if (c == '\b') {
+            if (i > 0) {
+                i-=2;
+                buff[i] = '\0';
+            }
+        }
     }
-   }
-    clist_delete_entry(readers,d);
+
+    clist_delete_entry(readers, d);
     readedI = i;
     return i;
 }
+
 static int setBit(int n, int k)
 {
     return (n|(1<<(k-1)));

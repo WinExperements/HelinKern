@@ -18,6 +18,7 @@
 #include <module.h>
 #include <arch/x86/cpuid.h>
 #include <arch/x86/smp.h>
+#include <arch/mmu.h>
 /* Define some defines that needed for kernel allocator */
 int KERN_HEAP_BEGIN=0x02000000; //32 mb
 int KERN_HEAP_END=0x40000000; // 1 gb
@@ -112,7 +113,7 @@ int arch_getMemSize() {
     return size/1024;
 }
 void *arch_prepareContext(int entry,bool isUser) {
-    int frame = (kmalloc(4096)+4096);
+    int frame = (int)(kmalloc(4096)+4096);
     stack_addr = ((int)frame-4096);
     if (!isUser) {
         PUSH(frame,int,0);
@@ -151,7 +152,7 @@ static void *syscall_handler(void *_regs) {
     registers_t *regs = (registers_t *)_regs;
     if (regs->eax > (uint32_t)syscall_num) return _regs;
     int location = syscall_get(regs->eax);
-    arch_sti();
+    arch_cli();
     // Call the handler
     int ret;
     asm volatile("push %1; \
@@ -167,6 +168,7 @@ static void *syscall_handler(void *_regs) {
     pop %%ebx; \
     " : "=a" (ret) : "r" (regs->esi), "r" (regs->edi), "r" (regs->ebx), "r"(regs->ecx),"r"(regs->edx),"r"(location));
     regs->eax = ret;
+    arch_sti();
     return (void *)regs;
 }
 void arch_syscall_init() {
@@ -198,7 +200,7 @@ void arch_destroyArchStack(void *stack) {
         kfree((void *)task->userESP);
     }
     if (task->argc != 0) {
-        kfree(task->argv);
+        kfree((void *)task->argv);
     }
     kfree(stack);
 }
@@ -228,7 +230,7 @@ void arch_post_init() {
 		}
 	    // Map all modules into memory :)
 	    int module_size = mod->mod_end-mod->mod_start;
-	    arch_mmu_map(NULL,(int)mod->mod_start,module_size);
+	    arch_mmu_map(NULL,(int)mod->mod_start,module_size,7);
         }
     }
 	apic_init();
@@ -317,13 +319,13 @@ void arch_detect() {
     char vendor[13];
     cpuid(0,&largestStandardFunc,(uint32_t *)(vendor + 0),(uint32_t *)(vendor + 8),(uint32_t *)(vendor + 4));
     vendor[12] = 0;
-    DEBUG_N("X86 CPU Detect\r\n");
-    DEBUG("CPU Vendor: %s\r\n",vendor);
+    kprintf("X86 CPU Detect\r\n");
+    kprintf("CPU Vendor: %s\r\n",vendor);
      if (largestStandardFunc >= 0x01)
     {
         cpuid(0x01, &eax, &ebx, &ecx, &edx);
 
-        DEBUG_N("Features:");
+        kprintf("Features:");
 
         if (edx & EDX_PSE)      kprintf(" PSE");
         if (edx & EDX_PAE)      kprintf(" PAE");
@@ -332,7 +334,7 @@ void arch_detect() {
 
         kprintf("\r\n");
 
-        DEBUG_N("Instructions:");
+        kprintf("Instructions:");
 
         if (edx & EDX_TSC)      kprintf(" TSC");
         if (edx & EDX_MSR)      kprintf(" MSR");
@@ -362,7 +364,10 @@ void arch_detect() {
 
         if (edx & EDX_64_BIT)
         {
-            DEBUG_N("Detected 64-bit CPU!\r\n");
+            kprintf("Detected 64-bit CPU!\r\n");
+            #ifndef AMD64_SUPPORT
+            kprintf("Kernel booted in 32-bit mode, only 4GB is usable\r\n");
+            #endif
         }
     }
 
@@ -382,7 +387,7 @@ void arch_detect() {
             ++p;
         }
 
-        DEBUG("CPU Name: %s\r\n", p);
+        kprintf("CPU Name: %s\r\n", p);
     }
 }
 void arch_sysinfo() {
@@ -397,15 +402,6 @@ static void thread_main(int entryPoint,int esp,bool isUser) {
     // На данний момент часу ми працюємо в кільці ядра!
     int _esp = (int)kmalloc(4096);
     x86_task_t *archStack = (x86_task_t *)prc->arch_info;
-    /*registers_t *regs = kmalloc(sizeof(registers_t));
-    memset(regs,0,sizeof(registers_t));
-    regs->ds = 0x23;
-    regs->cs = 0x1b;
-    regs->eip = entryPoint;
-    regs->ss = regs->ds;
-    regs->eflags = 0x200;
-    regs->useresp = _esp+4096;
-    archStack->regs = regs;*/
     archStack->userESP = _esp;
     uint32_t stack = (uint32_t )_esp+4096;
     PUSH(stack,char **,(char **)(uintptr_t)archStack->argv);

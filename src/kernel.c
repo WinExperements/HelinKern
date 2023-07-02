@@ -17,6 +17,7 @@
 #include <debug.h>
 #include <fs/cpio.h>
 #include <tty.h>
+#include <lib/string.h>
 static int fb_addr;
 extern int *syscall_table;
 void *memset(void *dest,char val,int count) {
@@ -29,29 +30,37 @@ void panic(char *file,int line,char *msg) {
     kprintf("Sorry, but the OS seems crashed by unknown reason. Send the information above to the system administrator for help.\r\n");
     kprintf("PANIC: %s:%d %s\r\n",file,line,msg);
     arch_trace();
+    clock_setShedulerEnabled(false);
+    kprintf("Rebooting in 5 seconds....");
+    arch_sti();
+    kwait(5000);
+    arch_reset();
+    kprintf("Reboot failed, halt");
     while(1) {}
 }
 void kernel_main(const char *args) {
+    // Bootstrap start
     arch_pre_init(); // must setup the base thinks in the architecture, for example: just check if the CPU is supported
     arch_init(); // setup interrupts
     // init output
     output_uart_init();
+    kprintf("HelinOS kernel, build date: %s using GCC %s\r\n",__DATE__,__VERSION__);
     fbinfo_t fb;
     if (arch_getFBInfo(&fb)) {
         fb_init(&fb);
         fb_enable();
         fb_addr = (int)fb.addr;
-	    //output_changeToFB(); // important!
+	    output_changeToFB(); // important!
     }
     // Hi!
     fb_disableCursor();
-    DEBUG_N("HelinOS starting up...\r\n");
     int mem = arch_getMemSize();
     alloc_init(arch_getKernelEnd(),mem);
     arch_mmu_init();
     alloc_mapItself();
     fb_map();
     fb_enableCursor();
+    // Bootstrap end
     kheap_init();
     thread_init();
     syscall_init();
@@ -86,9 +95,6 @@ void kernel_main(const char *args) {
     vfs_node_t *mounted = vfs_find("/initrd");
     if (!mounted || !strcmp(mounted->fs->fs_name,"cpio")) {
 	PANIC("Failed to mount initrd");
-    }
-    if (fb_addr != 0) {
-	    output_changeToFB();
     }
     int (*exec)(char *,int,char **) = ((int (*)(char *,int,char **))syscall_get(13));
     int pid = exec("/initrd/init",0,NULL); // Ядро передасть параметри за замовчуванням.

@@ -16,6 +16,8 @@ static bool mapped = false;
 static int pagesUsedBeforeMapping = 0;
 static int kernel_endAddress;
 static int end_address;
+static int numAllocs = 0; // debug only!
+static int lastAlloc = 0;
 void alloc_init(int kernel_end,int high_mem) {
     // Place map at the end of kernel address
     phys_map = (uint8_t *)kernel_end;
@@ -95,14 +97,17 @@ void *kmalloc(int size) {
 	if (size == 0) {
 		return NULL;
 	}
+	numAllocs++;
 	unsigned long realsize;
 	struct MallocHeader *chunk,*other;
 	if ((realsize = sizeof(MallocHeader) + size) < KMALLOC_MINSIZE) {
 		realsize = KMALLOC_MINSIZE;
 	}
-    chunk = (struct MallocHeader *)KERN_HEAP_BEGIN;
+    	chunk = (struct MallocHeader *)KERN_HEAP_BEGIN;
 	while(chunk->used || chunk->size < realsize) {
 		if (chunk->size == 0) {
+			kprintf("Num allocs: %d\n",numAllocs);
+			kprintf("Last allocation size: %d\r\n",lastAlloc);
 			kprintf("\nPANIC: kmalloc(): corrupted chunk on 0x%x with null size (heap 0x%x) !\nSystem halted\n", chunk, m_kheap);
 			PANIC("Kernel heap corruption");
 			return NULL;
@@ -110,7 +115,7 @@ void *kmalloc(int size) {
 		chunk = (MallocHeader *)((char *)chunk + chunk->size);
 		if (chunk == (struct MallocHeader *)m_kheap) {
 			if ((int)(ksbrk_page(realsize/PAGESIZE_4K + 1)) < 0) {
-                kprintf("Attempt to allocate %d bytes\r\n",size);
+               			 kprintf("Attempt to allocate %d bytes\r\n",size);
 				//PANIC("Out of kernel memory!");
 				return NULL;
 			}
@@ -130,6 +135,7 @@ void *kmalloc(int size) {
 		chunk->used = 1;
 	}
 	heap_used+=realsize;
+	lastAlloc = size;
 	return (void *) chunk + sizeof(struct MallocHeader);
 }
 void kfree(void *addr) {

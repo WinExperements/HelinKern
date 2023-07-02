@@ -23,8 +23,8 @@ forced to be within the first 8 KiB of the kernel file.
 .long 0
 .long 0
 .long 0 # Set to 0 to enable framebuffer by default, 1 to disable
-.long 640  # Number of horizontal pixels
-.long 480 # Number of vertical pixels
+.long 800  # Number of horizontal pixels
+.long 640 # Number of vertical pixels
 .long 32 # Bit depth
 .section .bss
 .align 16

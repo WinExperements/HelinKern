@@ -63,8 +63,12 @@ char *strtok(char *s, const char *delim)
 		s++;
 
 	if(!*s) {
-		if (!oldword) oldword = kmalloc(300);
-		strcpy(oldword,s);
+		if (oldword == NULL) {
+            oldword = strdup(s);
+        } else {
+            kfree(oldword);
+            oldword = strdup(s);
+        }
 		return 0;
 	}
 

@@ -28,7 +28,7 @@ static dev_t *fbdev;
 static int paddr;
 static char *charBuff;
 static void syncFB(); // draw all characters from charBuff
-static int fb_ioctl(struct vfs_node *node,int request,void *argp);
+static int fb_ioctl(struct vfs_node *node,int request,void *arg,va_list args);
 static int GFX_MEMORY = 0;
 void fb_init(fbinfo_t *fb) {
     if (!fb) return;
@@ -315,7 +315,7 @@ static void syncFB() {
 		}
 	}
 }
-static int fb_ioctl(struct vfs_node *node,int request,void *argp) {
+static int fb_ioctl(struct vfs_node *node,int request,void *argp,va_list args) {
     int *arg = (int *)argp;
     switch(request) {
         case 1:

@@ -10,7 +10,7 @@ typedef struct dev {
     void *(*mmap)(struct vfs_node *node,int addr,int size,int offset,int flags);
     void (*readBlock)(struct vfs_node *node,int blockNo,int how,void *buf);
     void (*writeBlock)(struct vfs_node *node,int blockNo,int how,void *buf);
-    int (*ioctl)(struct vfs_node *node,int request,void *argp);
+    int (*ioctl)(struct vfs_node *node,int request,void *argp,va_list args);
     void *device;
     struct dev *next;
     struct dev *prev;

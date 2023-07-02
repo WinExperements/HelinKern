@@ -1,6 +1,7 @@
 #ifndef VFS_H
 #define VFS_H
 #include<typedefs.h>
+#include <stdarg.h>
 #define VFS_DIRECTORY 0x02
 typedef struct vfs_node {
     char *name;
@@ -34,7 +35,7 @@ typedef struct vfs_fs {
     void (*truncate)(struct vfs_node *in,int size);
     void (*readBlock)(struct vfs_node *node,int blockN,int how,void *buff);
     void (*writeBlock)(struct vfs_node *node,int blockN,int how,void *buff);
-    int (*ioctl)(struct vfs_node *node,int request,void *argp);
+    int (*ioctl)(struct vfs_node *node,int request,void *arg,va_list args);
     void *(*mmap)(struct vfs_node *node,int addr,int size,int offset,int flags);
     struct vfs_fs *next;
 } vfs_fs_t;
@@ -61,7 +62,7 @@ vfs_node_t *vfs_find(char *path);
 void vfs_truncate(vfs_node_t *node,int size);
 void vfs_readBlock(vfs_node_t *node,int blockN,int how,void *buff);
 void vfs_writeBlock(vfs_node_t *node,int blockN,int how,void *buff);
-int vfs_ioctl(vfs_node_t *node,int request,void *argp);
+int vfs_ioctl(vfs_node_t *node,int request,void *arg,...);
 void vfs_node_path(vfs_node_t *node,char *path,int size);
 void rootfs_insertModuleData(vfs_node_t *node,int size,char *addr);
 void *vfs_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
