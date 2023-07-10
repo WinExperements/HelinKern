@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mount.h>
-
+#include <stdarg.h>
 int helin_syscall(int num,int p1,int p2,int p3,int p4,int p5) {
     // use asm macro for it
     int ret = 0;
@@ -76,18 +76,23 @@ clock_t times(struct tms *buf){}
 int unlink(char *name){}
 int wait(int *status){}
 int write(int file, char *ptr, int len){
-    return helin_syscall(10,file,0,len,(int)ptr,0);
+    helin_syscall(10,file,0,len,(int)ptr,0);
+    return len-1;
 }
 int gettimeofday(struct timeval *__restrict __p,
                           void *__restrict __tz){}
 int ioctl(int fd,unsigned long request,...) {
-    return 0;
+    va_list args;
+    va_start(args,request);
+    int ret = helin_syscall(32,fd,request,args,0,0);
+    va_end(args);
+    return ret;
 }
 void *mmap(void *addr,size_t len,int prot,int flags,int fd,off_t offset) {
     return (void *)helin_syscall(29,fd,addr,len,offset,flags);
 }
 DIR *opendir(const char *path) {
-    int fd = open(path,0);
+    int fd = helin_syscall(18,(int)path,0,0,0,0);
     if (fd < 0) {
         return NULL;
     }
@@ -155,4 +160,44 @@ pid_t waitpid(pid_t pid,int *status,int options) {
         return -1; // doesn't supported currently
     }
     helin_syscall(22,pid,0,0,0,0);
+}
+// Need to port dash shell to our OS
+int dup(int oldfd) {
+	return helin_syscall(36,oldfd,0,0,0,0);
+}
+int dup2(int oldfd, int newfd) {
+	return helin_syscall(36,oldfd,newfd,0,0,0);
+}
+int execvp(const char *file, char *const argv[]) {
+	if (file == NULL || argv == NULL) return -1;
+	return execve(file,argv,NULL);
+}
+int pipe(int pipefd[2]) {
+	return -1; // doesn't supported
+}
+void thread_entry(int entry,int arg) {
+    _exit(0);
+}
+// Pthread
+int pthread_equal(pthread_t t1, pthread_t t2) {
+	return t1 == t2;
+}
+
+int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
+                   void* (*start_routine)(void*), void* arg)
+{
+	int pid = helin_syscall(37,(int)thread_entry,(int)start_routine,(int)arg,0,0);
+	if (pid > 0) {
+		*thread = pid;
+	}
+	return 0;
+}
+
+void pthread_exit(void* retval) {
+	// Just exit
+	exit(0);
+}
+
+int pthread_join(pthread_t thread, void** retval) {
+	waitpid(thread,NULL,0);
 }

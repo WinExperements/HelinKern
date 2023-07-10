@@ -4,6 +4,7 @@
 #include <pci/registry.h>
 #include <mm/alloc.h>
 #include <arch/mmu.h>
+#include <arch.h>
 
 __attribute__((section(".modname"))) char *name = "ahci";
 
@@ -100,8 +101,6 @@ static void PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
             arch_mmu_mapPage(NULL,addr+align,addr+align,7);
         }
         ctrl_id = id;
-        kprintf("ctrl_data: 0x%x, version: %d\r\n",ctrl_data,ctrl_data->vs);
-	    kprintf("PCI device info: Read address(BAR5): [0x%x], Read Address:c [0x%x]\r\n",PciRead32(id,(0x24 | 0x0)),PciRead32(id,(0x3c|0x0))& 0x000000000000ff00);
     }
 }
 
@@ -130,7 +129,7 @@ static int check_type(HBA_PORT *port) {
 
 
 static void module_main() {
-    DEBUG_N("Finding controller in PCI base...");
+    kprintf("Finding AHCI controller in PCI base...");
     // Scan each BUS to find the SATA controller
     for (unsigned int bus = 0; bus < 256; ++bus)
     {
@@ -165,22 +164,38 @@ static void module_main() {
 			continue;
         	}
         if (!(ctrl_data->bohc & 2)) {
-            kprintf("Requesting ownership for port %d\r\n",i);
+            //kprintf("Requesting ownership for port %d\r\n",i);
             ctrl_data->bohc = (ctrl_data->bohc &~8) | 2;
             int endtime = clock_getUptimeMsec()+100;
             while((ctrl_data->bohc & 1) && clock_getUptimeMsec() < endtime);
             if ((ctrl_data->bohc & 1)) {
-                kprintf("BIOS! It's MY drive, i'll get it force!\r\n");
+                //kprintf("BIOS! It's MY drive, i'll get it force!\r\n");
                 ctrl_data->bohc = 2;
                 ctrl_data->bohc |= 8;
             } else {
-                kprintf("Thank you, BIOS for the permission!\r\n");
+                //kprintf("Thank you, BIOS for the permission!\r\n");
             }
         } else {
             kprintf("Oh! The firmware is automatically switch the drive into OS mode, i like this!\r\n");
+        }
+        if (!(ctrl_data->ghc & 0x80000000)) {
+            kprintf("Switching AHCI to AHCI mode\n");
+        }
+        arch_sti();
+        int i;
+        for (i = 0; i < 5; i++) {
+            ctrl_data->ghc |= 0x80000000;
+            int endtime = clock_getUptimeMsec()+1;
+            while(clock_getUptimeMsec() < endtime);
+            if (ctrl_data->ghc & 0x80000000) break;
+        }
+        if (i == 5) {
+            kprintf("Failed to switch AHCI to AHCI mode\n");
+            return;
         }
 	}
 	pi >>= 1;
 	i++;
     }
+    kprintf("AHCI driver done\n");
 }

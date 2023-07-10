@@ -44,28 +44,29 @@ void *thread_schedule(void *stack) {
 	    return stack;
         }
     }
-    
     process_t *nextTask = dequeue(running_list);
     nextTask = (nextTask && nextTask->state > 3) ? idle : nextTask;
-    
     if (!nextTask) {
         nextTask = idle;
     }
-    
     if (!nextTask->started) {
         nextTask->started = true;
     }
-    
     if (nextTask->aspace == NULL) {
         PANIC("Process structure has been rewritten by something!\r\n");
     }
-    
+    if (nextTask->type == TYPE_THREAD) {
+	    if (nextTask->parent->died) {
+		    kprintf("Warrning! Thread parent died, killing thread\n");
+		    process_t *switchTo = idle;
+		    thread_killThread(nextTask,0);
+		    nextTask = switchTo;
+	}
+    }
     enqueue(running_list, nextTask);
-    
     // switch the address space
     arch_mmu_switch(nextTask->aspace);
     arch_switchContext(nextTask);
-
     return stack;
 }
 process_t *thread_create(char *name,int entryPoint,bool isUser) {
@@ -89,6 +90,9 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     enqueue(task_list,th);
     enqueue(running_list,th);
     //kprintf("PID of new process: %d\r\n",th->pid);
+    if (runningTask != NULL) {
+	    runningTask->quota = PROCESS_QUOTA; // New task must always starts after second timer interrupt
+	}
     return th;
 }
 // Clock implementation
@@ -144,6 +148,10 @@ void thread_killThread(process_t *prc,int code) {
     arch_mmu_switch(prc->aspace);
     arch_destroyArchStack(prc->arch_info);
     arch_mmu_switch(idle->aspace);
+    if (prc->aspace != idle->aspace && prc->type != TYPE_THREAD) {
+        // Destroy address space
+        arch_mmu_destroyAspace(prc->aspace);
+    }
     kfree(prc->name);
     // Close all file descriptors
     for (int i = 0; i < prc->next_fd; i++) {
@@ -156,11 +164,15 @@ void thread_killThread(process_t *prc,int code) {
     }
     kfree(prc->fds);
     process_t *parent = prc->parent;
+    if (parent->died) {
+	    // Parent is died, we maybe thread or something else?
+	    return;
+    }
     if (parent->state == STATUS_WAITPID) {
         parent->state = STATUS_RUNNING;
         enqueue(running_list, parent);
     }
-    runningTask->quota = 10;
+    runningTask->quota = PROCESS_QUOTA;
     arch_sti();
     arch_reschedule();
 }

@@ -62,7 +62,7 @@ static void *mouse_intr(void *st) {
             switch(mouse_cycle) {
                 case 0:
                 mouse_byte[0] = mouse_in;
-                if (!(mouse_in & MOUSE_V_BIT)) return;
+                if (!(mouse_in & MOUSE_V_BIT)) return st;
                 ++mouse_cycle;
                 break;
                 case 1:
@@ -75,17 +75,7 @@ static void *mouse_intr(void *st) {
                     // something is really wrong, but what?
                     break;
                 } 
-                if (mouse_byte[1] < 0) {
-                    mouse_byte[1] = 0;
-                }
-                if (mouse_byte[2] < 0) {
-                    mouse_byte[2] = 0;
-                }
                 mouse_cycle = 0;
-                /*fb_putchar(' ',old_x,old_y,0x0,0x0); // remove character
-                fb_putchar(' ',mouse_byte[1],mouse_byte[2],0x0,0xffffff);
-                old_x = mouse_byte[1];
-                old_y = mouse_byte[2];*/
                 break;
             }
         }

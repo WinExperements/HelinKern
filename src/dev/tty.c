@@ -4,6 +4,9 @@
 #include <dev.h>
 #include <output.h>
 
+
+// TODO: Add also the virtual TTY devices and the pipelines support
+
 static dev_t *dev;
 static vfs_node_t *keyboard; // for reading the input
 static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
@@ -26,7 +29,7 @@ static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) 
 	for (int i = 0; i < size; i++) {
 		putc(char_buff[i]);
 	}
-    return size;
+    	return size;
 }
 
 static int tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {

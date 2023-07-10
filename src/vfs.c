@@ -142,11 +142,11 @@ void vfs_writeBlock(vfs_node_t *node,int blockN,int how,void *buff) {
     if (!node || !node->fs->writeBlock) return;
     node->fs->writeBlock(node,blockN,how,buff);
 }
-int vfs_ioctl(vfs_node_t *node,int request,void *arg,...) {
+int vfs_ioctl(vfs_node_t *node,int request,...) {
     if (!node || !node->fs->ioctl) return -1;
     va_list list;
-    va_start(list,arg);
-    int ret = node->fs->ioctl(node,request,arg,list);
+    va_start(list,request);
+    int ret = node->fs->ioctl(node,request,list);
     va_end(list);
 }
 static vfs_node_t *vfs_find_impl(vfs_node_t *start,char *path) {

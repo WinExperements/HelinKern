@@ -37,12 +37,13 @@ static int sys_tell(int fd);
 static void *sys_mmap(int _fd,int addr,int size,int offset,int flags);
 static int sys_insmod(char *path);
 static void sys_rmmod(char *name);
-static int sys_ioctl(int fd,int req,void *argp,va_list list);
+static int sys_ioctl(int fd,int req,va_list list);
 static void sys_setgid(int gid);
 static int sys_getgid();
 static void *sys_sbrk(int increment);
 static int sys_dup(int oldfd,int newfd);
-int syscall_table[37] = {
+static int sys_clone(int entryPoint,int flags); // pthread support, yay
+int syscall_table[38] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -80,8 +81,9 @@ int syscall_table[37] = {
     (int)sys_getgid,
     (int)sys_sbrk,
     (int)sys_dup,
+    (int)sys_clone,
 };
-int syscall_num = 37;
+int syscall_num = 38;
 static void sys_print(char *msg) {
     kprintf(msg);
 }
@@ -143,7 +145,7 @@ static int sys_write(int _fd,int offset,int size,void *buff) {
     return wr;
 }
 static void *sys_alloc(int size) {
-    process_t *prc = thread_getThread(thread_getCurrent());
+    //process_t *prc = thread_getThread(thread_getCurrent());
     //kprintf("Process %s is trying to allocate space using kernel heap! FIX THIS SHIT\r\n",prc->name);
     return kmalloc(size); // don't use this!
 }
@@ -365,7 +367,7 @@ static int sys_insmod(char *path) {
 static void sys_rmmod(char *name) {
     kprintf("Comming soon!\r\n");
 }
-static int sys_ioctl(int fd,int req,void *argp,va_list list) {
+static int sys_ioctl(int fd,int req,va_list list) {
     kprintf("sys_ioctl\r\n");
     // Generally used by the compositor to draw windows!
     process_t *caller = thread_getThread(thread_getCurrent());
@@ -373,7 +375,7 @@ static int sys_ioctl(int fd,int req,void *argp,va_list list) {
     if (file_desc == NULL || file_desc->node == NULL) return -1;
     // Sanity check
     if (file_desc->node->fs == NULL|| file_desc->node->fs->ioctl == NULL) return -1;
-    return file_desc->node->fs->ioctl(file_desc->node,req,argp,list);
+    return file_desc->node->fs->ioctl(file_desc->node,req,list);
 }
 static void sys_setgid(int gid) {
     process_t *prc = thread_getThread(thread_getCurrent());
@@ -407,4 +409,20 @@ static int sys_dup(int oldfd,int newfd) {
 	}
 	prc->fds[fd_id] = copy;
 	return fd_id;
+}
+static int sys_clone(int entryPoint,int flags) {
+    process_t *caller = thread_getThread(thread_getCurrent());
+    // Acording to the wiki, we need just to create an process with the same VM space
+    process_t *thread = thread_create("thread",entryPoint,true);
+    // Change the address space
+    // TODO: Add support for other flags
+    thread->aspace = caller->aspace;
+    thread->type = TYPE_THREAD;
+    thread->brk_begin = caller->brk_begin;
+    thread->brk_end = caller->brk_end;
+    thread->brk_next_unallocated_page_begin = caller->brk_next_unallocated_page_begin;
+    // Pass test arguments
+    arch_putArgs(thread,2,4); // Only test
+
+    return 0;
 }

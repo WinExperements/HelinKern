@@ -6,5 +6,9 @@ target remote localhost:1234
 #b kmalloc
 #b arch_putArgs
 #b src/lib/string.c:66
-b sys_opendir
+#b sys_opendir
+#b sys_ioctl
+#b sys_sysinfo
+#b thread_killThread
+b sys_exit
 c

@@ -8,6 +8,8 @@
 #define STATUS_KILLED 4
 #define STATUS_WAITPID 5
 #define PROCESS_QUOTA 10
+#define TYPE_PROCESS 0
+#define TYPE_THREAD 1
 typedef struct process {
     // Base information
     void *stack;
@@ -17,6 +19,7 @@ typedef struct process {
     void *aspace;
     int state;
     int wait_time;
+    int type; // process or thread
     // Waitpid
     struct process  *parent;
     struct process *child;

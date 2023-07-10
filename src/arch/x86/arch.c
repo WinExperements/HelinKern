@@ -43,6 +43,7 @@ static bool dontFB = false;
 static void thread_main(int entryPoint,int esp,bool isUser);
 extern void x86_switch(registers_t *to);
 extern void x86_jumpToUser(int entryPoint,int userstack);
+static char cpuName[48];
 void arch_entry_point(void *arg) {
 	// arg is our multiboot structure description
 	// Basically, we need just to extract the arguments from the sctructure then pass it to the global entry point
@@ -138,7 +139,6 @@ void *arch_preapreArchStack(bool isUser) {
     t->kernelESP = t->kesp_start+4096;
     t->stack = stack_addr;
     return t;
-    //return NULL; // test
 }
 void arch_switchContext(void *stack) {
     process_t *p = (process_t *)stack;
@@ -235,7 +235,11 @@ void arch_post_init() {
     }
 	apic_init();
 	smp_init();
-    smp_post_init();
+	smp_post_init();
+	if (!acpiIsOn()) {
+		kprintf("WARRNING: No ACPI available, the system can't be shutted down\r\n");
+	}
+	kprintf("HelinOS X86 part is successfully ended in arch_post_init\r\n");
 }
 bool arch_relocSymbols(module_t *mod,void *ehdr) {
 	Elf32_Ehdr *e = (Elf32_Ehdr *)ehdr;
@@ -386,7 +390,7 @@ void arch_detect() {
         {
             ++p;
         }
-
+	strcpy(cpuName,p);
         kprintf("CPU Name: %s\r\n", p);
     }
 }
@@ -394,6 +398,7 @@ void arch_sysinfo() {
 	kprintf("This OS is builded for X86 PC\r\n");
 	kprintf("Is ACPI Shutdown Available: %s\r\n",(acpiIsOn() ? "Yes" : "No"));
 	kprintf("Detected cores: %d\r\n",smp_getCPUCount());
+	kprintf("Machine Name: %s\r\n",cpuName);
 }
 static void thread_main(int entryPoint,int esp,bool isUser) {
     /* Через те, що наш метод переключення контексту процесів працює лише з задачами ядра, ми будемо перемикатися в режим користувача.

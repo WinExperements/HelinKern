@@ -20,6 +20,12 @@ char **__argv;
 void process_initScript(FILE *);
 extern FILE *stdin;
 
+void th_main() {
+    printf("Hi from thread! I am running from the same address space!\n");
+    // Always exit
+    exit(0);
+}
+
 
 int main(int argcf,char **argvf) {
     FILE *f = stdin;
@@ -117,7 +123,7 @@ void sh_parseCommand(char **argv,int argc) {
         helin_syscall(3,pid,0,0,0,0);
     } else if (!strcmp(argv[0],"sysinfo")) {
         printf("Custom Shell for HelinOS\r\n");
-        printf("UID: %x, GID: %x\r\n",getuid(),getgid());
+        printf("UID: %u, GID: %u\r\n",getuid(),getgid());
         helin_syscall(24,0,0,0,0,0);
     } else if (!strcmp(argv[0],"id")) {
         int uid = getuid();
@@ -176,6 +182,8 @@ void sh_parseCommand(char **argv,int argc) {
             printf("%s",buf);
             free(buf);
         }
+    } else if (!strcmp(argv[0],"clone")) {
+        helin_syscall(37,(int)th_main,0,0,0,0);
     } else {
         if (!execute(argv[0],argv,argc)) {
             printf("Commmand %s not found\n",argv[0]);
