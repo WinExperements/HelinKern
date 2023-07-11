@@ -40,6 +40,7 @@ extern char kernel_end[];
 extern void x86_switchToNew(int esp);
 extern void vga_change();
 static bool dontFB = false;
+static bool dontVGA = false;
 static void thread_main(int entryPoint,int esp,bool isUser);
 extern void x86_switch(registers_t *to);
 extern void x86_jumpToUser(int entryPoint,int userstack);
@@ -84,7 +85,7 @@ void arch_init() {
     outb(0x40,divisor);
     outb(0x40,divisor >> 8);
     initAcpi();
-    if (dontFB) vga_change();
+    if (dontFB && !dontVGA) vga_change();
     //apic_init();
     //smp_init();
 }

@@ -8,6 +8,13 @@
 #include <arch/mmu.h>
 #include <debug.h>
 #include <debug.h>
+
+// Pthreads structure that passed to newlib thread_entry
+typedef struct _pthread_str {
+	int entry;
+	void *arg;
+} pthread_str;
+
 static void sys_default() {}
 static void sys_exit(int exitCode);
 static void sys_kill(int pid,int code);
@@ -42,8 +49,10 @@ static void sys_setgid(int gid);
 static int sys_getgid();
 static void *sys_sbrk(int increment);
 static int sys_dup(int oldfd,int newfd);
-static int sys_clone(int entryPoint,int flags); // pthread support, yay
-int syscall_table[38] = {
+static int sys_clone(int entryPoint,int arg1,int arg2); // pthread support, yay
+// HelinOS specific
+static void sys_waitForStart(int pid); // waits for thread begin started, automatically enabled the interrupts
+int syscall_table[39] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -82,8 +91,9 @@ int syscall_table[38] = {
     (int)sys_sbrk,
     (int)sys_dup,
     (int)sys_clone,
+    (int)sys_waitForStart,
 };
-int syscall_num = 38;
+int syscall_num = 39;
 static void sys_print(char *msg) {
     kprintf(msg);
 }
@@ -410,7 +420,7 @@ static int sys_dup(int oldfd,int newfd) {
 	prc->fds[fd_id] = copy;
 	return fd_id;
 }
-static int sys_clone(int entryPoint,int flags) {
+static int sys_clone(int entryPoint,int arg1,int arg2) {
     process_t *caller = thread_getThread(thread_getCurrent());
     // Acording to the wiki, we need just to create an process with the same VM space
     process_t *thread = thread_create("thread",entryPoint,true);
@@ -421,8 +431,32 @@ static int sys_clone(int entryPoint,int flags) {
     thread->brk_begin = caller->brk_begin;
     thread->brk_end = caller->brk_end;
     thread->brk_next_unallocated_page_begin = caller->brk_next_unallocated_page_begin;
+    // Clone the file descriptors
+    for (int i = 0; i < caller->next_fd; i++) {
+	    file_descriptor_t *desc = caller->fds[i];
+	    if (desc != NULL) {
+		    thread_openFor(thread,desc->node);
+		    kprintf("%s: thread file descriptor %d, address: 0x%x\n",__func__,i,thread->fds[i]);
+		}
+	}
     // Pass test arguments
-    arch_putArgs(thread,2,4); // Only test
+    pthread_str *st = (pthread_str *)kmalloc(sizeof(pthread_str));
+    memset(st,0,sizeof(pthread_str));
+    // by mapping, the arg1 is actual entry point, and arg2 is an argument to thread function
+    st->entry = arg1;
+    st->arg = (void *)arg2;
+    arch_putArgs(thread,1,(int)st); // Only test
+    return thread->pid;
+}
 
-    return 0;
+static void sys_waitForStart(int pid) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	process_t *waitFor = thread_getThread(pid);
+	if (waitFor->pid == 0) {
+		// Returned when no such process ID(PID)
+		return;
+	}
+	arch_sti(); // enable interrupts, so scheduler can work normally
+	// Wait
+	while(!waitFor->started);
 }

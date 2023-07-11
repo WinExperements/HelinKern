@@ -71,6 +71,16 @@ static void *keyboard_handler(void *stack) {
             case 0x09: keyboard_keyHandler('8'); break;
             case 0x0A: keyboard_keyHandler('9'); break;
             case 0x0B: keyboard_keyHandler('0'); break;
+	    case 0x1: {
+			      kprintf("Killing current process...");
+			      process_t *prc = thread_getThread(thread_getCurrent());
+			      if (prc->pid == 0) {
+				      kprintf("Can't kill kswapper\n");
+				      break;
+				}
+				kprintf("done\n"); // actuall thread_killThread do reschedule via arch_reschedule
+			      thread_killThread(prc,1);
+			} break;
 
             case 0x10: keyboard_keyHandler('q'); break;
             case 0x11: keyboard_keyHandler('w'); break;
@@ -129,7 +139,7 @@ static void *keyboard_handler(void *stack) {
             } break;
             default:
             {
-                //DEBUG("Unhandled key: 0x%x\r\n",key);
+                //kprintf("Unhandled key: 0x%x\r\n",key);
                 break;
             }
 	}

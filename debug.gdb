@@ -10,5 +10,9 @@ target remote localhost:1234
 #b sys_ioctl
 #b sys_sysinfo
 #b thread_killThread
-b sys_exit
+#b sys_exit
+#b sys_write
+#b sys_clone
+#b sys_waitForStart
+b kernel_main
 c

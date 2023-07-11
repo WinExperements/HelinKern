@@ -14,6 +14,13 @@
 #include <string.h>
 #include <sys/mount.h>
 #include <stdarg.h>
+
+// Structure from src/thread.c from kernel source
+typedef struct _pthread_str {
+        int entry;
+        void *arg;
+} pthread_str;
+
 int helin_syscall(int num,int p1,int p2,int p3,int p4,int p5) {
     // use asm macro for it
     int ret = 0;
@@ -175,8 +182,12 @@ int execvp(const char *file, char *const argv[]) {
 int pipe(int pipefd[2]) {
 	return -1; // doesn't supported
 }
-void thread_entry(int entry,int arg) {
-    _exit(0);
+void thread_entry(pthread_str *data) {
+	// stderr,stdout,stdin are automatically is openned for us
+	//printf("thread_entry: Received entry address: 0x%x, arg: 0x%x\n",data->entry,data->arg);
+	void (*entry)(void *) = ((void (*)(void *))data->entry);
+	entry(data->arg);
+        _exit(0);
 }
 // Pthread
 int pthread_equal(pthread_t t1, pthread_t t2) {
@@ -190,6 +201,8 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
 	if (pid > 0) {
 		*thread = pid;
 	}
+	// Wait for start via sys_waitForStart
+	helin_syscall(38,pid,0,0,0,0);
 	return 0;
 }
 
