@@ -14,5 +14,7 @@ target remote localhost:1234
 #b sys_write
 #b sys_clone
 #b sys_waitForStart
-b kernel_main
+#b kernel_main
+#b sys_usleep
+b tty_ioctl
 c

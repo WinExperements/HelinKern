@@ -14,6 +14,7 @@
 #include <string.h>
 #include <sys/mount.h>
 #include <stdarg.h>
+#include <termios.h> // Hide and show user input
 
 // Structure from src/thread.c from kernel source
 typedef struct _pthread_str {
@@ -45,7 +46,7 @@ int close(int file) {
 }
 char **environ; /* pointer to array of char * strings that define the current environment variables */
 int execve(char *name, char **argv, char **env) {
-    int pid = helin_syscall(13,(int)name,sizeof(argv)/sizeof(argv[1]),argv,0,0);
+    int pid = helin_syscall(13,(int)name,sizeof(argv)/sizeof(argv[1]),(int)argv,0,0);
     if (pid < 0) return -1;
     return 0;
 }
@@ -83,20 +84,20 @@ clock_t times(struct tms *buf){}
 int unlink(char *name){}
 int wait(int *status){}
 int write(int file, char *ptr, int len){
-    helin_syscall(10,file,0,len,(int)ptr,0);
-    return len-1;
+    int how = helin_syscall(10,file,0,len,(int)ptr,0);
+    return how;
 }
 int gettimeofday(struct timeval *__restrict __p,
                           void *__restrict __tz){}
 int ioctl(int fd,unsigned long request,...) {
     va_list args;
     va_start(args,request);
-    int ret = helin_syscall(32,fd,request,args,0,0);
+    int ret = helin_syscall(32,fd,request,(int)args,0,0);
     va_end(args);
     return ret;
 }
 void *mmap(void *addr,size_t len,int prot,int flags,int fd,off_t offset) {
-    return (void *)helin_syscall(29,fd,addr,len,offset,flags);
+    return (void *)helin_syscall(29,fd,(int)addr,len,offset,flags);
 }
 DIR *opendir(const char *path) {
     int fd = helin_syscall(18,(int)path,0,0,0,0);
@@ -213,4 +214,20 @@ void pthread_exit(void* retval) {
 
 int pthread_join(pthread_t thread, void** retval) {
 	waitpid(thread,NULL,0);
+}
+
+int usleep(int ms) {
+	helin_syscall(39,ms,0,0,0,0);
+	return 0;
+}
+int sleep(int sec) {
+	return usleep(sec * 1000);
+}
+
+int tcgetattr(int fd,struct termios* tio) {
+	// Return success
+	return 0;
+}
+int tcsetattr(int fd,struct termios* tio) {
+	return 0;
 }

@@ -30,7 +30,7 @@ int main(int argc,char **argv) {
 	char password[MAX_LEN];
 	bool logged = false;
 	bool needUsername = true;
-    int ppid = getppid();
+        int ppid = getppid();
 	int numUsers = sizeof(users)/sizeof(users[0]);
 	if (argc > 1) {
 		// Нащо нам питати ім'я користувача? Ми і так його отримали з аргументів
@@ -45,10 +45,17 @@ int main(int argc,char **argv) {
 			fread(username,1,100,stdin);
 			username[strlen(username)-1] = 0;
 		}
-		// Ми повинні вимикати відображення вводу, але поки що не реалізовано
+		// Ми повинні вимикати відображення вводу
+                int oldFlags = 0;
+		// Use ioctl
 		printf("Password: ");
+		ioctl(0,1,&oldFlags);
+		int newFlags = 0;
+		ioctl(0,2,&newFlags); // set TTY flags
 		fread(password,1,100,stdin);
 		password[strlen(password)-1] = 0;
+		ioctl(0,2,&oldFlags);
+		printf("\n");
 		// Перевіряємо!
 		for (int i = 0; i < numUsers; i++) {
 			if (strcmp(username,users[i].name) == 0 && strcmp(password,users[i].password) == 0) {

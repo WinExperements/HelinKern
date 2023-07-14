@@ -76,6 +76,9 @@ static void *mouse_intr(void *st) {
                     break;
                 } 
                 mouse_cycle = 0;
+		old_x += mouse_byte[1];
+		old_y += mouse_byte[2];
+		//kprintf("X: %d, Y: %d\n",old_x,old_y);
                 break;
             }
         }

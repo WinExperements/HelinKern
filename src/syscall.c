@@ -52,7 +52,8 @@ static int sys_dup(int oldfd,int newfd);
 static int sys_clone(int entryPoint,int arg1,int arg2); // pthread support, yay
 // HelinOS specific
 static void sys_waitForStart(int pid); // waits for thread begin started, automatically enabled the interrupts
-int syscall_table[39] = {
+static void sys_usleep(int ms);
+int syscall_table[40] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -92,8 +93,9 @@ int syscall_table[39] = {
     (int)sys_dup,
     (int)sys_clone,
     (int)sys_waitForStart,
+    (int)sys_usleep,
 };
-int syscall_num = 39;
+int syscall_num = 40;
 static void sys_print(char *msg) {
     kprintf(msg);
 }
@@ -378,7 +380,6 @@ static void sys_rmmod(char *name) {
     kprintf("Comming soon!\r\n");
 }
 static int sys_ioctl(int fd,int req,va_list list) {
-    kprintf("sys_ioctl\r\n");
     // Generally used by the compositor to draw windows!
     process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *file_desc = caller->fds[fd];
@@ -436,7 +437,6 @@ static int sys_clone(int entryPoint,int arg1,int arg2) {
 	    file_descriptor_t *desc = caller->fds[i];
 	    if (desc != NULL) {
 		    thread_openFor(thread,desc->node);
-		    kprintf("%s: thread file descriptor %d, address: 0x%x\n",__func__,i,thread->fds[i]);
 		}
 	}
     // Pass test arguments
@@ -450,7 +450,6 @@ static int sys_clone(int entryPoint,int arg1,int arg2) {
 }
 
 static void sys_waitForStart(int pid) {
-	process_t *caller = thread_getThread(thread_getCurrent());
 	process_t *waitFor = thread_getThread(pid);
 	if (waitFor->pid == 0) {
 		// Returned when no such process ID(PID)
@@ -459,4 +458,12 @@ static void sys_waitForStart(int pid) {
 	arch_sti(); // enable interrupts, so scheduler can work normally
 	// Wait
 	while(!waitFor->started);
+}
+
+static void sys_usleep(int ms) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	caller->wait_time = ms;
+	caller->state = STATUS_SLEEP;
+	caller->quota = PROCESS_QUOTA;
+	arch_reschedule();
 }

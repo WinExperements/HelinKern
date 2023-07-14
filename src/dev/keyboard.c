@@ -7,6 +7,7 @@
 #include <mm/alloc.h>
 #include <lib/clist.h>
 #include <debug.h>
+#include <tty.h> // TTY!!!
 static void *keyboard_handler(void *);
 static bool shift,ctrl = false;
 static void keyboard_keyHandler(char key);
@@ -23,6 +24,7 @@ struct keyboard_reader {
     char key;
 };
 static clist_definition_t *readers;
+extern int tty_flags;
 void keyboard_init() {
     outb(0x64,0xAD); // disable first PS/2 port
 	outb(0x64,0xA7); // disable second PS/2 port(if supported)
@@ -74,9 +76,11 @@ static void *keyboard_handler(void *stack) {
 	    case 0x1: {
 			      kprintf("Killing current process...");
 			      process_t *prc = thread_getThread(thread_getCurrent());
-			      if (prc->pid == 0) {
-				      kprintf("Can't kill kswapper\n");
+			      if (prc == NULL) {
+				      kprintf("process not found\n");
 				      break;
+				} else if (prc->pid == 0) {
+					kprintf("Can't kill kswapper\n");
 				}
 				kprintf("done\n"); // actuall thread_killThread do reschedule via arch_reschedule
 			      thread_killThread(prc,1);
@@ -155,7 +159,9 @@ static void readers_foreach(clist_head_t *element,va_list args) {
 static void keyboard_keyHandler(char key) {
     // Ці елементи більше не потрібні!
     clist_for_each(readers,readers_foreach,key);
-    kprintf("%c",key);
+    if (tty_flags & FLAG_ECHO) {
+		kprintf("%c",key);
+	}
 }
 static int keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, void *buf) {
     if (how <= 0 || buf == NULL)

@@ -64,6 +64,14 @@ void *thread_schedule(void *stack) {
 	}
     }
     enqueue(running_list, nextTask);
+    if (nextTask->state == STATUS_SLEEP) {
+	    if (nextTask->wait_time <= 0) {
+		    nextTask->state = STATUS_RUNNING;
+		}
+	    nextTask->wait_time--;
+	    // Switch to idle
+	    nextTask = idle;
+	}
     // switch the address space
     arch_mmu_switch(nextTask->aspace);
     arch_switchContext(nextTask);
@@ -129,7 +137,11 @@ process_t *thread_getThread(int pid) {
             return p;
         }
     }
+#ifdef DEBUG
     return idle;
+#else
+    return NULL;
+#endif
 }
 void thread_killThread(process_t *prc,int code) {
     DEBUG("Killing thread %s with code %d\r\n", prc->name, code);

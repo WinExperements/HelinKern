@@ -13,5 +13,6 @@
  * Add /dev/tty
 */
 
+#define FLAG_ECHO 0000001
 void tty_init();
 #endif
