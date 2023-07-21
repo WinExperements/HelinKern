@@ -7,7 +7,7 @@
 #define STATUS_WAITING 3
 #define STATUS_KILLED 4
 #define STATUS_WAITPID 5
-#define PROCESS_QUOTA 10
+#define PROCESS_QUOTA 100 // 100 ms
 #define TYPE_PROCESS 0
 #define TYPE_THREAD 1
 typedef struct process {
