@@ -24,7 +24,9 @@ void arch_mmu_init() {
     int i = 0;
     for (i = 0; i < 4; ++i)
     {
+	    // TODO: Remove PG_USER and fix all #PG after it
         kernel_pg[i] = (i * PAGESIZE_4M | (PG_PRESENT | PG_WRITE | PG_4MB | PG_USER));//add PG_USER for accesing kernel code in user mode
+	
     }
     for (i = 4; i < 1024; ++i)
     {

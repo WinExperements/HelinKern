@@ -20,6 +20,7 @@ static vfs_node_t *new_node(const char *name,struct cpio_hdr *hdr,size_t sz,size
     p->name = strdup(name);
     p->data = data;
     node->name = p->name;
+    kprintf("Pasted node size: %d\n",sz);
     return node;
 }
 
@@ -91,9 +92,10 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
 }
 
 static int cpio_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
-    if ((size_t)offset >= node->size) return;
+   if ((size_t)offset >= node->size) return 0;
     how = min(how,node->size - offset);
     struct cpio *p = node->priv_data;
+    //kprintf("Reading %d bytes, file size: %d\n",how,node->size);
     vfs_read(d,p->data + offset,how,buf);
     return how;
 }

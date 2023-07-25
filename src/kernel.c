@@ -41,7 +41,6 @@ void panic(char *file,int line,char *msg) {
 void kernel_main(const char *args) {
     // Bootstrap start
     arch_pre_init(); // must setup the base thinks in the architecture, for example: just check if the CPU is supported
-    arch_init(); // setup interrupts
     // init output
     output_uart_init();
     kprintf("HelinOS kernel, build date: %s using GCC %s\r\n",__DATE__,__VERSION__);
@@ -50,8 +49,9 @@ void kernel_main(const char *args) {
         fb_init(&fb);
         fb_enable();
         fb_addr = (int)fb.addr;
-	    output_changeToFB(); // important!
+	//output_changeToFB(); // important!
     }
+    arch_init();
     // Hi!
     fb_disableCursor();
     int mem = arch_getMemSize();
@@ -80,6 +80,7 @@ void kernel_main(const char *args) {
     #endif
     tty_init();
     arch_post_init();
+    output_changeToFB();
     clock_setShedulerEnabled(true);
     arch_detect();
     // Directly try to mount initrd and run init if it fails then panic like Linux kernel or spawn kshell

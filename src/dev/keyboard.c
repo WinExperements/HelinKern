@@ -143,6 +143,7 @@ static void *keyboard_handler(void *stack) {
             } break;
             default:
             {
+		keyboard_keyHandler(key);
                 //kprintf("Unhandled key: 0x%x\r\n",key);
                 break;
             }

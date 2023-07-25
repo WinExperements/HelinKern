@@ -73,6 +73,8 @@ void *thread_schedule(void *stack) {
 	    nextTask = idle;
 	}
     // switch the address space
+    arch_fpu_save(runningTask->fpu_state);
+    arch_fpu_restore(nextTask->fpu_state);
     arch_mmu_switch(nextTask->aspace);
     arch_switchContext(nextTask);
     return stack;
@@ -95,6 +97,7 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     th->fds = kmalloc(200);
     th->uid = runningTask == NULL ? 0 : runningTask->uid;
     th->gid = runningTask == NULL ? 0 : runningTask->gid;
+    arch_prepareProcess(th);
     enqueue(task_list,th);
     enqueue(running_list,th);
     //kprintf("PID of new process: %d\r\n",th->pid);
@@ -209,7 +212,10 @@ int clock_getUptimeMsec() {
     return num_clocks;
 }
 int thread_openFor(process_t *caller,vfs_node_t *node) {
-    if (!node) return -1;
+    if (!node) {
+	    DEBUG_N("No node passed for thread_openFor, returning -1 as result\n");
+	    return -1;
+    }
     DEBUG("%s: open: %s for %s\r\n",__func__,node->name,caller->name);
     file_descriptor_t *fd = kmalloc(sizeof(file_descriptor_t));
     memset(fd,0,sizeof(file_descriptor_t));

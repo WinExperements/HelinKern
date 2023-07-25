@@ -33,7 +33,7 @@ void alloc_init(int kernel_end,int high_mem) {
         SET_PAGEFRAME_USED(phys_map,pg);
     }
     end_address = kernel_end+(total_pages*8);
-    // BUG: The phys_map isn't mapped when size of initrd is too high, so we need to propertly map it in the kernel heap initialization code
+    kprintf("Kernel end address: 0x%x, allocation start address: 0x%x\n",kernel_end,end_address);
 }
 int alloc_getPage() {
     if (!mapped) {

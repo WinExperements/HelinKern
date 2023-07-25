@@ -34,4 +34,7 @@ void arch_detect();
 void arch_sysinfo();
 void arch_putArgs(process_t *prc,int argc,char **argv);
 void arch_trace();
+void arch_preapreProcess(process_t *prc);
+void arch_fpu_save(void *to);
+void arch_fpu_restore(void *from);
 #endif

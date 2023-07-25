@@ -250,3 +250,20 @@ x86_jumpToUser:
     push eax
     sti
     iretd
+
+global arch_fpu_save
+global arch_fpu_restore
+
+arch_fpu_save:
+    pushf                   ; Save flags register
+    fnstcw [eax]            ; Save FPU control word to memory
+    fnsave [eax+2]          ; Save FPU status word and FPU state to memory
+    popf                    ; Restore flags register
+    ret
+
+arch_fpu_restore:
+    pushf                   ; Save flags register
+    fldcw [eax]             ; Restore FPU control word from memory
+    frstor [eax+2]          ; Restore FPU status word and FPU state from memory
+    popf                    ; Restore flags register
+    ret

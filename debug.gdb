@@ -16,5 +16,8 @@ target remote localhost:1234
 #b sys_waitForStart
 #b kernel_main
 #b sys_usleep
-b tty_ioctl
-c
+#b tty_ioctl
+#b arch_prepareProcess
+#b arch_fpu_save
+#b setup_fpu
+b sys_sbrk

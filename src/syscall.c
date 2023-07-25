@@ -28,7 +28,7 @@ static void sys_free(void *ptr);
 static void sys_print(char *msg);
 static int sys_exec(char *path,int argc,char **argv);
 static void sys_reboot(int reason);
-static void sys_chdir(char *to);
+static int sys_chdir(char *to);
 static void sys_pwd(char *buff,int len);
 static int sys_opendir(char *path);
 static void sys_closedir(int fd);
@@ -207,18 +207,19 @@ static void sys_reboot(int reason) {
 	}
 	arch_reset();
 }
-static void sys_chdir(char *to) {
+static int sys_chdir(char *to) {
     process_t *prc = thread_getThread(thread_getCurrent());
     int size = strlen(to);
     char *copy = kmalloc(size+1);
     strcpy(copy,to);
     vfs_node_t *node = vfs_find(copy);
     if (!node) {
-        goto exit;
+        kfree(copy);
+	return -1;
     }
     prc->workDir = node;
-exit:
     kfree(copy);
+    return 0;
 }
 static void sys_pwd(char *buff,int len) {
     vfs_node_path(thread_getThread(thread_getCurrent())->workDir,buff,len);

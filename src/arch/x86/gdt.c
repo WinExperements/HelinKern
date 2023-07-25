@@ -23,6 +23,7 @@ void gdt_init()
   tss_write(5,0x10,0);
   gdt_flush((int)&gdt_ptr);
   tss_flush();
+  kprintf("GDT setted to 0x%x\n",&gdt_ptr);
 }
 void gdt_set_gate(s32 num, uint32_t base, uint32_t limit, uint8_t access, uint8_t gran)
 {
@@ -165,7 +166,9 @@ void *x86_irq_handler(registers_t *regs) {
     if (int_no < IRQ0) {
         arch_cli();
         int addr = 0;
-		asm volatile("movl %%cr2, %0" : "=r"(addr));
+	int cr0 = 0;
+	asm volatile("movl %%cr2, %0" : "=r"(addr));
+	asm volatile("mov %%cr0, %0" : "=r"(cr0));
         if (int_no == 14) {
             // get faulting address
              int present = regs->error_code & 0x1;
@@ -173,6 +176,7 @@ void *x86_irq_handler(registers_t *regs) {
 		    kprintf("Page fault!!! When trying to %s %x - IP:%x\n", rw ? "write to" : "read from", addr, regs->eip);
             kprintf("The page was %s\n", present ? "present" : "not present");
         }
+	kprintf("CR0: 0x%x\n",cr0);
         if (regs->eflags != 518) {
             kprintf("%s in %s\r\n",exception_names[int_no],thread_getThread(thread_getCurrent())->name);
             thread_killThread(thread_getThread(thread_getCurrent()),18198);

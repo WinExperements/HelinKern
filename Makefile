@@ -48,5 +48,5 @@ makeiso:
 run:
 	qemu-system-i386 -cdrom m.iso
 debug:
-	qemu-system-i386 -cdrom m.iso -boot d -smp 2 -s -S &
+	qemu-system-i386 -cdrom m.iso -boot d -s -S &
 	gdb -tui kernel.bin -x  debug.gdb

@@ -45,6 +45,7 @@ static void thread_main(int entryPoint,int esp,bool isUser);
 extern void x86_switch(registers_t *to);
 extern void x86_jumpToUser(int entryPoint,int userstack);
 static char cpuName[48];
+static void setup_fpu();
 void arch_entry_point(void *arg) {
 	// arg is our multiboot structure description
 	// Basically, we need just to extract the arguments from the sctructure then pass it to the global entry point
@@ -78,7 +79,7 @@ void arch_init() {
     asm volatile("mov %%esp, %0" : "=r"(esp));
     tss_set_stack(0x10,esp);
     outb(0x21, 0x00);
-   	outb(0xa1, 0x00);
+    outb(0xa1, 0x00);
     // Init timer
     uint32_t divisor = 1193182 / 1000;
     outb(0x43,0x00 | 0x06 | 0x30 | 0x00);
@@ -88,6 +89,7 @@ void arch_init() {
     if (dontFB && !dontVGA) vga_change();
     //apic_init();
     //smp_init();
+    setup_fpu();
 }
 void arch_sti() {
     asm volatile("sti");
@@ -239,6 +241,15 @@ void arch_post_init() {
 	smp_post_init();
 	if (!acpiIsOn()) {
 		kprintf("WARRNING: No ACPI available, the system can't be shutted down\r\n");
+	}
+	unsigned int cr0;
+
+        // Read the CR0 register
+        asm("mov %%cr0, %0" : "=r"(cr0));
+        if ((cr0 & 0x2)) {
+                kprintf("WARRNING: MSDOS compatibility of FPU is enabled!\n");
+        }  else {
+		kprintf("FPU isn't enabled with MSDOS compatibility mode\n");
 	}
 	kprintf("HelinOS X86 part is successfully ended in arch_post_init\r\n");
 }
@@ -433,3 +444,49 @@ void arch_trace() {
         stk = stk->ebp;
     }
 }
+void arch_prepareProcess(process_t *prc) {
+	// Allocate the FPU context
+	// Save current FPU context, before initializing new
+	void *current_fpu_state = 0;
+    	arch_fpu_save(current_fpu_state);
+	prc->fpu_state = kmalloc(512 + 15); // Default 32-bit FPU context size
+	uintptr_t addr = (uintptr_t)prc->fpu_state;
+    	uintptr_t aligned_addr = (addr + 15) & ~0xF;
+	prc->fpu_state = (void *)aligned_addr;
+	memset(prc->fpu_state,0,512);
+	arch_fpu_restore(prc->fpu_state);
+	asm volatile("finit");
+	arch_fpu_save(prc->fpu_state);
+	arch_fpu_restore(current_fpu_state);
+}
+
+static void set_fpu_cw(const uint16_t cw) {
+	asm volatile("fldcw %0" :: "m"(cw));
+}
+
+static void setup_fpu() {
+    // Source code taken from ToaruOS 1.0x
+    int cr4;
+    asm volatile ("mov %%cr4, %0" : "=r"(cr4));
+    kprintf("CR4 before: 0x%x\n", cr4);
+    cr4 |= (1 << 10);
+    asm volatile ("mov %0, %%cr4" :: "r"(cr4));
+    kprintf("CR4 set, current value: 0x%x\n", cr4);
+
+    set_fpu_cw(895); // Set the FPU control word to 0x037F in decimal format
+
+    // Enable FPU exceptions
+    unsigned int cr0;
+
+    // Read the current value of CR0
+    asm volatile("mov %%cr0, %0" : "=r" (cr0));
+
+    // Set the NE flag (bit 5) to 1
+    cr0 |= (1 << 5);
+
+    // Write the modified value back to CR0
+    asm volatile("mov %0, %%cr0" :: "r" (cr0));
+
+    asm volatile("finit");
+}
+
