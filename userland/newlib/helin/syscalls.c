@@ -15,6 +15,7 @@
 #include <sys/mount.h>
 #include <stdarg.h>
 #include <termios.h> // Hide and show user input
+#include <time.h>
 
 // Structure from src/thread.c from kernel source
 typedef struct _pthread_str {
@@ -231,3 +232,19 @@ int tcgetattr(int fd,struct termios* tio) {
 int tcsetattr(int fd,struct termios* tio) {
 	return 0;
 }
+
+int access(const char *pathname,int mode) {
+	return 0;
+}
+
+int clock_gettime (clockid_t clock_id, struct timespec *tp) {
+	if (tp == NULL) return 1;
+	return 0;
+}
+
+void pthread_cleanup_push(void (*routine)(void *),
+                                 void *arg) {}
+void pthread_cleanup_pop(int execute) {}
+
+int pthread_attr_init(pthread_attr_t *attr) {return 0;}
+int pthread_attr_destroy(pthread_attr_t *attr) {return 0;}

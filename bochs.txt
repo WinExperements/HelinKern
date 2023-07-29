@@ -2,7 +2,7 @@
 plugin_ctrl: voodoo=false, gameport=true, parallel=true, pcidev=false, usb_ohci=false, sb16=false, busmouse=false, ne2k=false, serial=true, biosdev=true, e1000=false, usb_ehci=false, usb_uhci=false, usb_xhci=false, es1370=false, unmapped=true, iodebug=true, speaker=true, pcipnic=false, extfpuirq=true
 config_interface: textconfig
 display_library: x
-memory: host=128, guest=128
+memory: host=512, guest=2048
 romimage: file="/usr/share/bochs/BIOS-bochs-latest", address=0x00000000, options=none
 vgaromimage: file="/usr/share/bochs/VGABIOS-lgpl-latest"
 boot: cdrom

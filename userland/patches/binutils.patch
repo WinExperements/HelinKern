@@ -1,157 +1,157 @@
-diff -ur binutils-2.33.1/bfd/config.bfd packages/binutils-2.33.1/bfd/config.bfd
---- binutils-2.33.1/bfd/config.bfd	2023-06-18 12:16:05.301183157 +0300
-+++ packages/binutils-2.33.1/bfd/config.bfd	2019-09-09 16:19:43.000000000 +0300
-@@ -763,21 +763,6 @@
+diff -ur binutils-2.33.1/bfd/config.bfd ../binutils-2.33.1/bfd/config.bfd
+--- binutils-2.33.1/bfd/config.bfd	2019-09-09 16:19:43.000000000 +0300
++++ ../binutils-2.33.1/bfd/config.bfd	2023-06-18 12:16:05.301183157 +0300
+@@ -763,6 +763,21 @@
      targ_underscore=yes
      ;;
  
--  i[3-7]86-*-helin*)
--    targ_defvec=i386_elf32_vec
--    targ_selvecs=
--    targ64_selvecs=x86_64_elf64_vec
--    ;;
--
--
--#ifdef BFD64
--  x86_64-*-helin*)
--    targ_defvec=x86_64_elf64_vec
--    targ_selvecs=x86_64_elf32_vec
--    want64=true
--    ;;
--#endif
--
++  i[3-7]86-*-helin*)
++    targ_defvec=i386_elf32_vec
++    targ_selvecs=
++    targ64_selvecs=x86_64_elf64_vec
++    ;;
++
++
++#ifdef BFD64
++  x86_64-*-helin*)
++    targ_defvec=x86_64_elf64_vec
++    targ_selvecs=x86_64_elf32_vec
++    want64=true
++    ;;
++#endif
++
    ia16-*-elf)
      targ_defvec=i386_elf32_vec
      targ_selvecs="i386_msdos_vec i386_aout_vec"
-diff -ur binutils-2.33.1/config.sub packages/binutils-2.33.1/config.sub
---- binutils-2.33.1/config.sub	2023-06-18 12:48:16.653453977 +0300
-+++ packages/binutils-2.33.1/config.sub	2019-09-09 16:19:43.000000000 +0300
+diff -ur binutils-2.33.1/config.sub ../binutils-2.33.1/config.sub
+--- binutils-2.33.1/config.sub	2019-09-09 16:19:43.000000000 +0300
++++ ../binutils-2.33.1/config.sub	2023-06-18 12:48:16.653453977 +0300
 @@ -1368,7 +1368,7 @@
  	     | powermax* | dnix* | nx6 | nx7 | sei* | dragonfly* \
  	     | skyos* | haiku* | rdos* | toppers* | drops* | es* \
  	     | onefs* | tirtos* | phoenix* | fuchsia* | redox* | bme* \
--	     | midnightbsd* | amdhsa* | unleashed* | emscripten* | wasi* | helin*)
-+	     | midnightbsd* | amdhsa* | unleashed* | emscripten* | wasi*)
+-	     | midnightbsd* | amdhsa* | unleashed* | emscripten* | wasi*)
++	     | midnightbsd* | amdhsa* | unleashed* | emscripten* | wasi* | helin*)
  	# Remember, each alternative MUST END IN *, to match a version number.
  		;;
  	qnx*)
-diff -ur binutils-2.33.1/gas/configure.tgt packages/binutils-2.33.1/gas/configure.tgt
---- binutils-2.33.1/gas/configure.tgt	2023-06-18 12:17:44.159777126 +0300
-+++ packages/binutils-2.33.1/gas/configure.tgt	2019-09-09 16:19:43.000000000 +0300
-@@ -260,8 +260,6 @@
+diff -ur binutils-2.33.1/gas/configure.tgt ../binutils-2.33.1/gas/configure.tgt
+--- binutils-2.33.1/gas/configure.tgt	2019-09-09 16:19:43.000000000 +0300
++++ ../binutils-2.33.1/gas/configure.tgt	2023-06-18 12:17:44.159777126 +0300
+@@ -260,6 +260,8 @@
    i386-*-rdos*)				fmt=elf ;;
    i386-*-darwin*)			fmt=macho ;;
  
--  i386-*-helin)       fmt=elf ;;
--
++  i386-*-helin)       fmt=elf ;;
++
    ia16-*-elf*)				fmt=elf ;;
  
    ia64-*-elf*)				fmt=elf ;;
-Лише у binutils-2.33.1/ld: autom4te.cache
-diff -ur binutils-2.33.1/ld/configure.tgt packages/binutils-2.33.1/ld/configure.tgt
---- binutils-2.33.1/ld/configure.tgt	2023-06-18 12:21:49.136579772 +0300
-+++ packages/binutils-2.33.1/ld/configure.tgt	2019-09-09 16:19:44.000000000 +0300
-@@ -235,15 +235,6 @@
+Лише у ../binutils-2.33.1/ld: autom4te.cache
+diff -ur binutils-2.33.1/ld/configure.tgt ../binutils-2.33.1/ld/configure.tgt
+--- binutils-2.33.1/ld/configure.tgt	2019-09-09 16:19:44.000000000 +0300
++++ ../binutils-2.33.1/ld/configure.tgt	2023-06-18 12:21:49.136579772 +0300
+@@ -235,6 +235,15 @@
  hppa*-*-netbsd*)	targ_emul=hppanbsd ;;
  hppa*-*-openbsd*)	targ_emul=hppaobsd
  			;;
--
--i[3-7]86-*-helin*)		targ_emul=elf_i386_helin
--						targ_extra_emuls=elf_i386
--						targ64_extra_emuls="elf_x86_64_helin elf_x86_64"
--						;;
--x86_64-*-helin*)
--						targ_emul=elf_x86_64_helin
--						targ_extra_emuls="elf_i386_helin elf_x86_64 elf_i386"
--						;;
++
++i[3-7]86-*-helin*)		targ_emul=elf_i386_helin
++						targ_extra_emuls=elf_i386
++						targ64_extra_emuls="elf_x86_64_helin elf_x86_64"
++						;;
++x86_64-*-helin*)
++						targ_emul=elf_x86_64_helin
++						targ_extra_emuls="elf_i386_helin elf_x86_64 elf_i386"
++						;;
  i[3-7]86-*-nto-qnx*)	targ_emul=i386nto ;;
  i[3-7]86-*-go32)	targ_emul=i386go32 ;;
  i[3-7]86-*-msdosdjgpp*) targ_emul=i386go32 ;;
-Лише у binutils-2.33.1/ld/emulparams: elf_i386_helin.sh
-Лише у binutils-2.33.1/ld/emulparams: elf_x86_64_helin.sh
-diff -ur binutils-2.33.1/ld/Makefile.am packages/binutils-2.33.1/ld/Makefile.am
---- binutils-2.33.1/ld/Makefile.am	2023-06-18 13:21:41.808087657 +0300
-+++ packages/binutils-2.33.1/ld/Makefile.am	2019-09-09 16:19:44.000000000 +0300
-@@ -284,7 +284,6 @@
+Лише у ../binutils-2.33.1/ld/emulparams: elf_i386_helin.sh
+Лише у ../binutils-2.33.1/ld/emulparams: elf_x86_64_helin.sh
+diff -ur binutils-2.33.1/ld/Makefile.am ../binutils-2.33.1/ld/Makefile.am
+--- binutils-2.33.1/ld/Makefile.am	2019-09-09 16:19:44.000000000 +0300
++++ ../binutils-2.33.1/ld/Makefile.am	2023-06-18 13:21:41.808087657 +0300
+@@ -284,6 +284,7 @@
  	eelf32xstormy16.c \
  	eelf32xtensa.c \
  	eelf_i386.c \
--	eelf_i386_helin.c \
++	eelf_i386_helin.c \
  	eelf_i386_be.c \
  	eelf_i386_fbsd.c \
  	eelf_i386_ldso.c \
-@@ -424,7 +423,6 @@
+@@ -423,6 +424,7 @@
  	eelf32ltsmipn32_fbsd.c \
  	eelf32mipswindiss.c \
  	eelf64_aix.c \
--	eelf_x86_64_helin.c \
++	eelf_x86_64_helin.c \
  	eelf64bpf.c \
  	eelf64_ia64.c \
  	eelf64_ia64_fbsd.c \
-@@ -775,7 +773,6 @@
+@@ -773,6 +775,7 @@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf32xstormy16.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf32xtensa.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386.Pc@am__quote@
--@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_helin.Pc@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_helin.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_be.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_fbsd.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_ldso.Pc@am__quote@
-@@ -943,7 +940,6 @@
+@@ -940,6 +943,7 @@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_k1om.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_k1om_fbsd.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64.Pc@am__quote@
--@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_helin.Pc@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_helin.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_cloudabi.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_fbsd.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_nacl.Pc@am__quote@
-diff -ur binutils-2.33.1/ld/Makefile.in packages/binutils-2.33.1/ld/Makefile.in
---- binutils-2.33.1/ld/Makefile.in	2023-06-18 13:22:09.105315985 +0300
-+++ packages/binutils-2.33.1/ld/Makefile.in	2019-10-12 16:59:42.000000000 +0300
-@@ -771,7 +771,6 @@
+diff -ur binutils-2.33.1/ld/Makefile.in ../binutils-2.33.1/ld/Makefile.in
+--- binutils-2.33.1/ld/Makefile.in	2019-10-12 16:59:42.000000000 +0300
++++ ../binutils-2.33.1/ld/Makefile.in	2023-06-18 13:22:09.105315985 +0300
+@@ -771,6 +771,7 @@
  	eelf32xstormy16.c \
  	eelf32xtensa.c \
  	eelf_i386.c \
--	eelf_i386_helin.c \
++	eelf_i386_helin.c \
  	eelf_i386_be.c \
  	eelf_i386_fbsd.c \
  	eelf_i386_ldso.c \
-@@ -910,7 +909,6 @@
+@@ -909,6 +910,7 @@
  	eelf32ltsmipn32_fbsd.c \
  	eelf32mipswindiss.c \
  	eelf64_aix.c \
--	eelf_x86_64_helin.c \
++	eelf_x86_64_helin.c \
  	eelf64bpf.c \
  	eelf64_ia64.c \
  	eelf64_ia64_fbsd.c \
-@@ -1381,7 +1379,6 @@
+@@ -1379,6 +1381,7 @@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_be.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_fbsd.Po@am__quote@
--@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_helin.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_helin.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_ldso.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_nacl.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_sol2.Po@am__quote@
-@@ -1395,7 +1392,6 @@
+@@ -1392,6 +1395,7 @@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_cloudabi.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_fbsd.Po@am__quote@
--@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_helin.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_helin.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_nacl.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_sol2.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eh8300elf.Po@am__quote@
-@@ -2378,7 +2374,6 @@
+@@ -2374,6 +2378,7 @@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf32xstormy16.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf32xtensa.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386.Pc@am__quote@
--@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_helin.Pc@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_helin.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_be.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_fbsd.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_ldso.Pc@am__quote@
-@@ -2546,7 +2541,6 @@
+@@ -2541,6 +2546,7 @@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_k1om.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_k1om_fbsd.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64.Pc@am__quote@
--@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_helin.Pc@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_helin.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_cloudabi.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_fbsd.Pc@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_nacl.Pc@am__quote@

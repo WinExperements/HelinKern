@@ -1,7 +1,7 @@
 ARCH=x86
 OBJECTS = src/arch/x86/boot.o src/arch/x86/arch.o src/kernel.o src/arch/x86/output.o src/arch/x86/io.o src/arch/x86/gdt.o src/arch/x86/x86asm.o src/dev/fb.o src/output.o font.o src/arch/x86/mmu.o src/mm/alloc.o src/isr.o src/thread.o src/lib/clist.o src/syscall.o src/dev/keyboard.o src/elf.o src/lib/string.o src/vfs.o src/rootfs.o src/dev.o src/kshell.o src/symbols.o src/module.o src/arch/x86/acpi.o src/arch/x86/smp.o src/dev/ps2mouse.o src/fs/cpio.o src/dev/tty.o src/dev/input.o
-CCOPTIONS =-std=gnu99 -m32 -ffreestanding -Wall -Wextra -Wno-unused-parameter -Wint-to-pointer-cast -Wsign-compare -nostdlib -march=i486 -mtune=i486 -fno-stack-protector -g -DX86
-CCPATH = /home/sergij/gcc/bin/i686-elf-
+CCOPTIONS =-std=gnu99 -m32 -ffreestanding -Wall -Wextra -Wno-unused-parameter -Wint-to-pointer-cast -Wsign-compare -nostdlib -march=i386 -mtune=i486 -fno-stack-protector -g -DX86
+CCPATH = /home/sergij/gccff/bin/i686-elf-
 %.o: %.c
 	@echo [CC] $<
 	@$(CCPATH)gcc $(CCOPTIONS) -Iinclude -Imodule -c -o $@ $<
@@ -48,5 +48,5 @@ makeiso:
 run:
 	qemu-system-i386 -cdrom m.iso
 debug:
-	qemu-system-i386 -cdrom m.iso -boot d -s -S &
+	qemu-system-i386 -cpu 486 -cdrom m.iso -boot d -s -S &
 	gdb -tui kernel.bin -x  debug.gdb

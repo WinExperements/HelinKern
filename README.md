@@ -1,6 +1,6 @@
 # HelinKern
 
-![screenshot](res/screenshot.png)
+![screenshot](res/screenshot.jpg)
 
 just new implementation of my old osdev project. Many components are based on open source implementation, check the files for more information.
 # Sources
@@ -35,3 +35,12 @@ make # Build project
 make makeiso # Make ISO
 make run # Run via QEMU
 ```
+
+# System Requirements
+- 486+ CPU for base system, Pentium Pro+ for newlib applications
+- 20M of memory to boot base system
+- If the system doesn't boot in graphical mode, then disable UI mode [here](src/arch/x86/boot.s), and set `dontFB` [here](src/arch/x86/arch.c) to `true` and the system must boot in VGA text mode
+
+# Userland
+The system support newlib applicaitions, but the building process will be documented later, but if you want to do it manually you can apply GCC and binutils patchs and build it using OSDEV OS-specific toolchain build tutorial
+

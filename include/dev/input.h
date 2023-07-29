@@ -1,10 +1,16 @@
 #ifndef DEV_INPUT_H
 #define DEV_INPUT_H
 
-/* Yeah input file system, required for mouse/keyboard or other stuff */
-int input_registerDevice(const char *name);
-// Send input data `data` with size `size` to device with ID `inputId`
-void input_sendData(int inputId,void *data,int size);
-// Unregister input device
-void input_unregister(int inputID);
+/* 
+ * Input file system.
+ *
+ * Doesn't really an FS, but can help to register an input device in devfs
+ * Your input device must be an dev_t structure to register it
+ * There fucntions just helps to register input device
+*/
+
+/* Just returns an available device name in devfs
+ * Returned format is "input<available ID>"
+*/
+char *input_getFreeName();
 #endif

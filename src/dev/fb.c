@@ -200,7 +200,7 @@ void fb_map() {
         // Map the FB
         uint32_t p_address = (uint32_t)addr;
 	    uint32_t v_address = (uint32_t)GFX_MEMORY;
-	    uint32_t size = pitch * height;
+	    uint32_t size = pitch * width;
 	    uint32_t pages = size / PAGESIZE_4K;
 	    for (uint32_t i = 0; i < pages; i++) {
 		    uint32_t offset = i * PAGESIZE_4K;
@@ -226,6 +226,11 @@ void fb_clear(int color) {
         }
     }
     cursor_x = cursor_y = 0;
+    // Clear character buffer
+    if (charBuff != NULL) {
+	    // At init
+	    memset(charBuff,0,ws_col*ws_row);
+    }
 }
 static void scroll() {
     if (charBuff == NULL) return;

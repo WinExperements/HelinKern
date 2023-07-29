@@ -20,7 +20,6 @@ static vfs_node_t *new_node(const char *name,struct cpio_hdr *hdr,size_t sz,size
     p->name = strdup(name);
     p->data = data;
     node->name = p->name;
-    kprintf("Pasted node size: %d\n",sz);
     return node;
 }
 

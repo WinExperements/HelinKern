@@ -51,6 +51,9 @@ static int tty_ioctl(vfs_node_t *node,int request,va_list args) {
 			// Set flags
 			tty_flags = *arg;
 			break;
+		case 3:
+			output_clear();
+			break;
 		default:
 			return -1;
 	}

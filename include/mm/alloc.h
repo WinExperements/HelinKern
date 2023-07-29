@@ -40,4 +40,5 @@ void alloc_freePage(int addr);
 int alloc_getBitmapSize();
 void alloc_mapItself();
 int alloc_getEnd(); // needed for FB :(
+void alloc_reserve(int start,int end); // reserve there address space
 #endif

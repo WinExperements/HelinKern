@@ -247,3 +247,10 @@ void alloc_mapItself() {
 int alloc_getEnd() {
     return kernel_endAddress+alloc_getBitmapSize();
 }
+
+void alloc_reserve(int start,int end) {
+	// Generally used by MMU code
+	for (int i = PAGE_INDEX_4K(start); i <  PAGE_INDEX_4K(end); i++) {
+		SET_PAGEFRAME_USED(phys_map,i);
+	}
+}

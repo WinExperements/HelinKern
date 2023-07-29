@@ -56,7 +56,8 @@ void sh_parseCommand(char **argv,int argc) {
     } else if (!strcmp(argv[0],"poweroff")) {
         helin_syscall(14,0xfffc04,0,0,0,0);
     } else if (!strcmp(argv[0],"clear")) { 
-        printf("\033[2J"); // only test, must work
+	    int res = 0;
+	    ioctl(0,3,&res);
     } else if (!strcmp(argv[0],"exit")) {
         doexit = true;
     } else if (!strcmp(argv[0],"cd")) {

@@ -175,6 +175,8 @@ static int sys_exec(char *path,int argc,char **argv) {
     }
     arch_cli();
     int len = file->size;
+    aspace_t *sp = arch_mmu_getAspace();
+    arch_mmu_switch(arch_mmu_getKernelSpace());
     void *file_buff = kmalloc(len+1);
     vfs_read(file,0,len,file_buff);
     elf_load_file(file_buff);
@@ -183,6 +185,7 @@ static int sys_exec(char *path,int argc,char **argv) {
     thread_changeName(prc,file->name);
     kfree(file_buff);
     kfree(buff);
+    arch_mmu_switch(sp);
     if (argc == 0 || argv == 0) {
         // Передамо звичайні параметри(ім'я файлу і т.д)
         char **params = kmalloc(2);

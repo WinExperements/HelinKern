@@ -21,6 +21,8 @@ static uint32_t read_cr3()
 extern char kernel_end[];
 
 void arch_mmu_init() {
+	// Reserve specific memory
+	alloc_reserve(0,RESERVED_AREA);
     int i = 0;
     for (i = 0; i < 4; ++i)
     {

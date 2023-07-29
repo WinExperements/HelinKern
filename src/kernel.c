@@ -18,6 +18,7 @@
 #include <fs/cpio.h>
 #include <tty.h>
 #include <lib/string.h>
+#include <dev/input.h>
 static int fb_addr;
 extern int *syscall_table;
 void *memset(void *dest,char val,int count) {
