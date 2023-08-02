@@ -19,6 +19,7 @@
 #include <tty.h>
 #include <lib/string.h>
 #include <dev/input.h>
+#include <dev/socket.h>
 static int fb_addr;
 extern int *syscall_table;
 void *memset(void *dest,char val,int count) {
@@ -72,6 +73,7 @@ void kernel_main(const char *args) {
     vfs_creat(vfs_getRoot(),"dev",VFS_DIRECTORY);
     vfs_creat(vfs_getRoot(),"bin",VFS_DIRECTORY);
     vfs_creat(vfs_getRoot(),"initrd",VFS_DIRECTORY);
+    vfs_creat(vfs_getRoot(),"fat",VFS_DIRECTORY);
     dev_init();
     cpio_init();
     #ifdef X86
@@ -80,8 +82,9 @@ void kernel_main(const char *args) {
     ps2mouse_init();
     #endif
     tty_init();
+    socket_init();
     arch_post_init();
-    output_changeToFB();
+    if (fb.addr != 0) output_changeToFB();
     clock_setShedulerEnabled(true);
     arch_detect();
     // Directly try to mount initrd and run init if it fails then panic like Linux kernel or spawn kshell

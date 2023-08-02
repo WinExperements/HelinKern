@@ -133,14 +133,38 @@ bool elf_load_file(void *addr) {
     Because the kernel uses the correct implementation of the VMM and kernel heap, any module required some additional memory space to load the symbols
 */
 int elf_get_module_bytes(vfs_node_t *n) {
-    // read the header
-    Elf32_Ehdr *header = kmalloc(sizeof(Elf32_Ehdr));
-    vfs_read(n,0,sizeof(Elf32_Ehdr),header);
-    if (!elf_check_file(header)) {
-        kfree(header);
+    // Read the header
+    Elf32_Ehdr header;
+    vfs_read(n, 0, sizeof(Elf32_Ehdr), &header);
+
+    // Check if it's a valid ELF file
+    if (!elf_check_file(&header)) {
         return -1;
     }
-    int len = (header->e_shentsize * header->e_shnum)*2048;
-    kfree(header);
-    return len;
+
+    // Find the section header table entry
+    int sh_offset = header.e_shoff;
+    int sh_entry_size = header.e_shentsize;
+    int sh_entry_count = header.e_shnum;
+
+    // Calculate the size of the section headers
+    int section_headers_size = sh_entry_size * sh_entry_count;
+
+    // Find the section header string table entry
+    int shstrtab_offset = sh_offset + (header.e_shstrndx * sh_entry_size);
+    Elf32_Shdr shstrtab_header;
+    vfs_read(n, shstrtab_offset, sizeof(Elf32_Shdr), &shstrtab_header);
+
+    // Calculate the size of the section header string table
+    int shstrtab_size = shstrtab_header.sh_size;
+
+    // Calculate the required space to load module symbols
+    int required_space = section_headers_size + shstrtab_size;
+
+    // Multiply the required space by the factor (e.g., 2048) to ensure full loading
+    int factor = 4096;
+    required_space *= factor;
+
+    return required_space;
 }
+

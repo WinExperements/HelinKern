@@ -71,7 +71,7 @@ void sh_parseCommand(char **argv,int argc) {
         } else {
             d = opendir(path);
         }
-        if (d < 0) {
+        if (d <= 0) {
 		    printf("%s: no such file or directory\n",(argc > 1 ? argv[1] : path));
 		    return;
 	    }
@@ -156,11 +156,11 @@ void sh_parseCommand(char **argv,int argc) {
 		printf("Usage:	insmod <module path>\n");
 	}
     } else if (!strcmp(argv[0],"mountfat")) {
-        int ret = helin_syscall(21,(int)"/dev/hdap0",(int)"/initrd",(int)"fat32",0,0);
+        int ret = helin_syscall(21,(int)"/dev/hdap0",(int)"/fat",(int)"ext2",0,0);
     } else if (!strcmp(argv[0],"cat")) {
         if (argc > 1) {
             FILE *init_sh = fopen(argv[1],"r");
-            if (init_sh < 0) {
+            if (init_sh <= 0) {
                 printf("cat: %s: not found\r\n",argv[1]);
                 return;
             }
@@ -168,6 +168,7 @@ void sh_parseCommand(char **argv,int argc) {
 	        int offset = ftell(init_sh);
 	        fseek(init_sh,0,SEEK_SET);
             if (offset == 0) {
+		printf("Zero size\n");
                 fclose(init_sh);
                 return;
             }
@@ -180,7 +181,7 @@ void sh_parseCommand(char **argv,int argc) {
 	        char *buf = helin_syscall(35,offset,0,0,0,0);
 	        fread(buf,offset,1,init_sh);
 	        fclose(init_sh);
-            printf("%s",buf);
+            	printf("%s",buf);
             free(buf);
         }
     } else if (!strcmp(argv[0],"clone")) {
@@ -195,7 +196,7 @@ bool execute(char *command,char **argv,int argc) {
     char *run_path = "/initrd";
     int _pid = 0;
     char **new_argv = NULL;
-    int new_argc = argc-1;
+    int new_argc = argc;
     if (run_path == NULL) {
         printf("cannot find PATH enviroment variable!\n");
         return false;
@@ -208,14 +209,17 @@ bool execute(char *command,char **argv,int argc) {
 	        parallel = true;
             argc--;
         }
-        new_argv = malloc(new_argc);
+        new_argv = malloc(new_argc+2);
+	memset(new_argv,0,new_argc+2);
         for (int i = 0; i < new_argc; i++) {
+	    //printf("%u %s\n",i,new_argv[i]);
             new_argv[i] = argv[i];
+	    printf("%u %s %X\n",i,new_argv[i],new_argv[i]);
         }
 	//printf("u %u\n",new_argc);
     }
     sprintf(buff,"%s/%s",run_path,command);
-    if ((_pid = execv(buff,argc,new_argv)) > 0) {
+    if ((_pid = execv(buff,new_argc,new_argv)) > 0) {
         if (!parallel) {
             waitpid(_pid,NULL,0);
             if (new_argv)free(new_argv);

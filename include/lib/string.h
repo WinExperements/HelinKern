@@ -17,4 +17,7 @@ unsigned int sprintf(char* s1, const char* s2, ...);
 unsigned int snprintf(char* s1, uint32_t n, const char* s2, ...);
 unsigned int vsprintf(char* s1, const char* s2, va_list list);
 unsigned int vsnprintf(char* s1, unsigned int n, const char* s2, va_list list);
+int strncmp(const char* s1, const char* s2,uint32_t n);
+char* strpbrk(const char* str, const char* charset);
+int tolower(int c);
 #endif

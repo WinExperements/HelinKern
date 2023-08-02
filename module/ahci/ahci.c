@@ -127,7 +127,6 @@ static int check_type(HBA_PORT *port) {
 	return 0;
 }
 
-
 static void module_main() {
     kprintf("Finding AHCI controller in PCI base...");
     // Scan each BUS to find the SATA controller
@@ -153,9 +152,11 @@ static void module_main() {
     int i =0;
     while(i < 32) {
 	if (pi & 1) {
-		int type = check_type((HBA_PORT *)&ctrl_data->ports[i]);
+        HBA_PORT* port = (HBA_PORT*)&ctrl_data->ports[i];
+		int type = check_type(port);
 		if (type == AHCI_DEV_SATA) {
 			kprintf("Found hard drive on port %d\r\n",i);
+			kprintf("Port CLB: 0x%x, CLBU: 0x%x\r\n",port->clb,port->clbu);
 		} else if (type == AHCI_DEV_SATAPI) {
            		 kprintf("Found CDROM drive on port %d\r\n",i);
         	} else {

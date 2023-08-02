@@ -187,3 +187,6 @@ static void draw_ramka() {
 	disableCursor = false;
 	//while(1) {}
 }
+bool output_secondary_avail() {
+    return (fbUsed || vgaUsed ? 1 : 0);
+}

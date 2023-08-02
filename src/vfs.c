@@ -56,7 +56,9 @@ void vfs_close(vfs_node_t *node) {
 struct dirent *vfs_readdir(vfs_node_t *in,uint32_t index) {
     if (!in) return NULL;
     if (!in->fs->readdir) return NULL;
-    return in->fs->readdir(in,index);
+    struct dirent *ret = in->fs->readdir(in,index);
+    //kprintf("Return from FS: %s, 0x%x\n",in->fs->fs_name,ret);
+    return ret;
 }
 vfs_node_t *vfs_finddir(vfs_node_t *in,char *name) {
     if (!in || !name) return NULL;
@@ -65,10 +67,10 @@ vfs_node_t *vfs_finddir(vfs_node_t *in,char *name) {
 vfs_node_t *vfs_getRoot() {
     return fs_root;
 }
-void vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
+bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
     if (!fs) {
         kprintf("%s: filesystem are null!",__func__);
-        return;
+        return false;
     }
     if (!mountPoint || mountPoint[0] != '/') {
         kprintf("%s: mount point are invalid",__func__);
@@ -76,35 +78,36 @@ void vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
     if (strcmp(mountPoint,"/")) {
 	if (!fs->mount) {
                 kprintf("%s: filesystem mount function are not defined\n",mountPoint);
-                return;
+                return false;
         }
         fs_root = kmalloc(sizeof(vfs_node_t));
         memset(fs_root,0,sizeof(vfs_node_t));
 	    bool root = fs->mount(dev,fs_root,NULL);
         if (!root) {
                 kprintf("%s: filesystem mount failed\n",mountPoint);
-                return;
+                return false;
         }
     } else {
         vfs_node_t *mount_point = vfs_find(mountPoint);
 	if (!mount_point) {
 		kprintf("%s: no such file or directory\n",mountPoint);
-		return;
+		return false;
 	} else if ((mount_point->flags & 0x7) != VFS_DIRECTORY) {
 		kprintf("%s: not directory\n",mountPoint);
-		return;
+		return false;
 	}
 	// call the actual mount function(if present)
 	if (!fs->mount) {
-		kprintf("%s: filesystem mount function are not defined\n");
-		return;
+		kprintf("%s: filesystem mount function are not defined\n",__func__);
+		return false;
 	}
 	bool root = fs->mount(dev,mount_point,NULL);
         if (!root) {
                 kprintf("%s: filesystem mount failed\n",mountPoint);
-                return;
+                return false;
         }
    }
+    return true;
 }
 vfs_node_t *vfs_creat(vfs_node_t *in,char *name,int flags) {
     if (!in || !in->fs->creat) {

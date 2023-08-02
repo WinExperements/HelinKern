@@ -87,7 +87,7 @@ char *strtok(char *s, const char *delim)
 }
 char *strdup(char *src) {
 	int len = strlen(src);
-	char *p = kmalloc(len+1);
+	char *p = kmalloc(len+2);
     memset(p,0,len+1);
 	if (!p) return NULL;
 	memcpy(p,src,len);
@@ -259,4 +259,45 @@ unsigned int vsnprintf(char* s1, unsigned int n, const char* s2, va_list list)
     va_end(list);
 
     return count;
+}
+
+int strncmp(const char* s1, const char* s2, uint32_t n)
+{
+    for (int i = 0; i < n; ++i) {
+        if (*s1 != *s2)
+            return (*s1 - *s2);
+        if (*s1 == '\0')
+            return (0);
+        s1++;
+        s2++;
+    }
+
+    return 0;
+}
+
+char* strpbrk(const char* str, const char* charset) {
+    if (str == NULL || charset == NULL) {
+        return NULL;
+    }
+
+    while (*str != '\0') {
+        const char* ch = charset;
+        while (*ch != '\0') {
+            if (*str == *ch) {
+                return (char*)str; // Found a match
+            }
+            ch++;
+        }
+        str++;
+    }
+
+    return NULL; // No match found
+}
+
+// Convert a character to lowercase
+int tolower(int c) {
+    if (c >= 'A' && c <= 'Z') {
+        return c + ('a' - 'A');
+    }
+    return c;
 }

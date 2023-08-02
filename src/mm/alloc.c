@@ -99,7 +99,7 @@ void *kmalloc(int size) {
 	}
 	numAllocs++;
 	unsigned long realsize;
-	struct MallocHeader *chunk,*other;
+	struct MallocHeader *chunk,*other,*prev;
 	if ((realsize = sizeof(MallocHeader) + size) < KMALLOC_MINSIZE) {
 		realsize = KMALLOC_MINSIZE;
 	}
@@ -108,10 +108,12 @@ void *kmalloc(int size) {
 		if (chunk->size == 0) {
 			kprintf("Num allocs: %d\n",numAllocs);
 			kprintf("Last allocation size: %d\r\n",lastAlloc);
+			kprintf("Kernel heap corruption when trying to allocate %d bytes, previous chunk size: %d\n",size,prev->size);
 			kprintf("\nPANIC: kmalloc(): corrupted chunk on 0x%x with null size (heap 0x%x) !\nSystem halted\n", chunk, m_kheap);
 			PANIC("Kernel heap corruption");
 			return NULL;
 		}
+		prev = chunk;
 		chunk = (MallocHeader *)((char *)chunk + chunk->size);
 		if (chunk == (struct MallocHeader *)m_kheap) {
 			if ((int)(ksbrk_page(realsize/PAGESIZE_4K + 1)) < 0) {
@@ -133,6 +135,7 @@ void *kmalloc(int size) {
 		other->used = 0;
 		chunk->size = realsize;
 		chunk->used = 1;
+        	DEBUG("Using other chunk, size: %d, allocating %d\n",other->size,size);
 	}
 	heap_used+=realsize;
 	lastAlloc = size;

@@ -8,6 +8,15 @@
     This implementation is taken from SOSO OS: https://github.com/ozkl/soso
     I only ported it to my kernel design, check the origins for more information.
 */
+
+/*
+ * HelinKern modification.
+ * Our initrd can be any size, so it can't be fited always to not interact with our KERN_PD_AREA_BEGIN
+ * So we define it's as int and fill it on startup
+*/
+static int RESERVED_AREA = 0x01000000; //16 mb
+static int KERN_PD_AREA_BEGIN = 0x0; //12 mb
+static int KERN_PD_AREA_END = 0x0; 
 static uint32_t *kernel_pg = (uint32_t *)KERN_PAGE_DIRECTORY;
 
 static uint32_t read_cr3()
@@ -21,9 +30,16 @@ static uint32_t read_cr3()
 extern char kernel_end[];
 
 void arch_mmu_init() {
-	// Reserve specific memory
-	alloc_reserve(0,RESERVED_AREA);
+    // Reserve specific memory
+    KERN_PD_AREA_BEGIN = 0x00F00000;
+    KERN_PD_AREA_END = 0x0100000A;
+    alloc_reserve(0,RESERVED_AREA);
+    kprintf("Reserved area: 0x%x, KERN_PD_AREA_BEGIN: 0x%x, KERN_PD_AREA_END: 0x%x\n",RESERVED_AREA,KERN_PD_AREA_BEGIN,KERN_PD_AREA_END);
+    if (arch_getKernelEnd() > RESERVED_AREA) {
+	    PANIC("Initrd is overwriting our page tables!");
+	}
     int i = 0;
+    int end_index = PAGE_INDEX_4M(KERN_PD_AREA_END);
     for (i = 0; i < 4; ++i)
     {
 	    // TODO: Remove PG_USER and fix all #PG after it
@@ -37,7 +53,9 @@ void arch_mmu_init() {
     //Recursive page directory strategy
     kernel_pg[1023] = (uint32_t)kernel_pg | PG_PRESENT | PG_WRITE;
     //zero out PD area
+    kprintf("Zeroing our PD area...");
     memset((uint8_t*)KERN_PD_AREA_BEGIN, 0, KERN_PD_AREA_END - KERN_PD_AREA_BEGIN);
+    kprintf("finished\r\n");
     asm("	mov %0, %%eax \n \
         mov %%eax, %%cr3 \n \
         mov %%cr4, %%eax \n \

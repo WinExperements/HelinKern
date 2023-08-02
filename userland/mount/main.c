@@ -16,6 +16,8 @@ int main(int argc,char **argv) {
     } else if (ret == -4) {
         printf("mount: %s: no such FS\n",argv[1]);
         return 1;
+    } else if (ret == -5) {
+	    printf("mount: %s: mount failed\n");
     }
     return 0;
 }

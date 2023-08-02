@@ -12,7 +12,7 @@ __attribute__((section(".modname"))) char *name = "mbr";
 
 static mbr_t m_mbr;
 
-static void mbr_dev_read(vfs_node_t *node,int blockNo,int how,void *buf) {
+static void mbr_dev_readBlock(vfs_node_t *node,int blockNo,int how,void *buf) {
     DEBUG("MBR read %d sectors\r\n",how/512);
     if (node->device == NULL) {
         kprintf("MBR: %s: no device pointer in inode!\n",node->name);
@@ -37,6 +37,14 @@ static void mbr_dev_writeBlock(vfs_node_t *node,int blockNo,int how,void *buf) {
     vfs_writeBlock((vfs_node_t *)dev->harddrive_addr,off,how,buf);
 }
 
+static int mbr_dev_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buff) {
+	// MBR
+	if (node->device == NULL) return 0;
+	mbr_dev_t *dev = (mbr_dev_t *)node->device;
+	int off = dev->lba_start*512;
+	return vfs_read((vfs_node_t *)dev->harddrive_addr,off+offset,how,buff);
+}
+
 static void mbr_registerDevice(vfs_node_t *harddrive,int part_index,mbr_t *mbr) {
     mbr_dev_t *dev = kmalloc(sizeof(mbr_dev_t));
     memset(dev,0,sizeof(mbr_dev_t));
@@ -52,7 +60,8 @@ static void mbr_registerDevice(vfs_node_t *harddrive,int part_index,mbr_t *mbr) 
     d->name[4]  =  global_part_id+'0';
     d->name[5] = '\0';
     d->writeBlock = mbr_dev_writeBlock;
-    d->readBlock = mbr_dev_read;
+    d->readBlock = mbr_dev_readBlock;
+    d->read = mbr_dev_read;
     d->device = dev;
     d->buffer_sizeMax = dev->sectors*512;
     dev_add(d);

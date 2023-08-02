@@ -49,17 +49,18 @@ void symbols_init(multiboot_info_t *inf) {
 }
 char *symbols_findName(int value) {
 	uint32_t symbol_value = 0;
+    char *name = 0;
 	char *strtab_addr = (char *)strtab->sh_addr;
         Elf32_Sym *symbols = (Elf32_Sym *)symtab->sh_addr;
         for (Elf32_Word i = 0; i < symtab->sh_size / sizeof(Elf32_Sym); i++) {
                 Elf32_Sym *can = symbols + i;
 		if (can->st_value > symbol_value && (int)can->st_value <= value) {
                 	uint32_t string_index = can->st_name;
-                	char *name = strtab_addr + string_index;
-                	return name;
-		}
+                	name = strtab_addr + string_index;
+                	break;
+		    }
         }
-	return NULL;
+	return name;
 }
 int symbols_findValue(char *f_name) {
 	char *strtab_addr = (char *)strtab->sh_addr;

@@ -54,7 +54,7 @@ void vfs_close(vfs_node_t *node);
 struct dirent *vfs_readdir(vfs_node_t *in,uint32_t index);
 vfs_node_t *vfs_finddir(vfs_node_t *in,char *name);
 vfs_node_t *vfs_getRoot();
-void vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint);
+bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint);
 vfs_node_t *vfs_creat(vfs_node_t *in,char *name,int flags);
 void rootfs_init();
 void rootfs_mount(char *to);

@@ -165,6 +165,7 @@ static void sys_free(void *ptr) {
     kfree(ptr);
 }
 static int sys_exec(char *path,int argc,char **argv) {
+    // Yeah it's can be stupid, but the buff kmalloc is overwriting our argv array
     int m = strlen(path);
     char *buff = kmalloc(m+1);
     strcpy(buff,path);
@@ -174,6 +175,7 @@ static int sys_exec(char *path,int argc,char **argv) {
         return -1;
     }
     arch_cli();
+    clock_setShedulerEnabled(false);
     int len = file->size;
     aspace_t *sp = arch_mmu_getAspace();
     arch_mmu_switch(arch_mmu_getKernelSpace());
@@ -186,21 +188,23 @@ static int sys_exec(char *path,int argc,char **argv) {
     kfree(file_buff);
     kfree(buff);
     arch_mmu_switch(sp);
+    vfs_close(file);
+    char **new_argv = NULL;
     if (argc == 0 || argv == 0) {
         // Передамо звичайні параметри(ім'я файлу і т.д)
-        char **params = kmalloc(2);
-        params[0] = strdup(path);
-        arch_putArgs(prc,1,params);
+        new_argv = kmalloc(2);
+        new_argv[0] = strdup(path);
+        argc = 1;
     } else {
         // We need to copy arguments from caller to prevent #PG when process is exitng!
-        char **new_argv = kmalloc(argc+1);
+        new_argv = kmalloc(sizeof(char *) * (argc + 1));
         for (int i = 0; i < argc; i++) {
             new_argv[i] = strdup(argv[i]);
         }
-        arch_putArgs(prc,argc,new_argv);
     }
-    vfs_close(file);
+    arch_putArgs(prc,argc,new_argv);
     DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize());
+    clock_setShedulerEnabled(true);
     arch_sti();
     return prc->pid;
 }
@@ -261,7 +265,13 @@ static int sys_mount(char *dev,char *mount_point,char *fs) {
     aspace_t *aspace = arch_mmu_getAspace();
     arch_cli();
     arch_mmu_switch(arch_mmu_getKernelSpace());
-    vfs_mount(fol,de,mountptr);
+    if (!vfs_mount(fol,de,mountptr)) {
+	    arch_sti();
+	    kfree(dev_copy);
+	    kfree(mountptr);
+	    kfree(f);
+	    return -3;
+    }
     arch_sti();
     kfree(dev_copy);
     kfree(mountptr);

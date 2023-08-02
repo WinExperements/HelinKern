@@ -10,9 +10,6 @@
 //16M is identity mapped as below.
 //First 12M we don't touch. Kernel code and runtime initrd are there.
 //4M is reserved for 4K page directories.
-#define RESERVED_AREA           0x01000000 //16 mb
-#define KERN_PD_AREA_BEGIN      0x00F00000 //12 mb
-#define KERN_PD_AREA_END        0x0100000A //16 mb
 
 #define	PAGING_FLAG 		0x80000000	// CR0 - bit 31
 #define PSE_FLAG			0x00000010	// CR4 - bit 4 //For 4M page support.

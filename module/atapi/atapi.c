@@ -115,6 +115,7 @@ typedef struct {
 #define ATA_REG_CONTROL    0x0C
 #define ATA_REG_ALTSTATUS  0x0C
 #define ATA_REG_DEVADDRESS 0x0D
+#define ATA_SECTOR_SIZE 512
 static ata_device_t ata_primary_master   = {.base = 0x1F0, .ctrl = 0x3F6, .slave = 0};
 static ata_device_t ata_primary_slave    = {.base = 0x1F0, .ctrl = 0x3F6, .slave = 1};
 static ata_device_t ata_secondary_master = {.base = 0x170, .ctrl = 0x370, .slave = 0};
@@ -124,9 +125,10 @@ static ata_device_t ata_channel2_slave  = {.base = 0x168, .ctrl = 0x360, .slave 
 static ata_device_t ata_channel3_master = {.base = 0x1e8, .ctrl = 0x3e0, .slave = 0};
 static ata_device_t ata_channel3_slave = {.base = 0x1e8, .ctrl = 0x3e0, .slave = 1};
 void ata_create_device(bool hda,ata_device_t *dev);
-void ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
-void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf);
+static int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+static void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf);
 int ata_print_error(ata_device_t *dev);
+static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf);
 static char ata_start_char = 'a';
 static char ata_cdrom_char = 'a';
 static uint64_t next_lba = 0;
@@ -136,6 +138,16 @@ void ata_io_wait(ata_device_t *dev) {
 	inb(dev->base+ATA_REG_ALTSTATUS);
 	inb(dev->base+ATA_REG_ALTSTATUS);
 }
+static inline void insl(uint16_t port, void *buffer, uint32_t count) {
+    asm volatile(
+        "cld\n\t"
+        "rep insl"
+        : "=D" (buffer), "=c" (count)
+        : "d" (port), "0" (buffer), "1" (count)
+        : "memory"
+    );
+}
+
 int ata_status_wait(ata_device_t *dev,int timeout) {
 	int status;
 	if (timeout > 0) {
@@ -245,10 +257,35 @@ int ata_device_detect(ata_device_t *dev) {
 	}
 	return 0;
 }
-/* This is a test read and comming soon will be fixed */
-void ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
-	kprintf("ATA: use readBlock!\n");
-	return;
+/* This function added for EXT2 FS driver */
+int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buffer) {
+	int start_block = (offset / 512);
+        int end_block = (offset + how -1 ) / 512;
+	int b_offset = 0;
+	if (offset % 512 || how < 512) {
+		unsigned int pr_size = (512 - (offset % 512));
+		if (pr_size > how) pr_size = how;
+		char *tmp = kmalloc(512);
+		ata_vdev_readBlock(node,start_block,512,tmp);
+		memcpy(buffer, (void *)((uintptr_t)tmp + ((uintptr_t)offset % 512)), pr_size);
+		kfree(tmp);
+		b_offset += pr_size;
+		start_block++;
+	}
+	if ((offset + how)  % 512 && start_block <= end_block) {
+		int prr_size = (offset + how) % 512;
+		char *tmp = kmalloc(512);
+                ata_vdev_readBlock(node,end_block,512,tmp);
+                memcpy((void *)((uintptr_t)buffer + how - prr_size), tmp, prr_size);
+		kfree(tmp);
+		end_block--;
+	}
+	while(start_block <= end_block) {
+		ata_vdev_readBlock(node,start_block,512,(void *)buffer + b_offset);
+		b_offset+=512;
+		start_block++;
+	}
+	return how;
 }
 /* Only for DEVELOPERS! */
 void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
@@ -269,6 +306,7 @@ void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 	outb(dev->base+ATA_REG_LBA2,(lba >> 16) & 0xFF);
 	outb(dev->base+ATA_REG_COMMAND,ATA_CMD_WRITE_PIO_EXT); // ATA_CMD_WRITE_PIO_EXT
 	uint8_t i;
+	arch_sti();
 	for (i = 0; i < sectors; i++) {
 		while(1) {
 			uint8_t status = inb(dev->base+ATA_REG_STATUS);
@@ -291,42 +329,54 @@ void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 	while(inb(dev->base+ATA_REG_STATUS) & ATA_SR_BSY) {}
 }
 static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf) {
-	ata_device_t *dev = &ata_primary_master;
-	if (dev->type == IDE_ATAPI) {
-		kprintf("Currently doesn't supported!\n");
-		return;
-	}
-	uint64_t lba = blockNo;
-	uint16_t sectors = how/512;
-   // kprintf("Read %d sectors at %d\r\n",sectors,lba);
-	if (sectors == 0) sectors = 1;
-	outb(dev->base+ATA_REG_HDDEVSEL,0x40);
-	outb(dev->base+ATA_REG_SECCOUNT0,(sectors >> 8) & 0xFF);
-	outb(dev->base+ATA_REG_LBA0,(lba >> 24) & 0xFF);
-	outb(dev->base+ATA_REG_LBA1,(lba >> 32) & 0xFF);
-	outb(dev->base+ATA_REG_LBA2,(lba >> 40) & 0xFF);
-	outb(dev->base+ATA_REG_SECCOUNT0,sectors & 0xFF);
-	outb(dev->base+ATA_REG_LBA0,lba & 0xFF);
-	outb(dev->base+ATA_REG_LBA1,(lba >> 8) & 0xFF);
-	outb(dev->base+ATA_REG_LBA2,(lba >> 16) & 0xFF);
-	outb(dev->base+ATA_REG_COMMAND,ATA_CMD_READ_PIO_EXT); // ATA_CMD_READ_PIO_EXT
-	uint8_t i;
-	// convert buffer
-	uint8_t *bu = (uint8_t *)buf;
-	for (i = 0; i < sectors; i++) {
-		while(1) {
-			uint8_t status = inb(dev->base+ATA_REG_STATUS);
-			if (status & ATA_SR_DRQ) {
-				// Disk is ready to transfer data
-				break;
-			} else if (status & ATA_SR_ERR) {
-				kprintf("ATA: Disk error. Cancel\n");
-				return;
-			}
-		}
-		insw(dev->base,bu,256);
-		bu+=256;
-	}
+        ata_device_t *dev = &ata_primary_master;
+        if (dev->type == IDE_ATAPI) {
+                kprintf("Currently doesn't supported!\n");
+                return;
+        }
+        void *dd = buf;
+        int doCopy = false;
+        uint64_t lba = blockNo;
+        uint16_t sectors = how/512;
+        if (sectors == 0) {
+                sectors = 1;
+                buf = kmalloc(512);
+                doCopy = 1;
+        }
+        //kprintf("Read %d sectors at %d\r\n",sectors,lba);
+        if (sectors == 0) sectors = 1;
+        outb(dev->base+ATA_REG_HDDEVSEL,0x40);
+        outb(dev->base+ATA_REG_SECCOUNT0,(sectors >> 8) & 0xFF);
+        outb(dev->base+ATA_REG_LBA0,(lba >> 24) & 0xFF);
+        outb(dev->base+ATA_REG_LBA1,(lba >> 32) & 0xFF);
+        outb(dev->base+ATA_REG_LBA2,(lba >> 40) & 0xFF);
+        outb(dev->base+ATA_REG_SECCOUNT0,sectors & 0xFF);
+        outb(dev->base+ATA_REG_LBA0,lba & 0xFF);
+        outb(dev->base+ATA_REG_LBA1,(lba >> 8) & 0xFF);
+        outb(dev->base+ATA_REG_LBA2,(lba >> 16) & 0xFF);
+        outb(dev->base+ATA_REG_COMMAND,ATA_CMD_READ_PIO_EXT); // ATA_CMD_READ_PIO_EXT
+        uint8_t i;
+        // convert buffer
+        uint8_t *bu = (uint8_t *)buf;
+        arch_sti();
+        for (i = 0; i < sectors; i++) {
+                while(1) {
+                        uint8_t status = inb(dev->base+ATA_REG_STATUS);
+                        if (status & ATA_SR_DRQ) {
+                                // Disk is ready to transfer data
+                                break;
+                        } else if (status & ATA_SR_ERR) {
+                                kprintf("ATA: Disk error. Cancel\n");
+                                return;
+                        }
+                }
+                insw(dev->base,bu,256);
+                bu+=256;
+        }
+        if (doCopy) {
+                memcpy(dd,buf,how);
+                kfree(buf);
+        }
 }
 void ata_create_device(bool hda,ata_device_t *dev) {
 	char *name = kmalloc(4);
@@ -341,7 +391,7 @@ void ata_create_device(bool hda,ata_device_t *dev) {
 	}
 	name[3] = 0;
 	dev_t *disk = kmalloc(sizeof(dev_t));
-    memset(disk,0,sizeof(dev_t));
+    	memset(disk,0,sizeof(dev_t));
 	disk->name = name;
 	disk->writeBlock = ata_vdev_writeBlock;
 	disk->read = ata_vdev_read;

@@ -39,7 +39,7 @@ void *thread_schedule(void *stack) {
         if (running_list->size == 0) {
             // Oh! Is this means that the init process just died?
 	    // We just send the warrning message and switch to idle
-	    kprintf("Warrning: no processes left to run, maybe your init just died, please reboot device\r\n");
+	    //kprintf("Warrning: no processes left to run, maybe your init just died, please reboot device\r\n");
 	    enqueue(running_list,idle);
 	    return stack;
         }
