@@ -269,6 +269,9 @@ static bool ext2_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *) 
 		kfree(d);
 		return false;
 	}
+	kprintf("Last mount point: %s\n",d->sb->s_last_mounted);
+	strcpy(d->sb->s_last_mounted,"/fat");
+	vfs_writeBlock(dev,2,512,d->sb);
 	ext2_pr *pr = (ext2_pr *)kmalloc(sizeof(ext2_pr));
 	memset(pr,0,sizeof(ext2_pr));
 	pr->inode_id = 2;

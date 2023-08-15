@@ -17,5 +17,21 @@ target remote localhost:1234
 #b kernel_main
 #b sys_insmod
 #b module_resolve_symbols
-b vfs_readBlock
+#b vfs_readBlock
+#b vfs_find
+#b arch_mmu_getPhysical
+#b sys_exec
+#b sys_open
+#b thread_init
+#b arch_prepareProcess
+#b kernel_main
+#b syscall_get if n == 10
+#b tty_ioctl
+#b keyboard_handler
+#b socket_create
+#b unix_send
+#b unix_recv
+#b unix_accept
+#b th_m
+b sys_socket
 c

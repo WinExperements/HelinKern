@@ -13,4 +13,8 @@ void *arch_mmu_newAspace();
 void arch_mmu_destroyAspace(aspace_t *aspace);
 aspace_t *arch_mmu_getAspace();
 aspace_t *arch_mmu_getKernelSpace();
+/*
+ * Get physical address of virtual address by it's pointer
+*/
+void *arch_mmu_getPhysical(void *virtual);
 #endif

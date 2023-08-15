@@ -6,10 +6,114 @@
 #include <arch/mmu.h>
 #include <arch.h>
 
+#define HBA_PxIS_TFES   (1 << 30)
+#define ATA_CMD_READ_DMA_EX 0x25
+#define ATA_CMD_WRITE_DMA_EX    0x35
+#define HBA_PxCMD_CR    (1 << 15)
+#define HBA_PxCMD_FR    (1 << 14)
+#define HBA_PxCMD_FRE   (1 << 4)
+#define HBA_PxCMD_SUD   (1 << 1)
+#define HBA_PxCMD_ST    (1 << 0)
+#define ATA_DEV_BUSY 0x80
+#define ATA_DEV_DRQ 0x08
+
 __attribute__((section(".modname"))) char *name = "ahci";
 
 static int ctrl_id = 0;
 
+typedef enum
+{
+    FIS_TYPE_REG_H2D    = 0x27, // Register FIS - host to device
+    FIS_TYPE_REG_D2H    = 0x34, // Register FIS - device to host
+    FIS_TYPE_DMA_ACT    = 0x39, // DMA activate FIS - device to host
+    FIS_TYPE_DMA_SETUP  = 0x41, // DMA setup FIS - bidirectional
+    FIS_TYPE_DATA       = 0x46, // Data FIS - bidirectional
+    FIS_TYPE_BIST       = 0x58, // BIST activate FIS - bidirectional
+    FIS_TYPE_PIO_SETUP  = 0x5F, // PIO setup FIS - device to host
+    FIS_TYPE_DEV_BITS   = 0xA1, // Set device bits FIS - device to host
+} FIS_TYPE;
+
+typedef struct tagFIS_REG_H2D
+{
+    // int32_t 0
+    uint8_t    fis_type;   // FIS_TYPE_REG_H2D
+ 
+    uint8_t    pmport:4;   // Port multiplier
+    uint8_t    rsv0:3;     // Reserved
+    uint8_t    c:1;        // 1: Command, 0: Control
+ 
+    uint8_t    command;    // Command register
+    uint8_t    featurel;   // Feature register, 7:0
+ 
+    // int32_t 1
+    uint8_t    lba0;       // LBA low register, 7:0
+    uint8_t    lba1;       // LBA mid register, 15:8
+    uint8_t    lba2;       // LBA high register, 23:16
+    uint8_t    device;     // Device register
+ 
+    // int32_t 2
+    uint8_t    lba3;       // LBA register, 31:24
+    uint8_t    lba4;       // LBA register, 39:32
+    uint8_t    lba5;       // LBA register, 47:40
+    uint8_t    featureh;   // Feature register, 15:8
+ 
+    // int32_t 3
+    uint8_t    countl;     // Count register, 7:0
+    uint8_t    counth;     // Count register, 15:8
+    uint8_t    icc;        // Isochronous command completion
+    uint8_t    control;    // Control register
+ 
+    // int32_t 4
+    uint8_t    rsv1[4];    // Reserved
+} FIS_REG_H2D;
+
+typedef struct tagFIS_REG_D2H
+{
+    // int32_t 0
+    uint8_t    fis_type;    // FIS_TYPE_REG_D2H
+
+    uint8_t    pmport:4;    // Port multiplier
+    uint8_t    rsv0:2;      // Reserved
+    uint8_t    i:1;         // Interrupt bit
+    uint8_t    rsv1:1;      // Reserved
+
+    uint8_t    status;      // Status register
+    uint8_t    error;       // Error register
+
+    // int32_t 1
+    uint8_t    lba0;        // LBA low register, 7:0
+    uint8_t    lba1;        // LBA mid register, 15:8
+    uint8_t    lba2;        // LBA high register, 23:16
+    uint8_t    device;      // Device register
+
+    // int32_t 2
+    uint8_t    lba3;        // LBA register, 31:24
+    uint8_t    lba4;        // LBA register, 39:32
+    uint8_t    lba5;        // LBA register, 47:40
+    uint8_t    rsv2;        // Reserved
+
+    // int32_t 3
+    uint8_t    countl;      // Count register, 7:0
+    uint8_t    counth;      // Count register, 15:8
+    uint8_t    rsv3[2];     // Reserved
+
+    // int32_t 4
+    uint8_t    rsv4[4];     // Reserved
+} FIS_REG_D2H;
+
+typedef struct tagFIS_DATA
+{
+    // int32_t 0
+    uint8_t    fis_type;   // FIS_TYPE_DATA
+ 
+    uint8_t    pmport:4;   // Port multiplier
+    uint8_t    rsv0:4;     // Reserved
+ 
+    uint8_t    rsv1[2];    // Reserved
+ 
+    // int32_t 1 ~ N
+    uint32_t   data[1];    // Payload
+} FIS_DATA;
 
 typedef volatile struct tagHBA_PORT
 {
@@ -59,6 +163,69 @@ typedef volatile struct tagHBA_MEM
     HBA_PORT    ports[1];   // 1 ~ 32
 } HBA_MEM;
 
+typedef struct tagHBA_PRDT_ENTRY
+{
+    uint32_t   dba;        // Data base address
+    uint32_t   dbau;       // Data base address upper 32 bits
+    uint32_t   rsv0;       // Reserved
+
+    // DW3
+    uint32_t   dbc:22;     // Byte count, 4M max
+    uint32_t   rsv1:9;     // Reserved
+    uint32_t   i:1;        // Interrupt on completion
+} HBA_PRDT_ENTRY;
+
+typedef struct tagHBA_CMD_TBL
+{
+    // 0x00
+    uint8_t    cfis[64];   // Command FIS
+
+    // 0x40
+    uint8_t    acmd[16];   // ATAPI command, 12 or 16 bytes
+
+    // 0x50
+    uint8_t    rsv[48];    // Reserved
+
+    // 0x80
+    HBA_PRDT_ENTRY  prdt_entry[1];  // Physical region descriptor table entries, 0 ~ 65535
+} HBA_CMD_TBL;
+
+typedef struct tagHBA_CMD_HEADER
+{
+    // DW0
+    uint8_t    cfl:5;      // Command FIS length in DWORDS, 2 ~ 16
+    uint8_t    a:1;        // ATAPI
+    uint8_t    w:1;        // Write, 1: H2D, 0: D2H
+    uint8_t    p:1;        // Prefetchable
+
+    uint8_t    r:1;        // Reset
+    uint8_t    b:1;        // BIST
+    uint8_t    c:1;        // Clear busy upon R_OK
+    uint8_t    rsv0:1;     // Reserved
+    uint8_t    pmp:4;      // Port multiplier port
+
+    uint16_t    prdtl;      // Physical region descriptor table length in entries
+
+    // DW1
+    volatile
+    uint32_t   prdbc;      // Physical region descriptor byte count transferred
+
+    // DW2, 3
+    uint32_t   ctba;       // Command table descriptor base address
+    uint32_t   ctbau;      // Command table descriptor base address upper 32 bits
+
+    // DW4 - 7
+    uint32_t   rsv1[4];    // Reserved
+} __attribute__((packed)) HBA_CMD_HEADER;
+
+struct sata_info {
+	void *clb;
+	void *fb;
+	void *ctba[32];
+	HBA_PORT *port;
+	HBA_MEM *abar;
+};
+
 #define SATA_SIG_ATA    0x00000101  // SATA drive
 #define SATA_SIG_ATAPI  0xEB140101  // SATAPI drive
 #define SATA_SIG_SEMB   0xC33C0101  // Enclosure management bridge
@@ -73,6 +240,9 @@ typedef volatile struct tagHBA_MEM
 
 static HBA_MEM *ctrl_data;
 static PciBar *bar;
+
+static int find_cmdslot(HBA_PORT *port,HBA_MEM *abar);
+static uint8_t read_sata(struct sata_info *pdata, uint32_t startl, uint32_t starth, uint32_t count,char *buf);
 
 static void PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
 {
@@ -127,8 +297,67 @@ static int check_type(HBA_PORT *port) {
 	return 0;
 }
 
+void start_cmd(HBA_PORT *port)
+{
+    // Set FRE (bit4) and ST (bit0)
+    // Wait until CR (bit15) is cleared
+    while (port->cmd & HBA_PxCMD_CR)
+        ;
+    port->cmd |= HBA_PxCMD_FRE;
+    port->cmd |= HBA_PxCMD_ST;
+}
+
+// Stop command engine
+void stop_cmd(HBA_PORT *port)
+{
+    // Clear ST (bit0)
+    port->cmd &= ~HBA_PxCMD_ST;
+    port->cmd &= ~HBA_PxCMD_FRE;
+    // Wait until FR (bit14), CR (bit15) are cleared
+    while(1)
+    {
+        //printk("cmd: %d\n", port->cmd);
+        if (port->cmd & HBA_PxCMD_FR)
+            continue;
+        if (port->cmd & HBA_PxCMD_CR)
+            continue;
+        break;
+    }
+}
+
+
+// Our hell begins here
+static void rebase_port(HBA_PORT *port, int portno,struct sata_info *info) {
+	stop_cmd(port);
+	void *mapped_clb = kmalloc(4096);
+	memset(mapped_clb,0,4096);
+	port->clb = arch_mmu_getPhysical(mapped_clb);
+	port->clbu = 0;
+	info->clb = mapped_clb;
+	void *mapped_fb = kmalloc(4096);
+	memset(mapped_fb,0,4096);
+	port->fb = arch_mmu_getPhysical(mapped_fb);
+	port->fbu = 0;
+	info->fb = mapped_fb;
+	HBA_CMD_HEADER *cmdheader = (HBA_CMD_HEADER*)(mapped_clb);
+	for (int i = 0; i < 32; i++) {
+		 cmdheader[i].prdtl = 8;
+		 void *ctba_buf = kmalloc(4096);
+		 memset(ctba_buf,0,4096);
+		info->ctba[i] = ctba_buf;
+		 cmdheader[i].ctba = arch_mmu_getPhysical(ctba_buf);
+		 cmdheader[i].ctbau = 0;
+	}
+	info->port = port;
+	kprintf("port: 0x%x, pdata->port: 0x%x\n",port,info->port);
+	start_cmd(port);
+	kprintf("Port %d rebase done\n",portno);
+}
+
 static void module_main() {
     kprintf("Finding AHCI controller in PCI base...");
+    void *a = arch_mmu_getAspace();
+    arch_mmu_switch(arch_mmu_getKernelSpace());
     // Scan each BUS to find the SATA controller
     for (unsigned int bus = 0; bus < 256; ++bus)
     {
@@ -150,21 +379,8 @@ static void module_main() {
     }
     int pi = ctrl_data->pi;
     int i =0;
-    while(i < 32) {
-	if (pi & 1) {
-        HBA_PORT* port = (HBA_PORT*)&ctrl_data->ports[i];
-		int type = check_type(port);
-		if (type == AHCI_DEV_SATA) {
-			kprintf("Found hard drive on port %d\r\n",i);
-			kprintf("Port CLB: 0x%x, CLBU: 0x%x\r\n",port->clb,port->clbu);
-		} else if (type == AHCI_DEV_SATAPI) {
-           		 kprintf("Found CDROM drive on port %d\r\n",i);
-        	} else {
-            		pi >>= 1;
-			i++;
-			continue;
-        	}
-        if (!(ctrl_data->bohc & 2)) {
+    struct sata_info *sata = NULL;
+    if (!(ctrl_data->bohc & 2)) {
             //kprintf("Requesting ownership for port %d\r\n",i);
             ctrl_data->bohc = (ctrl_data->bohc &~8) | 2;
             int endtime = clock_getUptimeMsec()+100;
@@ -183,20 +399,149 @@ static void module_main() {
             kprintf("Switching AHCI to AHCI mode\n");
         }
         arch_sti();
-        int i;
-        for (i = 0; i < 5; i++) {
-            ctrl_data->ghc |= 0x80000000;
-            int endtime = clock_getUptimeMsec()+1;
-            while(clock_getUptimeMsec() < endtime);
-            if (ctrl_data->ghc & 0x80000000) break;
-        }
-        if (i == 5) {
-            kprintf("Failed to switch AHCI to AHCI mode\n");
-            return;
-        }
+    while(i < 32) {
+	if (pi & 1) {
+        HBA_PORT* port = (HBA_PORT*)&ctrl_data->ports[i];
+		int type = check_type(port);
+		if (type == AHCI_DEV_SATA) {
+			kprintf("Found hard drive on port %d\r\n",i);
+			kprintf("Port CLB: 0x%x, CLBU: 0x%x\r\n",port->clb,port->clbu);
+			sata = kmalloc(sizeof(struct sata_info *));
+			memset(sata,0,sizeof(struct sata_info *));
+			sata->abar = ctrl_data;
+			rebase_port(port,i,sata);
+		} else if (type == AHCI_DEV_SATAPI) {
+           		 kprintf("Found CDROM drive on port %d\r\n",i);
+        	} else {
+            		pi >>= 1;
+			i++;
+			continue;
+        	}
+	if (type == AHCI_DEV_SATA) {
+        	kprintf("Reading first sector\n");
+        	char *sector = kmalloc(512);
+        	int ret = read_sata(sata,0,0,1,sector);
+        	kprintf("Readed, return of read_sata: %d\n",ret);
+        	kfree(sector);
+	}
 	}
 	pi >>= 1;
 	i++;
     }
+   arch_mmu_switch(a);
     kprintf("AHCI driver done\n");
+}
+static int find_cmdslot(HBA_PORT *port,HBA_MEM *abar) {
+    uint32_t slots = (port->sact | port->ci);
+    int cmdslots = (abar -> cap & 0x0f00) >> 8;
+    for (int i=0; i<cmdslots; i++)
+    {
+        if ((slots&1) == 0)
+            return i;
+        slots >>= 1;
+    }
+    return -1;
+}
+static uint8_t read_sata(struct sata_info *pdata, uint32_t startl, uint32_t starth, uint32_t count,char *buf) {
+	pdata->port->is = (uint32_t) -1;
+     int spin = 0; // Spin lock timeout counter
+    int slot = find_cmdslot(pdata->port,pdata->abar);
+    //uint64_t buf_phys = (uint64_t)buf - KERN_VMBASE;
+    uint64_t buf_phys = arch_mmu_getPhysical(buf);
+    //printf("%x\n", buf_phys);
+    if (slot == -1)
+        return 0;
+
+    //HBA_CMD_HEADER *cmdheader = (HBA_CMD_HEADER*) (KERN_VMBASE + port->clb);
+    HBA_CMD_HEADER* cmdheader = (HBA_CMD_HEADER*) pdata->clb;
+    cmdheader += slot;
+    cmdheader->cfl = sizeof(FIS_REG_H2D)/sizeof(uint32_t); // Command FIS size
+    cmdheader->w = 0;       // Read device
+    cmdheader->prdtl = (uint16_t)((count-1)>>4) + 1;    // PRDT entries count
+
+    HBA_CMD_TBL *cmdtbl = (HBA_CMD_TBL*) pdata->ctba[slot];
+    //HBA_CMD_TBL *cmdtbl = (HBA_CMD_TBL*)(KERN_VMBASE + cmdheader->ctba);
+    //memset(cmdtbl, 0, sizeof(HBA_CMD_TBL) +
+    //    (cmdheader->prdtl-1)*sizeof(HBA_PRDT_ENTRY));
+
+    int i;
+    // 8K bytes (16 sectors) per PRDT
+    for (i=0; i<cmdheader->prdtl-1; i++)
+    {
+        cmdtbl->prdt_entry[i].dba = (uint32_t)buf_phys;
+        //cmdtbl->prdt_entry[i].dbau = (uint32_t) ( ( (buf_phys) >> 32) & 0xffffffff);
+        cmdtbl->prdt_entry[i].dbc = 8*1024; // 8K bytes
+        cmdtbl->prdt_entry[i].i = 1;
+        buf += 4*1024;  // 4K words
+        count -= 16;    // 16 sectors
+    }
+    // Last entry
+    cmdtbl->prdt_entry[i].dba = (uint32_t) (buf_phys & 0xffffffff);
+    //cmdtbl->prdt_entry[i].dbau = (uint32_t) ( (buf_phys >> 32) & 0xffffffff);
+    kprintf("dba & dbau: 0x%x 0x%x\n", cmdtbl ->prdt_entry[i].dba, cmdtbl -> prdt_entry[i].dbau);
+    cmdtbl->prdt_entry[i].dbc = count<<9;   // 512 bytes per sector
+    cmdtbl->prdt_entry[i].i = 1;
+
+    // Setup command
+    FIS_REG_H2D *cmdfis = (FIS_REG_H2D*)(&cmdtbl->cfis);
+
+    cmdfis->fis_type = FIS_TYPE_REG_H2D;
+    cmdfis->c = 1;  // Command
+    cmdfis->command = ATA_CMD_READ_DMA_EX;
+
+    cmdfis->lba0 = (uint8_t)startl;
+    cmdfis->lba1 = (uint8_t)(startl>>8);
+    cmdfis->lba2 = (uint8_t)(startl>>16);
+    cmdfis->device = 1<<6;  // LBA mode
+
+    cmdfis->lba3 = (uint8_t)(startl>>24);
+    cmdfis->lba4 = (uint8_t)starth;
+    cmdfis->lba5 = (uint8_t)(starth>>8);
+
+    cmdfis->countl = (count & 0xff);
+    cmdfis->counth = (count >> 8);
+
+    // The below loop waits until the port is no longer busy before issuing a new command
+    kprintf("Waiting for port is not longer be a busy");
+    while ((pdata->port->tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ)) && spin < 1000000)
+    {
+        spin++;
+    }
+    if (spin == 1000000)
+    {
+        //printk("Port is hung\n");
+        return 0;
+    }
+    kprintf("ok. Issue command...");
+
+    pdata->port->ci = (1<<slot); // Issue command
+    kprintf("ok\n");
+    kprintf("PORT INFO: %x %d %d\n", pdata->port, pdata->port->ci, pdata->port->tfd);
+    kprintf("Slot: %d, ci: %d, mask: %d\n",slot,pdata->port->ci,1<<slot);
+
+    // Wait for completion
+    while (1)
+    {
+        //kprintf("Reading disk...\n");
+        // In some longer duration reads, it may be helpful to spin on the DPS bit
+        // in the PxIS port field as well (1 << 5)
+        //kprintf("value: %d\n", (pdata->port -> ci & (1<<slot) )  );
+        if ((pdata->port->ci & (1<<slot)) == 0)
+            break;
+        if (pdata->port->is & HBA_PxIS_TFES)   // Task file error
+        {
+            //printk("Read disk error\n");
+            return 0;
+        }
+        //kprintf("IS: %d\n",pdata->port->is);
+    }
+
+    // Check again
+    if (pdata->port->is & HBA_PxIS_TFES)
+    {
+        //printk("Read disk error\n");
+        return 0;
+    }
+
+    return 1;
 }

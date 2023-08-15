@@ -8,4 +8,5 @@ uint16_t inw(uint32_t port);
 void insw(uint16_t port, unsigned char *data, unsigned long size);
 uint32_t inl(uint32_t port);
 void outl(uint32_t port,uint32_t data);
+void outsw(uint16_t port,unsigned char *data,unsigned long size);
 #endif

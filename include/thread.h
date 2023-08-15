@@ -7,6 +7,7 @@
 #define STATUS_WAITING 3
 #define STATUS_KILLED 4
 #define STATUS_WAITPID 5
+#define STATUS_CREATING 6 // Don't switch by the scheduler
 #define PROCESS_QUOTA 100 // 100 ms
 #define TYPE_PROCESS 0
 #define TYPE_THREAD 1
@@ -30,11 +31,13 @@ typedef struct process {
     bool died;
     // Memory information
     uint32_t brk_begin,brk_end,brk_next_unallocated_page_begin;
+    // Misc
     file_descriptor_t **fds;
     int next_fd;
     bool started;
     // User information
     int uid,gid;
+    int priority;
 } process_t;
 void thread_init();
 process_t *thread_create(char *name,int entryPoint,bool isUser);

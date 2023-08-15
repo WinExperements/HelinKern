@@ -6,7 +6,8 @@
 #include <dev.h>
 #include <debug.h>
 #include <arch.h>
-
+#include <lib/string.h>
+#include <lib/queue.h>
 
 
 #define PACKETS_IN_PIPE 1024
@@ -22,8 +23,10 @@
 
 static int mouse_cycle = 0;
 static char mouse_byte[3];
-static char old_x,old_y;
-
+static int old_x = 800;
+static int old_y = 600;
+static int mice_dev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
+static queue_t *data_queue;
 // dev/fb.c
 extern void fb_putchar(
     /* note that this is int, not char as it's a unicode character */
@@ -76,9 +79,24 @@ static void *mouse_intr(void *st) {
                     break;
                 } 
                 mouse_cycle = 0;
-		old_x += mouse_byte[1];
-		old_y += mouse_byte[2];
-		//kprintf("X: %d, Y: %d\n",old_x,old_y);
+		int x = mouse_byte[1];
+		int y = mouse_byte[2];
+		if (x && mouse_byte[0] & (1 << 4)) {
+			/* Sign bit */
+			x = x - 0x100;
+		}
+		if (y && mouse_byte[0] & (1 << 5)) {
+			/* Sign bit */
+			y = y - 0x100;
+		}
+		if (mouse_byte[0] & (1 << 6) || mouse_byte[0] & (1 << 7)) {
+			/* Overflow */
+			x = 0;
+			y = 0;
+		}
+		void *copy = kmalloc(3);
+		memcpy(copy,mouse_byte,3);
+		enqueue(data_queue,copy);
                 break;
             }
         }
@@ -102,6 +120,7 @@ uint8_t mouse_read() {
 
 void ps2mouse_init() {
 	DEBUG_N("Initializing PS/2 mouse\r\n");
+	data_queue = queue_new();
 	outb(0x64,0xA8);
 	mouse_wait(1);
 	outb(0x64,0x20);
@@ -116,5 +135,21 @@ void ps2mouse_init() {
 	mouse_write(0xF4);
 	mouse_read();
     interrupt_add(IRQ12,mouse_intr);
+    // Add device into devfs
+    	dev_t *mouse = (dev_t *)kmalloc(sizeof(dev_t));
+	memset(mouse,0,sizeof(dev_t));
+	mouse->name = "mice";
+	mouse->buffer_sizeMax = 3;
+	mouse->read = mice_dev_read;
+	dev_add(mouse);
 	DEBUG_N("PS/2 Initialization done\r\n");
+}
+
+static int mice_dev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
+	if (size < 3) return 0;
+	if (data_queue->size == 0) return 0;
+	void *data = dequeue(data_queue);
+	memcpy(buff,data,3);
+	kfree(data);
+	return 3;
 }

@@ -5,6 +5,7 @@
 typedef struct module {
     char *name;
     int ref_count;
+    int load_address;
     struct module_segment *seg;
     Elf32_Sym *symtab;
     void (*init)(struct module *);

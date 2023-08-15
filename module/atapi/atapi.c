@@ -294,7 +294,8 @@ void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 	uint64_t lba = blockNo;
 	uint16_t sectors = how/512;
 	if (sectors == 0) sectors = 1;
-	ata_device_t *dev = &ata_primary_master;
+	ata_device_t *dev = node->device;
+	if (dev->type == IDE_ATAPI) return;
 	outb(dev->base+ATA_REG_HDDEVSEL,0x40);
 	outb(dev->base+ATA_REG_SECCOUNT0,(sectors >> 8) & 0xFF);
 	outb(dev->base+ATA_REG_LBA0, (lba & 0xff000000) >> 24);
@@ -319,17 +320,15 @@ void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 			}
 		}
 		// Tranfer data over PIO
-		for (int u = 0; u < 256; u++) {
-			outw(dev->base+ATA_REG_DATA,target[u]);
-		}
-		target+=256;
+		outsw(dev->base+ATA_REG_DATA,target,256);
+        target+=256;
 	}
 	// flush the cache
 	outb(dev->base+ATA_REG_COMMAND,ATA_CMD_CACHE_FLUSH);
 	while(inb(dev->base+ATA_REG_STATUS) & ATA_SR_BSY) {}
 }
 static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf) {
-        ata_device_t *dev = &ata_primary_master;
+        ata_device_t *dev = node->device;
         if (dev->type == IDE_ATAPI) {
                 kprintf("Currently doesn't supported!\n");
                 return;
@@ -404,10 +403,10 @@ void ata_create_device(bool hda,ata_device_t *dev) {
 // === Public functions here ===
 void atapi_init() {
 	kprintf("ATA device driver\n");
-	//kprintf("Detecting on channel 0\n");
+	kprintf("Detecting on channel 0\n");
 	ata_device_detect(&ata_primary_master);
 	ata_device_detect(&ata_primary_slave);
-//	kprintf("Detecting on channel 1\n");
+	kprintf("Detecting on channel 1\n");
 	ata_device_detect(&ata_secondary_master);
 	ata_device_detect(&ata_secondary_slave);
 	/*kprintf("Detecting on channel 2\n");

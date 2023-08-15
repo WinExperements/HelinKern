@@ -37,6 +37,7 @@ typedef struct vfs_fs {
     void (*writeBlock)(struct vfs_node *node,int blockN,int how,void *buff);
     int (*ioctl)(struct vfs_node *node,int request,va_list args);
     void *(*mmap)(struct vfs_node *node,int addr,int size,int offset,int flags);
+    void (*rm)(struct vfs_node *node);
     struct vfs_fs *next;
 } vfs_fs_t;
 typedef struct file_descriptor {
@@ -66,4 +67,5 @@ int vfs_ioctl(vfs_node_t *node,int request,...);
 void vfs_node_path(vfs_node_t *node,char *path,int size);
 void rootfs_insertModuleData(vfs_node_t *node,int size,char *addr);
 void *vfs_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
+void vfs_rm(struct vfs_node *node);
 #endif

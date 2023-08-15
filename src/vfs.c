@@ -151,6 +151,7 @@ int vfs_ioctl(vfs_node_t *node,int request,...) {
     va_start(list,request);
     int ret = node->fs->ioctl(node,request,list);
     va_end(list);
+    return ret;
 }
 static vfs_node_t *vfs_find_impl(vfs_node_t *start,char *path) {
     char *t = strtok(path,"/");
@@ -208,4 +209,8 @@ vfs_fs_t *vfs_findFS(char *name) {
 void *vfs_mmap(struct vfs_node *node,int addr,int size,int offset,int flags) {
 	if (!node || !node->fs->mmap) return NULL;
 	return node->fs->mmap(node,addr,size,offset,flags);
+}
+void vfs_rm(vfs_node_t *node) {
+	if (!node || !node->fs || !node->fs->rm) return;
+	node->fs->rm(node);
 }

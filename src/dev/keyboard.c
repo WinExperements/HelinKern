@@ -8,6 +8,7 @@
 #include <lib/clist.h>
 #include <debug.h>
 #include <tty.h> // TTY!!!
+#include <lib/queue.h>
 static void *keyboard_handler(void *);
 static bool shift,ctrl = false;
 static void keyboard_keyHandler(char key);
@@ -19,11 +20,14 @@ static int clearBit(int n, int k);
 int toggleBit(int n, int k);
 static int keyboardBits = 0;
 static int readedI = 0;
-struct keyboard_reader {
-    bool hasKey;
-    char key;
+static queue_t *keys;
+extern int tty_flags;
+static char keymap[] = {
+    0, 0, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', '\t',
+    'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', 0, 'a',
+    's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\', 'z', 'x', 'c',
+    'v', 'b', 'n', 'm', ',', '.', '/', 0, '*', 0, ' ', 0
 };
-static clist_definition_t *readers;
 extern int tty_flags;
 void keyboard_init() {
     outb(0x64,0xAD); // disable first PS/2 port
@@ -45,122 +49,54 @@ void keyboard_init() {
     keyboard_dev->buffer_sizeMax = 100;
     keyboard_dev->read = keyboard_read;
     // UPDATE 1: Add readers for each process(inspected by SOSO OS)
-    readers = kmalloc(sizeof(clist_definition_t));
-    memset(readers,0,sizeof(clist_definition_t));
-    readers->slot_size = sizeof(struct keyboard_reader);
+    // UPDATE 2: No readers more, only queues!
+    keys = queue_new();
     dev_add(keyboard_dev);
 }
+
 static void *keyboard_handler(void *stack) {
     uint8_t key = inb(0x60);
-	if (key < 0x80)
-	{
-        //printf("key: %x\n",key);
-		switch(key)
-        {
-            case 0x02: keyboard_keyHandler('1'); break;
-            case 0x03: keyboard_keyHandler('2'); break;
-            case 0x04: keyboard_keyHandler('3'); break;
-            case 0x05: keyboard_keyHandler('4'); break;
-            case 0x06: keyboard_keyHandler('5'); break;
-            case 0x07: keyboard_keyHandler('6'); break;
-            case 0x08: {
-                if (!shift) {
-                    keyboard_keyHandler('7');
-                } else {
-                    keyboard_keyHandler('&');
+    if (key < 0x80) {
+	    if ((tty_flags & FLAG_RAW)) {
+		    enqueue(keys,key);
+		    return stack;
+	    }
+        if (key == 0x2a || key == 0x36) {
+            shift = true;
+        } else if (key == 0x1d) {
+            ctrl = true;
+        } else {
+            char character = keymap[key];
+            if (shift) {
+                // Handle shifted characters
+                if ('a' <= character && character <= 'z') {
+                    character -= 32; // Convert to uppercase
+                } else if ('1' <= character && character <= '0') {
+                    character = "!@#$%^&*()"[character - '1'];
                 }
-            } break;
-            case 0x09: keyboard_keyHandler('8'); break;
-            case 0x0A: keyboard_keyHandler('9'); break;
-            case 0x0B: keyboard_keyHandler('0'); break;
-	    case 0x1: {
-			      kprintf("Killing current process...");
-			      process_t *prc = thread_getThread(thread_getCurrent());
-			      if (prc == NULL) {
-				      kprintf("process not found\n");
-				      break;
-				} else if (prc->pid == 0) {
-					kprintf("Can't kill kswapper\n");
-				}
-				kprintf("done\n"); // actuall thread_killThread do reschedule via arch_reschedule
-			      thread_killThread(prc,1);
-			} break;
-
-            case 0x10: keyboard_keyHandler('q'); break;
-            case 0x11: keyboard_keyHandler('w'); break;
-            case 0x12: keyboard_keyHandler('e'); break;
-            case 0x13: keyboard_keyHandler('r'); break;
-            case 0x14: keyboard_keyHandler('t'); break;
-            case 0x15: keyboard_keyHandler('y'); break;
-            case 0x16: keyboard_keyHandler('u'); break;
-            case 0x17: keyboard_keyHandler('i'); break;
-            case 0x18: keyboard_keyHandler('o'); break;
-            case 0x19: keyboard_keyHandler('p'); break;
-
-            case 0x1E: keyboard_keyHandler('a'); break;
-            case 0x1F: keyboard_keyHandler('s'); break;
-            case 0x20: keyboard_keyHandler('d'); break;
-            case 0x21: keyboard_keyHandler('f'); break;
-            case 0x22: keyboard_keyHandler('g'); break;
-            case 0x23: keyboard_keyHandler('h'); break;
-            case 0x24: keyboard_keyHandler('j'); break;
-            case 0x25: keyboard_keyHandler('k'); break;
-            case 0x26: keyboard_keyHandler('l'); break;
-
-            case 0x2C: keyboard_keyHandler('z'); break;
-            case 0x2D: keyboard_keyHandler('x'); break;
-            case 0x2E: {
-                keyboard_keyHandler('c');
-            } break;
-            case 0x2F: keyboard_keyHandler('v'); break;
-            case 0x30: keyboard_keyHandler('b'); break;
-            case 0x31: keyboard_keyHandler('n'); break;
-            case 0x32: keyboard_keyHandler('m'); break;
-            case 0x33: keyboard_keyHandler(','); break;
-            case 0x34: keyboard_keyHandler('.'); break;
-            case 0x35: keyboard_keyHandler('/'); break;
-
-            case 0x1C: keyboard_keyHandler('\n'); break;
-            case 0x39: keyboard_keyHandler(' '); break;
-            case 0xe: {
-                keyboard_keyHandler('\b');
-            } break;
-            case 0x2b: keyboard_keyHandler('\\'); break;
-            case 0x2a: {shift = !shift;} break;
-            case 0x1d: {ctrl = !ctrl;} break;
-            case 0x3a: {
-                // Toogle the bit
-                toggleBit(keyboardBits,2);
-                // Send it to the PS/2 controller
-                outb(0x60,keyboardBits);
-                outb(0x60,0xED);
-                // Wait for keyboard ACK
-                int timeout = 1000;
-                while(inb(0x64) != 0xFA) {
-                    if (timeout <= 0) break;
-                    timeout--;
-                }
-            } break;
-            default:
-            {
-		keyboard_keyHandler(key);
-                //kprintf("Unhandled key: 0x%x\r\n",key);
-                break;
+                shift = false; // Reset shift
             }
-	}
+            
+            if (ctrl) {
+                // Handle Ctrl + key combinations
+                if ('a' <= character && character <= 'z') {
+                    character -= 'a';
+                } else if (character == '[') {
+                    character = 27; // Ctrl + [
+                }
+                ctrl = false; // Reset ctrl
+            }
+            
+            keyboard_keyHandler(character);
+        }
     }
     return stack;
 }
-static void readers_foreach(clist_head_t *element,va_list args) {
-    // Цей проект буде містити коментарі на двої мовах, обидві мови я знаю, на данний момент часу, всі вони написані одною людиною.
-    struct keyboard_reader *reader = element->data;
-    reader->hasKey = true;
-    reader->key = va_arg(args,int);
-}
+
 static void keyboard_keyHandler(char key) {
     // Ці елементи більше не потрібні!
-    clist_for_each(readers,readers_foreach,key);
-    if (tty_flags & FLAG_ECHO) {
+    enqueue(keys,key);
+    if ((tty_flags & FLAG_ECHO)) {
 		kprintf("%c",key);
 	}
 }
@@ -169,21 +105,25 @@ static int keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, v
         return -1;
 
     // Create and add reader to the structure
-    clist_head_t *d = clist_insert_entry_after(readers, readers->head);
-    struct keyboard_reader *reader = d->data;
 
     char *buff = (char *)buf;
     int i = 0;
 
     // Enable interrupts as operations like sys_read are executed with interrupts disabled
     arch_sti();
-
+    if (how == 1) 
+    {
+	    char key = dequeue(keys);
+	    if (key > 0) {
+		    buff[0] = key;
+	    	    return 1;
+	    }
+	    return 0;
+    }
     while (i < (how - 1)) {
-        reader->hasKey = false;
-        while (!reader->hasKey)
-            ;
+        while (keys->size == 0);
 
-        char c = reader->key;
+        char c = dequeue(keys);
 
         if (c >= 8 && c <= 0x7e) {
             buff[i] = c;
@@ -191,7 +131,6 @@ static int keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, v
         }
         if (c == '\n') {
             buff[i] = '\0';
-            clist_delete_entry(readers, d);
             readedI = i;
             return i;
         }
@@ -202,8 +141,6 @@ static int keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, v
             }
         }
     }
-
-    clist_delete_entry(readers, d);
     readedI = i;
     return i;
 }

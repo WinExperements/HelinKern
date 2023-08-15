@@ -95,12 +95,22 @@ static void module_main() {
     // Currently support only on master drive
     kprintf("MBR module starting up\r\n");
     vfs_node_t *harddrive = vfs_find("/dev/hda");
-    if (!harddrive) {
+    if (harddrive == NULL) {
         kprintf("MBR: cannot open hard drive A!\n");
         return; // exit
     }
+    kprintf("Found. Reading mbr structure\n");
     // read mbr_t structure
     vfs_readBlock(harddrive,0,512,&m_mbr);
+    // Testing
+    char *bb = kmalloc(512);
+    if (m_mbr.signature[0] != 0x55 || m_mbr.signature[1] != 0xAA) {
+	    kprintf("Bro WTF?\n");
+	}
+    memcpy(bb,&m_mbr,512);
+    vfs_writeBlock(harddrive,0,512,bb);
+    kfree(bb);
+    kprintf("MBR is overwritten by message, check file\n");
     kprintf("Detected hard drive partitions: ");
     mbr_parseMbr(harddrive,0,m_mbr);
     kprintf("\r\n");

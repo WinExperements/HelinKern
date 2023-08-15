@@ -29,7 +29,7 @@ void tty_init() {
 
 static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 	char *char_buff = (char *)buff;
-	if (!(tty_flags & FLAG_ECHO)) return size;
+//	if (!(tty_flags & FLAG_ECHO)) return size;
 	for (int i = 0; i < size; i++) {
 		putc(char_buff[i]);
 	}

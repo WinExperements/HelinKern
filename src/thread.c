@@ -9,11 +9,16 @@
 #include <lib/string.h>
 #include <debug.h>
 #include <dev/fb.h>
+#include <dev/socket.h>
+#define MAX_PRIORITY 6
 process_t *runningTask;
-queue_t *task_list,*running_list;
+queue_t *task_list;
 static int freePid;
 static process_t *idle;
 extern uint32_t cursor_x,cursor_y;
+static queue_t *priority[MAX_PRIORITY];
+static void push_prc(process_t *prc);
+static process_t *pop_prc();
 static void idle_main() {
     arch_sti();
     while(1) {}
@@ -21,30 +26,40 @@ static void idle_main() {
 void thread_init() {
     // The interrupt handler for timer must be called from ARCH IRQ handler, see porting section in README
     task_list = queue_new();
-    running_list = queue_new();
+    // Create the priority queue
+    for (int i = 0; i < MAX_PRIORITY; i++) {
+	    priority[i] = queue_new();
+    }
     idle = thread_create("idle",(int)idle_main,false);
     dequeue(task_list);
-    dequeue(running_list);
     idle->state = 0;
     runningTask = idle;
 }
 /* Допоможіть :( */
 void *thread_schedule(void *stack) {
      // scheduler v1, code optimized for performance
+     // Priority support
+     process_t *nextTask = NULL;
     if (runningTask != NULL) {
         if (runningTask->quota < PROCESS_QUOTA) {
             runningTask->quota++;
             return stack;
         }
-        if (running_list->size == 0) {
+	    nextTask = pop_prc();
+        if (nextTask == NULL) {
             // Oh! Is this means that the init process just died?
 	    // We just send the warrning message and switch to idle
 	    //kprintf("Warrning: no processes left to run, maybe your init just died, please reboot device\r\n");
-	    enqueue(running_list,idle);
+	    push_prc(idle);
 	    return stack;
         }
     }
-    process_t *nextTask = dequeue(running_list);
+    if (nextTask->state == STATUS_CREATING) {
+	    while(nextTask) {
+		    nextTask = pop_prc();
+		    if (nextTask->state == STATUS_RUNNING) break;
+	}
+    }
     nextTask = (nextTask && nextTask->state > 3) ? idle : nextTask;
     if (!nextTask) {
         nextTask = idle;
@@ -63,7 +78,7 @@ void *thread_schedule(void *stack) {
 		    nextTask = switchTo;
 	}
     }
-    enqueue(running_list, nextTask);
+    push_prc(nextTask);
     if (nextTask->state == STATUS_SLEEP) {
 	    if (nextTask->wait_time <= 0) {
 		    nextTask->state = STATUS_RUNNING;
@@ -83,6 +98,7 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     // Allocate the process
     process_t *th = (process_t *)kmalloc(sizeof(process_t));
     memset(th,0,sizeof(process_t));
+    th->priority = 1;
     th->pid = freePid++;
     th->name = strdup(name);
     th->stack = arch_prepareContext(entryPoint,isUser);
@@ -95,11 +111,12 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     th->child = NULL;
     th->died = false;
     th->fds = kmalloc(200);
+    memset(th->fds,0,200);
     th->uid = runningTask == NULL ? 0 : runningTask->uid;
     th->gid = runningTask == NULL ? 0 : runningTask->gid;
     arch_prepareProcess(th);
     enqueue(task_list,th);
-    enqueue(running_list,th);
+    push_prc(th);
     //kprintf("PID of new process: %d\r\n",th->pid);
     if (runningTask != NULL) {
 	    runningTask->quota = PROCESS_QUOTA; // New task must always starts after second timer interrupt
@@ -153,8 +170,8 @@ void thread_killThread(process_t *prc,int code) {
     arch_cli();
     // Remove the process from the lists
     prc->died = true;
+    queue_remove(priority[prc->priority],prc);
     queue_remove(task_list, prc);
-    queue_remove(running_list, prc);
     // Switch to idle address space
     arch_mmu_switch(idle->aspace);
     DEBUG("Died task: %s!\r\n", prc->name);
@@ -174,6 +191,13 @@ void thread_killThread(process_t *prc,int code) {
         if (fd != NULL) {
             DEBUG("Closing FD %d\r\n", i);
             vfs_close(fd->node);
+	    if (fd->node->flags == 4) {
+		// socket?
+		Socket *s = (Socket *)fd->node->priv_data;
+		s->destroy(s);
+		kfree(s);
+		kfree(fd->node);
+	    }
             kfree(fd);
         }
     }
@@ -185,7 +209,7 @@ void thread_killThread(process_t *prc,int code) {
     }
     if (parent->state == STATUS_WAITPID) {
         parent->state = STATUS_RUNNING;
-        enqueue(running_list, parent);
+        push_prc(parent);
     }
     runningTask->quota = PROCESS_QUOTA;
     arch_sti();
@@ -194,7 +218,7 @@ void thread_killThread(process_t *prc,int code) {
 void thread_waitPid(process_t *prc) {
     DEBUG("Waitpid for %d\r\n",prc->pid);
     prc->state = STATUS_WAITPID;
-    queue_remove(running_list,prc);
+    queue_remove(priority[prc->priority],prc);
 }
 int thread_getNextPID() {
     return freePid;
@@ -225,3 +249,17 @@ int thread_openFor(process_t *caller,vfs_node_t *node) {
     caller->next_fd++;
     return id;
 }
+
+static void push_prc(process_t *prc) {
+	enqueue(priority[prc->priority],prc);
+}
+
+process_t *pop_prc() {
+	for (int i = 0; i < MAX_PRIORITY; i++) {
+		if (priority[i]->size > 0) {
+			return dequeue(priority[i]);
+		}
+	}
+	return NULL; // No process
+}
+

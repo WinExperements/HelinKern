@@ -36,7 +36,9 @@ void *module_get_section_addr(module_t *mod,unsigned n) {
 	module_segment_t *seg = NULL;
 	for (seg = mod->seg; seg; seg = seg->next) {
 		if (seg->section == n) {
-           //if (n == 1)kprintf("Text segment address: 0x%x\r\n",seg->addr);
+           		if (n == 1) {
+				mod->load_address = seg->addr;
+			}
 			return seg->addr;
 		}
 	}

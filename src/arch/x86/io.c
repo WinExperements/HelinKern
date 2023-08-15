@@ -26,3 +26,7 @@ uint32_t inl(uint32_t port) {
 void outl(uint32_t port,uint32_t data) {
      __asm__ volatile("outl %0, %w1" : : "a" (data), "Nd" (port));
 }
+
+void outsw(uint16_t port,unsigned char *data,unsigned long size) {
+	asm volatile ("rep outsw" : "+S" (data), "+c" (size) : "d" (port));
+}

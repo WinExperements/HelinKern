@@ -93,6 +93,7 @@ bool elf_load_file(void *addr) {
         kprintf("Failed to create process!\r\n");
         return false;
     }
+    prc->state = STATUS_CREATING;
     size_t elf_base = (size_t)addr;
     uint32_t memEnd = elf_get_end_in_memory(addr);
     // Switch to the new process memory map
@@ -126,7 +127,8 @@ bool elf_load_file(void *addr) {
 	thread_openFor(prc,ke);
 	thread_openFor(prc,ke);
 	thread_openFor(prc,ke); // yeah 3 times
-    } 
+    }
+    prc->state = STATUS_RUNNING;
     return true;
 }
 /*

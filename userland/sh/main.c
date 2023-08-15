@@ -23,6 +23,14 @@ extern FILE *stdin;
 void th_main() {
     printf("Hi from thread! I am running from the same address space!\n");
     // Always exit
+    // Other tests
+    int clocks = 10;
+    printf("REPEAT after 3 seconds\n");
+    while(clocks != 0) {
+	    printf("Repeat\n");
+	    helin_syscall(39,3*100,0,0,0,0);
+	    clocks--;
+	}
     exit(0);
 }
 
@@ -92,14 +100,9 @@ void sh_parseCommand(char **argv,int argc) {
             printf("%s\n",__argv[i]);
         }
     } else if (argv[0][0] == '/') {
-        int _pid = 0;
-        if ((_pid = execv(argv[0],0,NULL)) > 0) {
-            // wait
-            //printf("shell: spawned process: %u\n",_pid);
-            waitpid(_pid,NULL,0);
-        } else {
-            printf("%s: no such file or directory\n",argv[0]);
-        }
+        if (!execute(argv[0],argv,argc)) {
+		printf("%s: no such file or directory\n",argv[0]);
+	}
     } else if (!strcmp(argv[0],"help")) {
         printf("HelinOS userspace shell version 0.3\n");
         printf("reboot - reboot system\n");
@@ -209,16 +212,21 @@ bool execute(char *command,char **argv,int argc) {
 	        parallel = true;
             argc--;
         }
-        new_argv = malloc(new_argc+2);
-	memset(new_argv,0,new_argc+2);
+	int newArgvSize = sizeof(char *)*argc;
+        new_argv = malloc(newArgvSize);
+	memset(new_argv,0,newArgvSize);
         for (int i = 0; i < new_argc; i++) {
 	    //printf("%u %s\n",i,new_argv[i]);
             new_argv[i] = argv[i];
-	    printf("%u %s %X\n",i,new_argv[i],new_argv[i]);
         }
 	//printf("u %u\n",new_argc);
     }
-    sprintf(buff,"%s/%s",run_path,command);
+    // if path is absolute doesn't call sprinf
+    if (command[0] != '/') {
+    	sprintf(buff,"%s/%s",run_path,command);
+    } else {
+	    strcpy(buff,command);
+    }
     if ((_pid = execv(buff,new_argc,new_argv)) > 0) {
         if (!parallel) {
             waitpid(_pid,NULL,0);

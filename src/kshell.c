@@ -13,11 +13,13 @@
 #include <debug.h>
 #include <lib/queue.h>
 #include <fs/cpio.h>
+#include <dev/socket.h>
 static vfs_node_t *keyboard;
 static void parseCommand(int argc,char *cmd[]);
 static bool exit = false;
 static void start_module();
 static void load_m(void *);
+static void th_m();
 void kshell_main() {
 	//output_changeToFB();
     arch_sti();
@@ -37,7 +39,8 @@ void kshell_main() {
 	while(exit != true) {
         argc = 0;
 		kprintf("> ");
-		vfs_read(keyboard,0,100,buff);
+		int len = vfs_read(keyboard,0,100,buff);
+		buff[len-1] = 0;
         argv[argc] = strtok(buff," ");
         while(argv[argc]) {
             argc++;
@@ -226,6 +229,43 @@ static void parseCommand(int argc,char *cmd[]) {
         kprintf("done\r\n");
     } else if (strcmp(cmd[0],"panic")) {
         PANIC("PP");
+    } else if (strcmp(cmd[0],"serv")) {
+	    // Create socket
+	    kprintf("Creating kernel UNIX socket server(TEST)\n");
+	    Socket *serv = (Socket *)kmalloc(sizeof(Socket));
+	    memset(serv,0,sizeof(Socket));
+	    if (!socket_create(PF_UNIX,serv)) {
+		    kprintf("Failed to create socket\n");
+		    kfree(serv);
+            return;
+		}
+	    struct sockaddr *a = (struct sockaddr *)kmalloc(sizeof(struct sockaddr));
+	    memset(a,0,sizeof(struct sockaddr));
+	    strcpy(a->sa_data,"sock");
+	    kprintf("Binding\n");
+	    if (serv->bind(serv,0,a,0) < 0) {
+		    kprintf("Failed to bind socket\n");
+		    serv->destroy(serv);
+		    kfree(serv);
+            return;
+		}
+	    kprintf("Socket created, creating client\n");
+	    serv->listen(serv,0,0);
+	    thread_create("ss",th_m,false);
+	    int r = serv->accept(serv,0,a,NULL);
+	    kprintf("A: %d\n",r);
+	    process_t *c = thread_getThread(1);
+	    file_descriptor_t *t = c->fds[r];
+	    vfs_node_t *node = t->node;
+        kprintf("Node: 0x%x\n",node);
+	    char *b = kmalloc(2);
+	    serv->recv((Socket *)node->priv_data,0,b,2,0);
+	    kprintf("Received: %s\n",b);
+        serv->send((Socket *)node->priv_data,0,b,2,0);
+	    kfree(b);
+	    serv->destroy(serv);
+	    kfree(serv);
+	    kprintf("Currently, test finished\n");
     } else {
         kprintf("Unknown commmand: %s\r\n",cmd[0]);
     }
@@ -254,4 +294,37 @@ static void load_m(void *addr) {
     } else {
         mod->init(mod);
     }
+}
+static void th_m() {
+	kprintf("Parallel thread!\n");
+	Socket *client = kmalloc(sizeof(Socket));
+	memset(client,0,sizeof(Socket));
+	socket_create(PF_UNIX,client);
+	// Connect
+	struct sockaddr *addr = kmalloc(sizeof(struct sockaddr));
+	memset(addr,0,sizeof(struct sockaddr));
+	strcpy(addr->sa_data,"/client");
+	// try to connect
+	if (client->bind(client,0,addr,0) < 0) {
+		kprintf("failed to bind client socket!\n");
+		client->destroy(client);
+		kfree(client);
+		thread_killThread(thread_getThread(thread_getCurrent()),0);
+	}
+	strcpy(addr->sa_data,"/sock");
+	if (client->connect(client,0,addr,0) < 0) {
+		kprintf("Failed to connect to server!\n");
+		client->destroy(client);
+		kfree(client);
+		thread_killThread(thread_getThread(thread_getCurrent()),0);
+	}
+	char *msg = "hi";
+	char result[3];
+	client->send(client,0,msg,2,0);
+	client->recv(client,0,result,2,0); // very broken
+    kprintf("\n\n\n\nReceived from server: %s\n",result);
+	client->destroy(client);
+	kfree(client);
+	kprintf("Done\n");
+	thread_killThread(thread_getThread(thread_getCurrent()),0);
 }

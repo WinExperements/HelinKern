@@ -11,9 +11,14 @@
 
 /*
  * HelinKern modification.
- * Our initrd can be any size, so it can't be fited always to not interact with our KERN_PD_AREA_BEGIN
- * So we define it's as int and fill it on startup
+ * Currently no modification to the init code applied. But as soon as possible we need to change the arch_mmu_init code
+ * to add support for any size initrd, and don't limit it to 12MB
 */
+
+#define PAGE_DIRECTORY_INDEX(x) (((x) >> 22) & 0x3ff)
+#define PAGE_TABLE_INDEX(x) (((x) >> 12) & 0x3ff)
+#define PAGE_GET_PHYSICAL_ADDRESS(x) (*x & ~0xfff)
+
 static int RESERVED_AREA = 0x01000000; //16 mb
 static int KERN_PD_AREA_BEGIN = 0x0; //12 mb
 static int KERN_PD_AREA_END = 0x0; 
@@ -198,4 +203,34 @@ void arch_mmu_destroyAspace(aspace_t *space) {
     }
     //return to caller's Page Directory
     CHANGE_PD(cr3);
+}
+
+void *arch_mmu_getPhysical(void *virtual) {
+    int vaddr = (int)virtual;
+    uint32_t cr3 = 0;
+
+    if (vaddr < (void *)KERN_HEAP_END) {
+        cr3 = read_cr3();
+        CHANGE_PD(kernel_pg);
+    }
+
+    int *ptable = (int *)kernel_pg;
+    int index = PAGE_DIRECTORY_INDEX(vaddr);
+    int page_index = PAGE_TABLE_INDEX(vaddr);
+
+    if (index >= 1024 || page_index >= 1024)
+        return NULL; // Invalid virtual address
+
+    if (ptable[index] == 0)
+        return NULL; // Unmapped
+
+    int *table = ((uint32_t*)0xFFC00000) + (0x400 * index);
+    int physAddr = table[page_index] & ~0xfff;
+    int align = vaddr & 0xfff;
+
+    if (cr3 != 0) {
+        CHANGE_PD(cr3);
+    }
+
+    return (void *)(physAddr + align);
 }

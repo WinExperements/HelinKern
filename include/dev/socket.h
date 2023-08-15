@@ -3,6 +3,7 @@
 
 #include <typedefs.h>
 #include <vfs.h>
+#include <lib/queue.h>
 
 #ifndef SOCK_STREAM
 #define SOCK_STREAM    1
@@ -28,15 +29,21 @@ typedef struct _socket {
 	bool discon;
 	struct _socket *conn;
 	uint32_t domain;
-	void (*socket)(struct _socket* socket);
-	int (*addrlen)(struct _socket* socket, int sockfd, const struct sockaddr *addr, socklen_t addrlen);
-	int (*ifunc)(struct _socket* socket, int, int);
-	int (*iaddrlen)(struct _socket* socket, int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+	queue_t *acceptQueue;
+	bool (*destroy)(struct _socket* socket);
+	int (*bind)(struct _socket* socket, int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+	int (*listen)(struct _socket* socket, int, int);
+	int (*accept)(struct _socket* socket, int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+ 	int (*connect)(struct _socket* socket, int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 	ssize_t (*send)(struct _socket* socket, int sockfd, const void *buf, size_t len, int flags);
 	ssize_t (*recv)(struct _socket* socket, int sockfd, void *buf, size_t len, int flags);
+	void *private_data; // socket specific data, like vfs_node_t->priv_data
 } Socket;
 
 void socket_init();
+void socket_add(int domain, bool (*create)(Socket *socket));
+bool socket_create(int domain, Socket *socket);
+
 
 #endif
 

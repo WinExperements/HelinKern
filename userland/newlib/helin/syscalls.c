@@ -16,7 +16,11 @@
 #include <stdarg.h>
 #include <termios.h> // Hide and show user input
 #include <time.h>
-
+#include <mntent.h>
+#include <pwd.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/select.h>
 // Structure from src/thread.c from kernel source
 typedef struct _pthread_str {
         int entry;
@@ -47,7 +51,14 @@ int close(int file) {
 }
 char **environ; /* pointer to array of char * strings that define the current environment variables */
 int execve(char *name, char **argv, char **env) {
-    int pid = helin_syscall(13,(int)name,sizeof(argv)/sizeof(argv[1]),(int)argv,0,0);
+    int num_args = 0;
+
+    // Count the number of arguments until we reach a NULL pointer in the argv array
+    while (argv[num_args] != NULL) {
+        num_args++;
+    }
+
+    int pid = helin_syscall(13, (int)name, num_args, (int)argv, 0, 0);
     if (pid < 0) return -1;
     return 0;
 }
@@ -59,6 +70,10 @@ int fstat(int file, struct stat *st) {
 }
 int getpid(){
     return helin_syscall(4,0,0,0,0,0);
+}
+int getuid() {
+	return 0; // HelinKern does have sys_getuid, but i don't remember actuall syscall number for it :(
+	// FIXME: Call actual sys_getuid from kernel
 }
 int isatty(int file){
     return false;
@@ -181,6 +196,9 @@ int execvp(const char *file, char *const argv[]) {
 	if (file == NULL || argv == NULL) return -1;
 	return execve(file,argv,NULL);
 }
+int execv(const char *path, char *const argv[]) {
+	return execvp(path,argv);
+}
 int pipe(int pipefd[2]) {
 	return -1; // doesn't supported
 }
@@ -248,3 +266,232 @@ void pthread_cleanup_pop(int execute) {}
 
 int pthread_attr_init(pthread_attr_t *attr) {return 0;}
 int pthread_attr_destroy(pthread_attr_t *attr) {return 0;}
+
+int fcntl(int fd, int cmd, ...) {
+	return 0; // We don't support :(
+}
+
+int lstat(const char *pathname, struct stat *statbuf) {
+	return 0;
+}
+
+mode_t umask(mode_t mask) {
+	return 0;
+}
+
+int chmod(const char *pathname, mode_t mode) {
+	return 0;
+}
+
+long sysconf(int name) {
+	return 0;
+}
+
+int utime(const char *filename, const struct utimbuf *times) {
+	return 0;
+}
+
+int chown(const char *pathname, uid_t owner, gid_t group) {
+	return 0;
+}
+
+int rmdir(const char *pathname) {
+	return 0;
+}
+
+
+extern struct mntent *getmntent (FILE *__stream) {
+	return NULL;
+}
+int truncate(const char *path, off_t length) {
+	// We have this syscall but corrently just return postive
+	int fd = open(path,0);
+	if (fd < 0) return -1;
+	int ret = ftruncate(fd,length);
+	close(fd);
+	return ret;
+}
+int ftruncate(int fd, off_t length) {
+	return helin_syscall(40,fd,length,0,0,0);
+}
+
+uint32_t htonl(uint32_t hostlong) {return hostlong;}
+dev_t makedev(unsigned int maj, unsigned int min) {
+	dev_t blank;
+	return blank;
+}
+int getegid() {
+	return 0;
+}
+
+int sigaction(int signum, const struct sigaction *act,
+                     struct sigaction *oldact) {
+	return 0;
+}
+
+int gethostname(char *name, size_t len) {
+	if (name == NULL || len == 0) return -1;
+	snprintf(name,len,"Helin");
+	return 0;
+}
+
+
+uid_t geteuid(void) {
+	return getuid();
+}
+
+uint16_t htons(uint16_t hostshort) {return hostshort;}
+
+uint32_t ntohl(uint32_t netlong) {return netlong;}
+
+uint16_t ntohs(uint16_t netshort) { return netshort;}
+int pclose(FILE *stream) {
+	return 0;
+}
+static struct passwd empty;
+struct passwd *getpwuid(uid_t uid) {
+	return &empty;
+}
+
+FILE *popen(const char *command, const char *type) {
+	return NULL; // no pipe support :(
+}
+
+// Non syscalls related
+const char *basename(const char *path) {
+    if (path == NULL) {
+        return NULL;
+    }
+
+    // Find the last directory separator
+    const char *lastSlash = strrchr(path, '/');
+    if (lastSlash == NULL) {
+        return path; // No slashes, return the original path
+    }
+
+    // Return the portion of the path after the last slash
+    return lastSlash + 1;
+}
+int daemon(int nochdir, int noclose) {
+	return 0;
+}
+
+int fchmod(int fd, mode_t mode) {
+	return 0;
+}
+int alphasort(const struct dirent **a, const struct dirent **b) {return 0;}
+unsigned int alarm(unsigned int seconds) {
+	return seconds-1;
+}
+unsigned int major(dev_t dev) {return 2;}
+
+int scandir(const char *dirp, struct dirent ***namelist,
+              int (*filter)(const struct dirent *),
+              int (*compar)(const struct dirent **, const struct dirent **)) {
+	return 0;
+}
+
+
+unsigned int minor(dev_t dev) {return 2;}
+
+ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {return 0;}
+//struct group g_empt;
+struct group *getgrnam(const char *name) {
+	if (name == NULL) return NULL;
+	return NULL;
+}
+struct passwd *getpwnam(const char *name) {
+	return &empty;
+}
+struct group *getgrgid(gid_t gid) {return NULL;}
+pid_t setsid(void) {
+	return -1;
+}
+int mkdir(const char *path, mode_t mode) {
+	return 0;
+}
+int creat(const char *path, mode_t mode) {
+	return open(path,7);
+}
+int sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
+	return 0;
+}
+int execlp(const char *file, const char *arg, ...) {
+	char *args[64]; // Maximum 64 arguments (adjust as needed)
+    
+    args[0] = (char *)file; // The first argument is the file name
+    args[1] = (char *)arg;  // The second argument is the initial argument
+    
+    va_list ap;
+    va_start(ap, arg);
+
+    int arg_count = 2; // Start from index 2 for additional arguments
+
+    // Read additional arguments from the variable argument list
+    while (1) {
+        char *next_arg = va_arg(ap, char *);
+        if (next_arg == NULL) {
+            break;
+        }
+        args[arg_count++] = next_arg;
+    }
+    va_end(ap);
+
+    // NULL-terminate the arguments array
+    args[arg_count] = NULL;
+
+    // Call execv
+    execv(file, args);
+    return 0;
+}
+
+
+int munmap(void* addr, size_t len) {
+	// Насправді, ядро на даний момент не підтримує функцію "arch_mmu_unmap", тому ми повернемо позитивний результат нічого не роблючи
+	return 0;
+}
+
+int getpagesize() {
+	/*
+	 * Все ядро використовує 4 КБ як сторінку оперативної пам'яті
+	*/
+	return 4096;
+}
+
+
+// Network syscalls
+int     socket(int domain, int type, int protocol) {
+	return helin_syscall(41,domain,type,protocol,0,0);
+}
+int     bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+	return helin_syscall(42,sockfd,addr,addrlen,0,0);
+}
+int     listen(int sockfd, int backlog) {
+	return helin_syscall(43,sockfd,backlog,0,0,0);
+}
+int     accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
+	return helin_syscall(44,sockfd,addr,addrlen,0,0);
+}
+
+int select(int nfds, fd_set *readfds, fd_set *writefds,
+                  fd_set *exceptfds, struct timeval *timeout) {
+	return 0;
+}
+int nanosleep(const struct timespec *req, struct timespec *rem) {
+	return 0;
+
+}
+
+int connect(int sockfd, const struct sockaddr *addr,
+                   socklen_t addrlen) {
+	return helin_syscall(45,sockfd,addr,addrlen,0,0);
+}
+int send(int sockfd,const void *buf,int len,int flags) {
+    return helin_syscall(46,sockfd,buf,len,flags,0);
+} // yeah, hahaha
+int recv(int sockfd,void *buf,int len,int flags) {
+    return helin_syscall(47,sockfd,buf,len,flags,0);
+}
+pid_t vfork() {
+	return -1;
+}

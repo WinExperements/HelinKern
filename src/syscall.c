@@ -8,7 +8,7 @@
 #include <arch/mmu.h>
 #include <debug.h>
 #include <debug.h>
-
+#include <dev/socket.h>
 // Pthreads structure that passed to newlib thread_entry
 typedef struct _pthread_str {
 	int entry;
@@ -50,10 +50,18 @@ static int sys_getgid();
 static void *sys_sbrk(int increment);
 static int sys_dup(int oldfd,int newfd);
 static int sys_clone(int entryPoint,int arg1,int arg2); // pthread support, yay
+static int sys_truncate(int fd,int newsize);
 // HelinOS specific
 static void sys_waitForStart(int pid); // waits for thread begin started, automatically enabled the interrupts
 static void sys_usleep(int ms);
-int syscall_table[40] = {
+static int sys_socket(int domain,int type,int protocol);
+static int sys_bind(int sockfd,struct sockaddr *addr,int len);
+static int sys_listen(int sockfd,int backlog);
+static int sys_accept(int sockfd,struct sockaddr *addr,int len);
+static int sys_connect(int sockfd,const struct sockaddr *addr,int len);
+static int sys_send(int sockfd,const void *buff,int len,int flags);
+static int sys_recv(int sockfd,void *buff,int len,int flags);
+int syscall_table[48] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -94,8 +102,16 @@ int syscall_table[40] = {
     (int)sys_clone,
     (int)sys_waitForStart,
     (int)sys_usleep,
+    (int)sys_truncate,
+    (int)sys_socket,
+    (int)sys_bind,
+    (int)sys_listen,
+    (int)sys_accept,
+    (int)sys_connect,
+    (int)sys_send,
+    (int)sys_recv,
 };
-int syscall_num = 40;
+int syscall_num = 48;
 static void sys_print(char *msg) {
     kprintf(msg);
 }
@@ -380,6 +396,7 @@ static int sys_insmod(char *path) {
         clock_setShedulerEnabled(true);
         return -2;
     }
+    kprintf("Module %s load address(used for GDB): 0x%x\n",mod->name,mod->load_address);
     // call the module entry point
     if (mod->init) {
         mod->init(mod);
@@ -480,4 +497,68 @@ static void sys_usleep(int ms) {
 	caller->state = STATUS_SLEEP;
 	caller->quota = PROCESS_QUOTA;
 	arch_reschedule();
+}
+
+static int sys_truncate(int fd,int size) {
+	process_t *prc = thread_getThread(thread_getCurrent());
+	file_descriptor_t *desc = prc->fds[fd];
+	if (!desc) return -1;
+	vfs_truncate(desc->node,size);
+	return 0;
+}
+static int sys_socket(int domain,int type,int protocol) {
+	Socket *s = kmalloc(sizeof(Socket));
+	memset(s,0,sizeof(Socket));
+	if (!socket_create(domain,s)) {
+		kfree(s);
+		return -1;
+	}
+	// Create and open node
+	vfs_node_t *n = kmalloc(sizeof(vfs_node_t));
+	memset(n,0,sizeof(vfs_node_t));
+	n->flags = 4; // socket FD instance, destroy at close
+	n->priv_data = s;
+	return thread_openFor(thread_getThread(thread_getCurrent()),n);
+}
+static int sys_bind(int sockfd,struct sockaddr *addr,int len) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+        file_descriptor_t *desc = caller->fds[sockfd];
+        if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
+        Socket *s = desc->node->priv_data;
+        return s->bind(s,sockfd,addr,len);
+}
+static int sys_listen(int sockfd,int backlog) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+        file_descriptor_t *desc = caller->fds[sockfd];
+        if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
+        Socket *s = desc->node->priv_data;
+        return s->listen(s,sockfd,backlog);
+}
+static int sys_accept(int sockfd,struct sockaddr *addr,int len) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+        file_descriptor_t *desc = caller->fds[sockfd];
+        if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
+        Socket *s = desc->node->priv_data;
+        return s->accept(s,sockfd,addr,len);
+}
+static int sys_connect(int sockfd,const struct sockaddr *addr,int len) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+        file_descriptor_t *desc = caller->fds[sockfd];
+        if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
+        Socket *s = desc->node->priv_data;
+        return s->connect(s,sockfd,addr,len);
+}
+static int sys_send(int sockfd,const void *buff,int len,int flags) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+        file_descriptor_t *desc = caller->fds[sockfd];
+        if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
+        Socket *s = desc->node->priv_data;
+        return s->send(s,sockfd,buff,len,flags);
+}
+static int sys_recv(int sockfd,void *buff,int len,int flags) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	file_descriptor_t *desc = caller->fds[sockfd];
+	if (desc == NULL || desc->node == NULL || desc->node->flags != 3) return -1;
+	Socket *s = desc->node->priv_data;
+	return s->recv(s,sockfd,buff,len,flags);
 }

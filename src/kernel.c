@@ -20,6 +20,8 @@
 #include <lib/string.h>
 #include <dev/input.h>
 #include <dev/socket.h>
+// Sockets!
+#include <socket/unix.h>
 static int fb_addr;
 extern int *syscall_table;
 void *memset(void *dest,char val,int count) {
@@ -83,6 +85,8 @@ void kernel_main(const char *args) {
     #endif
     tty_init();
     socket_init();
+    // register some sockets
+    unix_register();
     arch_post_init();
     if (fb.addr != 0) output_changeToFB();
     clock_setShedulerEnabled(true);
@@ -101,10 +105,14 @@ void kernel_main(const char *args) {
     if (!mounted || !strcmp(mounted->fs->fs_name,"cpio")) {
 	PANIC("Failed to mount initrd");
     }
+#if 1
     int (*exec)(char *,int,char **) = ((int (*)(char *,int,char **))syscall_get(13));
     int pid = exec("/initrd/init",0,NULL); // Ядро передасть параметри за замовчуванням.
     if (pid < 0) {
 	PANIC("Failed to execute init");
    }
+#else
+    thread_create("kshell",(int)kshell_main,false);
+#endif
     arch_sti();
 }

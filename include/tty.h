@@ -13,6 +13,8 @@
  * Add /dev/tty
 */
 
-#define FLAG_ECHO 0000001
+#define FLAG_ECHO 	0000001
+#define FLAG_RAW  	0000002
+#define FLAG_NOBLOCK 	0000003
 void tty_init();
 #endif
