@@ -1,6 +1,6 @@
 # HelinKern
 
-![screenshot](res/screenshot.jpg)
+![screenshot](res/screenshot.png)
 
 just new implementation of my old osdev project. Many components are based on open source implementation, check the files for more information.
 # Sources
