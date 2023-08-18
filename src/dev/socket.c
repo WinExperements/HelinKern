@@ -48,3 +48,15 @@ static bool domain_find(clist_head_t *head,va_list args) {
 	entry *en = head->data;
 	return en->domain == domain;
 }
+
+void socket_destroy(Socket *socket) {
+	if (!socket) return;
+	if (socket->destroy) {
+		socket->destroy(socket);
+	}
+	if (socket->conn) {
+		socket->conn = NULL;
+		socket->discon = true;
+	}
+	kfree(socket);
+}

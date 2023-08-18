@@ -22,7 +22,7 @@ void vfs_addFS(vfs_fs_t *fs) {
     }
 }
 int vfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
-    if (!node) {
+    if (!node ||!node->fs ||  !node->fs->read) {
         if (how <= 0) return -1;
         return -1;
     } else {
@@ -30,7 +30,7 @@ int vfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
     }
 }
 int vfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
-    if (!node) {
+    if (!node || !node->fs || !node->fs->write) {
         if (how <= 0) return -1;
         return -1;
     } else {
@@ -38,7 +38,7 @@ int vfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
     }
 }
 void vfs_open(vfs_node_t *node,bool r,bool w) {
-    if (!node) {
+    if (!node || !node->fs || !node->fs->open) {
         if (!w) {
             return;
         }
@@ -47,7 +47,7 @@ void vfs_open(vfs_node_t *node,bool r,bool w) {
     }
 }
 void vfs_close(vfs_node_t *node) {
-    if (!node || !node->fs->close) {                
+    if (!node || !node->fs || !node->fs->close) { 
         return;
     } else {
         node->fs->close(node);
@@ -55,13 +55,14 @@ void vfs_close(vfs_node_t *node) {
 }
 struct dirent *vfs_readdir(vfs_node_t *in,uint32_t index) {
     if (!in) return NULL;
+    if (!in->fs) return NULL;
     if (!in->fs->readdir) return NULL;
     struct dirent *ret = in->fs->readdir(in,index);
     //kprintf("Return from FS: %s, 0x%x\n",in->fs->fs_name,ret);
     return ret;
 }
 vfs_node_t *vfs_finddir(vfs_node_t *in,char *name) {
-    if (!in || !name) return NULL;
+    if (!in || !name || !in->fs || !in->fs->finddir) return NULL;
     return in->fs->finddir(in,name);
 }
 vfs_node_t *vfs_getRoot() {
@@ -110,14 +111,14 @@ bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
     return true;
 }
 vfs_node_t *vfs_creat(vfs_node_t *in,char *name,int flags) {
-    if (!in || !in->fs->creat) {
+    if (!in || !in->fs || !in->fs->creat) {
         kprintf("touch: broken target\n");
         return NULL;
     }
     return in->fs->creat(in,name,flags);
 }
 void vfs_truncate(vfs_node_t *node,int size) {
-    if (!node || node->fs->truncate != 0) {
+    if (!node || !node->fs ||  node->fs->truncate != 0) {
         node->fs->truncate(node,size);
     }
 }
@@ -138,15 +139,15 @@ vfs_node_t *vfs_find(char *path) {
     return NULL;
 }
 void vfs_readBlock(vfs_node_t *node,int blockN,int how,void *buff) {
-    if (!node || !node->fs->readBlock) return;
+    if (!node || !node->fs || !node->fs->readBlock) return;
     node->fs->readBlock(node,blockN,how,buff);
 }
 void vfs_writeBlock(vfs_node_t *node,int blockN,int how,void *buff) {
-    if (!node || !node->fs->writeBlock) return;
+    if (!node || !node->fs ||  !node->fs->writeBlock) return;
     node->fs->writeBlock(node,blockN,how,buff);
 }
 int vfs_ioctl(vfs_node_t *node,int request,...) {
-    if (!node || !node->fs->ioctl) return -1;
+    if (!node || !node->fs ||  !node->fs->ioctl) return -1;
     va_list list;
     va_start(list,request);
     int ret = node->fs->ioctl(node,request,list);
@@ -207,10 +208,14 @@ vfs_fs_t *vfs_findFS(char *name) {
     return NULL;
 }
 void *vfs_mmap(struct vfs_node *node,int addr,int size,int offset,int flags) {
-	if (!node || !node->fs->mmap) return NULL;
+	if (!node || !node->fs || !node->fs->mmap) return NULL;
 	return node->fs->mmap(node,addr,size,offset,flags);
 }
 void vfs_rm(vfs_node_t *node) {
 	if (!node || !node->fs || !node->fs->rm) return;
 	node->fs->rm(node);
+}
+bool vfs_isReady(struct vfs_node *node) {
+	if (!node || !node->fs || !node->fs->isReady) return false;
+	return node->fs->isReady(node);
 }

@@ -87,6 +87,7 @@ void *thread_schedule(void *stack) {
 	    // Switch to idle
 	    nextTask = idle;
 	}
+    //kprintf("Switch to %s\n",nextTask->name);
     // switch the address space
     arch_fpu_save(runningTask->fpu_state);
     arch_fpu_restore(nextTask->fpu_state);
@@ -189,13 +190,11 @@ void thread_killThread(process_t *prc,int code) {
     for (int i = 0; i < prc->next_fd; i++) {
         file_descriptor_t *fd = prc->fds[i];
         if (fd != NULL) {
-            DEBUG("Closing FD %d\r\n", i);
+            DEBUG("Closing FD %d, %s\r\n", i,fd->node->name);
             vfs_close(fd->node);
 	    if (fd->node->flags == 4) {
 		// socket?
-		Socket *s = (Socket *)fd->node->priv_data;
-		s->destroy(s);
-		kfree(s);
+		socket_destroy((Socket *)fd->node->priv_data);
 		kfree(fd->node);
 	    }
             kfree(fd);
@@ -244,6 +243,7 @@ int thread_openFor(process_t *caller,vfs_node_t *node) {
     file_descriptor_t *fd = kmalloc(sizeof(file_descriptor_t));
     memset(fd,0,sizeof(file_descriptor_t));
     fd->node = node;
+    fd->pid = caller->pid;
     int id = caller->next_fd;
     caller->fds[id] = fd;
     caller->next_fd++;

@@ -11,6 +11,7 @@ typedef struct dev {
     void (*readBlock)(struct vfs_node *node,int blockNo,int how,void *buf);
     void (*writeBlock)(struct vfs_node *node,int blockNo,int how,void *buf);
     int (*ioctl)(struct vfs_node *node,int request,va_list args);
+    bool (*isReady)(struct vfs_node *node); // select syscall
     void *device;
     struct dev *next;
     struct dev *prev;

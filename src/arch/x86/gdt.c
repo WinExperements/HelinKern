@@ -173,7 +173,7 @@ void *x86_irq_handler(registers_t *regs) {
             // get faulting address
              int present = regs->error_code & 0x1;
             int rw = regs->error_code & 0x2;
-		    kprintf("Page fault!!! When trying to %s %x - IP:%x\n", rw ? "write to" : "read from", addr, regs->eip);
+            kprintf("Page fault!!! When trying to %s %x - IP:%x\n", rw ? "write to" : "read from", addr, regs->eip);
             kprintf("The page was %s\n", present ? "present" : "not present");
         }
 	kprintf("CR0: 0x%x\n",cr0);

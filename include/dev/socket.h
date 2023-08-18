@@ -30,6 +30,7 @@ typedef struct _socket {
 	struct _socket *conn;
 	uint32_t domain;
 	queue_t *acceptQueue;
+	int owner; // pid of owner
 	bool (*destroy)(struct _socket* socket);
 	int (*bind)(struct _socket* socket, int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 	int (*listen)(struct _socket* socket, int, int);
@@ -37,13 +38,14 @@ typedef struct _socket {
  	int (*connect)(struct _socket* socket, int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 	ssize_t (*send)(struct _socket* socket, int sockfd, const void *buf, size_t len, int flags);
 	ssize_t (*recv)(struct _socket* socket, int sockfd, void *buf, size_t len, int flags);
+	bool (*isReady)(struct _socket* socket);
 	void *private_data; // socket specific data, like vfs_node_t->priv_data
 } Socket;
 
 void socket_init();
 void socket_add(int domain, bool (*create)(Socket *socket));
 bool socket_create(int domain, Socket *socket);
-
+void socket_destroy(Socket *socket);
 
 #endif
 

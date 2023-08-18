@@ -111,6 +111,7 @@ void kernel_main(const char *args) {
     if (pid < 0) {
 	PANIC("Failed to execute init");
    }
+   //exec("/initrd/demo-hello",0,NULL);
 #else
     thread_create("kshell",(int)kshell_main,false);
 #endif

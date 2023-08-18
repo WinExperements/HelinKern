@@ -17,4 +17,5 @@ aspace_t *arch_mmu_getKernelSpace();
  * Get physical address of virtual address by it's pointer
 */
 void *arch_mmu_getPhysical(void *virtual);
+bool arch_mmu_duplicate(aspace_t *parent, aspace_t *child);
 #endif

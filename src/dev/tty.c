@@ -12,6 +12,7 @@ static vfs_node_t *keyboard; // for reading the input
 static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
 static int tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
 static int tty_ioctl(vfs_node_t *node,int request,va_list args);
+static bool tty_isReady(vfs_node_t *node);
 int tty_flags = FLAG_ECHO;
 
 void tty_init() {
@@ -22,6 +23,7 @@ void tty_init() {
 	dev->write = tty_write;
 	dev->read = tty_read;
 	dev->ioctl = tty_ioctl;
+	dev->isReady = tty_isReady;
 	dev_add(dev);
 	// Find keyboard in our devfs
 	keyboard = vfs_find("/dev/keyboard");
@@ -58,4 +60,7 @@ static int tty_ioctl(vfs_node_t *node,int request,va_list args) {
 			return -1;
 	}
 	return 0;
+}
+static bool tty_isReady(vfs_node_t *node) {
+	return keyboard->fs->isReady(keyboard);
 }

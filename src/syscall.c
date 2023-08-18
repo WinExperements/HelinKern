@@ -61,7 +61,8 @@ static int sys_accept(int sockfd,struct sockaddr *addr,int len);
 static int sys_connect(int sockfd,const struct sockaddr *addr,int len);
 static int sys_send(int sockfd,const void *buff,int len,int flags);
 static int sys_recv(int sockfd,void *buff,int len,int flags);
-int syscall_table[48] = {
+static int sys_ready(int fd); // for select
+int syscall_table[49] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -110,8 +111,9 @@ int syscall_table[48] = {
     (int)sys_connect,
     (int)sys_send,
     (int)sys_recv,
+    (int)sys_ready,
 };
-int syscall_num = 48;
+int syscall_num = 49;
 static void sys_print(char *msg) {
     kprintf(msg);
 }
@@ -152,12 +154,28 @@ static void sys_close(int fd) {
     process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *d = caller->fds[fd];
     vfs_close(d->node);
+    if (d->node->flags == 4) {
+	Socket *s = (Socket *)d->node->priv_data;
+	socket_destroy(s);
+        kfree(d->node);
+    }
     kfree(d);
     caller->fds[fd] = NULL;
 }
 static int sys_read(int _fd,int offset,int size,void *buff) {
     process_t *caller = thread_getThread(thread_getCurrent());
+    DEBUG("Read for %s, file descriptor %d\n",caller->name,_fd);
     file_descriptor_t *fd = caller->fds[_fd];
+    if (fd == NULL || fd->node == NULL) {
+	    kprintf("WARRNING: read: invalid FD passed\n");
+	    return 0;
+	}
+    if (fd->node->flags == 4) {
+	   // kprintf("WARRNING: Redirect from read to recv!\n");
+	    Socket *sock = (Socket *)fd->node->priv_data;
+	    int socksize = sock->recv(sock,_fd,buff,size,0);
+	    return socksize;
+	}
     int how = vfs_read(fd->node,fd->offset,size,buff);
     fd->offset+=how;
     if (offset >= fd->node->size) {
@@ -168,6 +186,17 @@ static int sys_read(int _fd,int offset,int size,void *buff) {
 static int sys_write(int _fd,int offset,int size,void *buff) {
     process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *fd = caller->fds[_fd];
+    if (fd == NULL || fd->node == NULL) {
+	    kprintf("WARRNING: write: invalid FD passed\n");
+	    return 0;
+	}
+    if (fd->node->flags == 4) {
+	    //kprintf("WARRNING: redirecting from write to send!\n");
+	    Socket *sock = (Socket *)fd->node->priv_data;
+	    //kprintf("Send from %s to socket owner: %s\n",caller->name,thread_getThread(sock->conn->owner)->name);
+	    int socksize = sock->send(sock,_fd,buff,size,0);
+	    return socksize;
+	}
     int wr = vfs_write(fd->node,fd->offset,size,buff);
     fd->offset+=wr;
     return wr;
@@ -513,6 +542,7 @@ static int sys_socket(int domain,int type,int protocol) {
 		kfree(s);
 		return -1;
 	}
+	s->owner = thread_getCurrent();
 	// Create and open node
 	vfs_node_t *n = kmalloc(sizeof(vfs_node_t));
 	memset(n,0,sizeof(vfs_node_t));
@@ -558,7 +588,28 @@ static int sys_send(int sockfd,const void *buff,int len,int flags) {
 static int sys_recv(int sockfd,void *buff,int len,int flags) {
 	process_t *caller = thread_getThread(thread_getCurrent());
 	file_descriptor_t *desc = caller->fds[sockfd];
-	if (desc == NULL || desc->node == NULL || desc->node->flags != 3) return -1;
+	if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
 	Socket *s = desc->node->priv_data;
 	return s->recv(s,sockfd,buff,len,flags);
+}
+
+static int sys_ready(int fd) {
+	process_t *t = thread_getThread(thread_getCurrent());
+	file_descriptor_t *ft = t->fds[fd];
+	if (ft != NULL) {
+		if (ft->node->flags == 4) {
+			// Check if socket is ready for connections
+			Socket *sock = (Socket *)ft->node->priv_data;
+			if (sock->acceptQueue != NULL) {
+				if (sock->acceptQueue->size != 0) {
+					return 3;
+				} else return 2;
+			} else if (sock->isReady) {
+				return (sock->isReady(sock) ? 3 : 2);
+			} else {
+				return 2;
+			}
+		}
+	}
+	return (vfs_isReady(ft->node) ? 3 : 2);
 }

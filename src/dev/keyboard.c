@@ -14,6 +14,7 @@ static bool shift,ctrl = false;
 static void keyboard_keyHandler(char key);
 static dev_t *keyboard_dev;
 static int keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+static bool keyboard_isReady(struct vfs_node *node);
 static void readers_foreach(clist_head_t *element,va_list args);
 static int setBit(int n, int k);
 static int clearBit(int n, int k);
@@ -48,6 +49,7 @@ void keyboard_init() {
     keyboard_dev->name = "keyboard";
     keyboard_dev->buffer_sizeMax = 100;
     keyboard_dev->read = keyboard_read;
+    keyboard_dev->isReady = keyboard_isReady;
     // UPDATE 1: Add readers for each process(inspected by SOSO OS)
     // UPDATE 2: No readers more, only queues!
     keys = queue_new();
@@ -157,4 +159,7 @@ static int clearBit(int n, int k)
 int toggleBit(int n, int k)
 {
     return (n^(1<<(k-1)));
+}
+static bool keyboard_isReady(struct vfs_node *node) {
+	return keys->size != 0;
 }

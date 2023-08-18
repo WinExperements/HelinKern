@@ -135,7 +135,7 @@ void *kmalloc(int size) {
 		other->used = 0;
 		chunk->size = realsize;
 		chunk->used = 1;
-        	DEBUG("Using other chunk, size: %d, allocating %d\n",other->size,size);
+        	//DEBUG("Using other chunk, size: %d, allocating %d\n",other->size,size);
 	}
 	heap_used+=realsize;
 	lastAlloc = size;

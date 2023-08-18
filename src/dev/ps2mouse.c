@@ -26,6 +26,7 @@ static char mouse_byte[3];
 static int old_x = 800;
 static int old_y = 600;
 static int mice_dev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
+static bool mice_dev_isReady(vfs_node_t *node);
 static queue_t *data_queue;
 // dev/fb.c
 extern void fb_putchar(
@@ -141,6 +142,7 @@ void ps2mouse_init() {
 	mouse->name = "mice";
 	mouse->buffer_sizeMax = 3;
 	mouse->read = mice_dev_read;
+	mouse->isReady = mice_dev_isReady;
 	dev_add(mouse);
 	DEBUG_N("PS/2 Initialization done\r\n");
 }
@@ -152,4 +154,8 @@ static int mice_dev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *bu
 	memcpy(buff,data,3);
 	kfree(data);
 	return 3;
+}
+
+static bool mice_dev_isReady(vfs_node_t *node) {
+	return data_queue->size != 0;
 }

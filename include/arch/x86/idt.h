@@ -35,7 +35,7 @@ typedef struct registers
   uint32_t eflags;
   uint32_t useresp;
   uint32_t ss;
-}  registers_t;
+} __attribute__((packed))  registers_t;
 typedef void (*isr_t)(registers_t *);
 void isr_handler();
 int irq_handler(registers_t *regs);
