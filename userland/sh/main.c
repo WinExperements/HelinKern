@@ -20,10 +20,23 @@ char **__argv;
 void process_initScript(FILE *);
 extern FILE *stdin;
 
-void th_main() {
+typedef struct _pthread_str {
+        int entry;
+        void *arg;
+} pthread_str;
+
+
+// fork-exec model!
+int fork() {
+	return helin_syscall(49,0,0,0,0,0);
+}
+
+void th_main(void *str) {
     printf("Hi from thread! I am running from the same address space!\n");
     // Always exit
     // Other tests
+    pthread_str *pt = (pthread_str *)str;
+    printf("Structure dump: entry: %X, argument: %X\n",pt->entry,pt->arg);
     int clocks = 10;
     printf("REPEAT after 3 seconds\n");
     while(clocks != 0) {
@@ -32,6 +45,12 @@ void th_main() {
 	    clocks--;
 	}
     exit(0);
+}
+
+void fork_main(int argc,void *argv) {
+	// ONLY TEST!
+	printf("UNIX fork implemented!\n");
+	exit(0);
 }
 
 
@@ -188,7 +207,30 @@ void sh_parseCommand(char **argv,int argc) {
             free(buf);
         }
     } else if (!strcmp(argv[0],"clone")) {
-        helin_syscall(37,(int)th_main,0,0,0,0);
+        helin_syscall(37,(int)th_main,0x200,10,0,0);
+    } else if (!strcmp(argv[0],"fork")) {
+	// Fork
+	int ret = helin_syscall(49,(int)fork_main,0,0,0,0);
+	if (ret == -1) {
+		printf("fork failed\n");
+	} else {
+		printf("Fork return: %u\n",ret);
+        int ud = getpid();
+        printf("My PID: %u, child PID: %u\n",ud,ret);
+        if (ret == 0) {
+                fork_main(0,NULL);
+        } else {
+            printf("I AM NOT A CHILD!\n");
+        }
+	}
+    } else if (!strcmp(argv[0],"graphics")) {
+	    char *parallelArgv[] = {"nano-X","&"};
+	    if (!execute("nano-X",parallelArgv,2)) {
+		    printf("No Nano-X found :(\n");
+		    return;
+	    }
+	    execute("demo-hello",parallelArgv,2);
+	    execute("demo-grabkey",parallelArgv,2);
     } else {
         if (!execute(argv[0],argv,argc)) {
             printf("Commmand %s not found\n",argv[0]);
@@ -199,7 +241,7 @@ bool execute(char *command,char **argv,int argc) {
     char *run_path = "/initrd";
     int _pid = 0;
     char **new_argv = NULL;
-    int new_argc = argc;
+    int new_argc = argc-1;
     if (run_path == NULL) {
         printf("cannot find PATH enviroment variable!\n");
         return false;
@@ -227,7 +269,15 @@ bool execute(char *command,char **argv,int argc) {
     } else {
 	    strcpy(buff,command);
     }
-    if ((_pid = execv(buff,new_argc,new_argv)) > 0) {
+    // fork then execute
+    _pid = fork();
+    if (_pid == 0) {
+	    execv(buff,new_argc,new_argv);
+	    // error :(
+	    printf("%s: failed to execute!\n",buff);
+	    exit(1);
+    }
+    if (_pid != 0) {
         if (!parallel) {
             waitpid(_pid,NULL,0);
             if (new_argv)free(new_argv);
@@ -236,6 +286,7 @@ bool execute(char *command,char **argv,int argc) {
         }
         return true;
     } else {
+	    printf("PID: %u\n",_pid);
         if (new_argv)free(new_argv);
         return false;
     }

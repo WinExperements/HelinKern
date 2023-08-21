@@ -36,9 +36,9 @@ void panic(char *file,int line,char *msg) {
     arch_trace();
     clock_setShedulerEnabled(false);
     kprintf("Rebooting in 5 seconds....");
-    arch_sti();
-    kwait(5000);
-    arch_reset();
+    //arch_sti();
+    //kwait(5000);
+   // arch_reset();
     kprintf("Reboot failed, halt");
     while(1) {}
 }
@@ -113,7 +113,15 @@ void kernel_main(const char *args) {
    }
    //exec("/initrd/demo-hello",0,NULL);
 #else
-    thread_create("kshell",(int)kshell_main,false);
+    //thread_create("kshell",(int)kshell_main,false);
+    kprintf("Fork test\n");
+    aspace_t *child = arch_mmu_newAspace();
+    if (arch_mmu_duplicate(arch_mmu_getAspace(),child)) {
+	kprintf("arch_mmu_duplicate: ok, used non COW method\n");
+	arch_mmu_destroyAspace(child);
+	kprintf("Starting kshell\n");
+	thread_create("kshell",(int)kshell_main,false);
+   }
 #endif
     arch_sti();
 }

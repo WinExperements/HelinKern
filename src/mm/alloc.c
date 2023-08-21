@@ -18,6 +18,7 @@ static int kernel_endAddress;
 static int end_address;
 static int numAllocs = 0; // debug only!
 static int lastAlloc = 0;
+static int usedPhysMem = 0;
 void alloc_init(int kernel_end,int high_mem) {
     // Place map at the end of kernel address
     phys_map = (uint8_t *)kernel_end;
@@ -52,6 +53,7 @@ int alloc_getPage() {
                 {
                     page = 8 * byte + bit;
                     SET_PAGEFRAME_USED(phys_map, page);
+		    usedPhysMem+=4096;
                     return (page * PAGESIZE_4K);
                 }
             }
@@ -184,7 +186,7 @@ static void sbrk_page(process_t* process, int page_count)
                 return;
             }
 
-            arch_mmu_mapPage(process->aspace,process->brk_next_unallocated_page_begin, p_addr, 0x00000004 | 0x00000200);
+            arch_mmu_mapPage(process->aspace,process->brk_next_unallocated_page_begin, p_addr, 7 | 0x00000200);
 
             process->brk_next_unallocated_page_begin += PAGESIZE_4K;
         }
@@ -235,6 +237,7 @@ void *krealloc(void *p,int size) {
 }
 void alloc_freePage(int addr) {
 	SET_PAGEFRAME_UNUSED(phys_map,addr);
+	usedPhysMem-=4096;
 }
 int alloc_getBitmapSize() {
     return total_pages*sizeof(uint16_t);
@@ -256,4 +259,11 @@ void alloc_reserve(int start,int end) {
 	for (int i = PAGE_INDEX_4K(start); i <  PAGE_INDEX_4K(end); i++) {
 		SET_PAGEFRAME_USED(phys_map,i);
 	}
+}
+
+int alloc_getUsedPhysMem() {
+	return usedPhysMem;
+}
+int alloc_getAllMemory() {
+	return total_pages*4096;
 }

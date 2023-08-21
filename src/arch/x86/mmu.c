@@ -19,10 +19,14 @@
 #define PAGE_TABLE_INDEX(x) (((x) >> 12) & 0x3ff)
 #define PAGE_GET_PHYSICAL_ADDRESS(x) (*x & ~0xfff)
 
+#define GET_VIRTUAL_ADDRESS(pd_index, pt_index, offset) \
+    (((pd_index) << 22) | ((pt_index) << 12) | (offset))
+
 static int RESERVED_AREA = 0x01000000; //16 mb
 static int KERN_PD_AREA_BEGIN = 0x0; //12 mb
 static int KERN_PD_AREA_END = 0x0; 
 static uint32_t *kernel_pg = (uint32_t *)KERN_PAGE_DIRECTORY;
+extern void copy_page_physical(int src,int dst);
 
 static uint32_t read_cr3()
 {
@@ -82,12 +86,12 @@ static void add_page_to_pd(void *v_addr,uint32_t p_addr,int flags) {
 
     uint32_t cr3 = 0;
 
-    if (v_addr < (void *)KERN_HEAP_END)
+    /*if (v_addr < (void *)KERN_HEAP_END)
     {
         cr3 = read_cr3();
 
         CHANGE_PD(kernel_pg);
-    }
+    }*/
     if ((pd[pd_index] & PG_PRESENT) != PG_PRESENT)
     {
         uint32_t tablePhysical = alloc_getPage();
@@ -99,7 +103,7 @@ static void add_page_to_pd(void *v_addr,uint32_t p_addr,int flags) {
         }
     }
 
-    if ((pt[pt_index] & PG_PRESENT) == PG_PRESENT)
+    /*if ((pt[pt_index] & PG_PRESENT) == PG_PRESENT)
     {
         if (0 != cr3)
         {
@@ -107,9 +111,9 @@ static void add_page_to_pd(void *v_addr,uint32_t p_addr,int flags) {
         }
 
         return;
-    }
+    }*/
 
-    pt[pt_index] = (p_addr) | (flags & 0xFFF) | (PG_PRESENT | PG_WRITE);
+    pt[pt_index] = (p_addr) | (flags & 0xFFF);
     INVALIDATE(v_addr);
     if (0 != cr3)
     {
@@ -121,8 +125,8 @@ static void add_page_to_pd(void *v_addr,uint32_t p_addr,int flags) {
 int arch_mmu_map(aspace_t *aspace,vaddr_t base,size_t size,uint32_t flags) {
     int s = PAGE_INDEX_4K(base);
     for (size_t i = 0; i < (size/PAGESIZE_4K)+1; i++) {
-        uint32_t page_addr = (i+s)*PAGESIZE_4K;
-        add_page_to_pd((void *)page_addr,page_addr,7);
+        // Bro WTF?
+        add_page_to_pd(base+(i*4096),alloc_getPage(),flags);
     }
     return 0;
 }
@@ -162,7 +166,8 @@ aspace_t *arch_mmu_getAspace() {
 aspace_t *arch_mmu_getKernelSpace() {
     return kernel_pg;
 }
-void arch_mmu_destroyAspace(aspace_t *space) {
+/* Copy-On-Write modification */
+void arch_mmu_destroyAspace(aspace_t *space, bool all) {
 
     uint32_t* pd = (uint32_t*)0xFFFFF000;
 
@@ -182,7 +187,8 @@ void arch_mmu_destroyAspace(aspace_t *space) {
             {
                 if ((pt[pt_index] & PG_PRESENT) == PG_PRESENT)
                 {
-                    if ((pt[pt_index] & PG_OWNED) == PG_OWNED)
+                    bool allowed = (all ? true : ((pt[pt_index] & PG_WRITE) == PG_WRITE));
+                    if ((pt[pt_index] & PG_OWNED) == PG_OWNED && allowed)
                     {
                         uint32_t physicalFrame = pt[pt_index] & ~0xFFF;
 
@@ -214,7 +220,7 @@ void *arch_mmu_getPhysical(void *virtual) {
         CHANGE_PD(kernel_pg);
     }
 
-    int *ptable = (int *)kernel_pg;
+    int *ptable = (int *)0xFFFFF000;
     int index = PAGE_DIRECTORY_INDEX(vaddr);
     int page_index = PAGE_TABLE_INDEX(vaddr);
 
@@ -235,3 +241,46 @@ void *arch_mmu_getPhysical(void *virtual) {
     return (void *)(physAddr + align);
 }
 
+/*
+ * Actually required by fork
+ * Copy-On-Write implementation
+ *
+ * Return true if success or zero if failed
+*/
+
+bool arch_mmu_duplicate(aspace_t *parent, aspace_t *child) {
+        // Actually like arch_mmu_destroyAspace
+        uint32_t* pd = (uint32_t*)0xFFFFF000;
+        uint32_t cr3 = read_cr3();
+        CHANGE_PD(parent);
+	    int index = 256;
+        for (int pd_index = index; pd_index < 1023; ++pd_index)
+        {                                                     
+                if ((pd[pd_index] & PG_PRESENT) == PG_PRESENT)
+                {                                                                   
+                        uint32_t* pt = ((uint32_t*)0xFFC00000) + (0x400 * pd_index);
+                                                                           
+                        for (int pt_index = 0; pt_index < 1024; ++pt_index)
+                        {                                                     
+                                if ((pt[pt_index] & PG_PRESENT) == PG_PRESENT)
+                                {                                                 
+                                        if ((pt[pt_index] & PG_OWNED) == PG_OWNED)
+                                        {                                                      
+                                                uint32_t physicalFrame = pt[pt_index] & ~0xFFF;
+						                        uint32_t virtual = GET_VIRTUAL_ADDRESS(pd_index,pt_index,0);
+						                        //uint32_t child_phys = alloc_getPage();
+						                        //kprintf("%s: copy address 0x%x, 0x%x\n",__func__,virtual,physicalFrame);
+						                        /* Copy-On-Write! */
+						                        CHANGE_PD(child);
+						                        arch_mmu_mapPage(NULL,virtual,physicalFrame,PG_PRESENT | PG_USER | PG_OWNED);
+						                        CHANGE_PD(parent);
+									            arch_mmu_mapPage(NULL,virtual,physicalFrame,PG_PRESENT | PG_USER | PG_OWNED);
+                                        }
+                                }
+                        }
+                }
+        }
+        // For any case, if we called from different address space
+        CHANGE_PD(cr3);
+        return true;
+}

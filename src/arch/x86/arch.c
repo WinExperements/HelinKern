@@ -19,6 +19,7 @@
 #include <arch/x86/cpuid.h>
 #include <arch/x86/smp.h>
 #include <arch/mmu.h>
+#include <arch/x86/mmu.h>
 /* Define some defines that needed for kernel allocator */
 int KERN_HEAP_BEGIN=0x02000000; //32 mb
 int KERN_HEAP_END=0x40000000; // 1 gb
@@ -27,6 +28,7 @@ int USER_MMAP_START=0x80000000; //This is just for mapping starts searching vmem
 int MEMORY_END=0xFFC00000; //After this address is not usable. Because Page Tables sit there!
 // Why my previous define is very starnge, like the stack is increments to 200!
 // Now all works fine as planed.
+#define	USER_STACK 			0xF0000000
 #define PUSH(stack, type, value)\
     do {\
         (stack) -= sizeof(type);\
@@ -46,6 +48,8 @@ extern void x86_switch(registers_t *to);
 extern void x86_jumpToUser(int entryPoint,int userstack);
 static char cpuName[48];
 static void setup_fpu();
+static registers_t *syscall_regs; // required by arch_syscall_getCallerRet
+extern bool showByte;
 void arch_entry_point(void *arg) {
 	// arg is our multiboot structure description
 	// Basically, we need just to extract the arguments from the sctructure then pass it to the global entry point
@@ -119,6 +123,7 @@ int arch_getMemSize() {
 void *arch_prepareContext(int entry,bool isUser) {
     int frame = (int)(kmalloc(4096)+4096);
     stack_addr = ((int)frame-4096);
+    memset(stack_addr,0,4096);
     if (!isUser) {
         PUSH(frame,int,0);
         PUSH(frame,int,entry);
@@ -157,6 +162,7 @@ static void *syscall_handler(void *_regs) {
     int location = syscall_get(regs->eax);
     arch_cli();
     // Call the handler
+    syscall_regs = regs;
     int ret;
     asm volatile("push %1; \
     push %2; \
@@ -198,10 +204,11 @@ void arch_destroyArchStack(void *stack) {
     if (task->kesp_start != 0) {
         kfree((void *)task->kesp_start);
     }
+    
     kfree((void *)task->stack);
-    if (task->userESP != 0) {
-        kfree((void *)task->userESP);
-    }
+    /*
+     * User ESP pointer is automatically freed in arch_mmu_destroyAspace
+    */
     if (task->argc != 0) {
         kfree((void *)task->argv);
     }
@@ -416,11 +423,24 @@ static void thread_main(int entryPoint,int esp,bool isUser) {
     /* Через те, що наш метод переключення контексту процесів працює лише з задачами ядра, ми будемо перемикатися в режим користувача.
     */
     process_t *prc = thread_getThread(thread_getCurrent());
+    x86_task_t *task = (x86_task_t *)prc->arch_info;
+    if (task->forkESP != 0) {
+	    // We after fork, jump to user mode
+	    //kprintf("After fork! EIP: 0x%x\n",entryPoint);
+	    x86_jumpToUser(entryPoint,task->forkESP);
+	    PANIC("Failed to switch to user mode!"); // never happening
+    }
     // На данний момент часу ми працюємо в кільці ядра!
-    int _esp = (int)kmalloc(4096);
+    //int stackSize = 50*4096;
+    int _esp = (int)sbrk(prc,4096);
+    //if (isUser) arch_mmu_map(NULL,_esp,stackSize,7 | 0x00000200);
+    //int _esp = (int)kmalloc(4096);
     x86_task_t *archStack = (x86_task_t *)prc->arch_info;
     archStack->userESP = _esp;
+    // clean memory
+    memset((void *)_esp,0,4096);
     uint32_t stack = (uint32_t )_esp+4096;
+    archStack->userESP_top = stack;
     PUSH(stack,char **,(char **)(uintptr_t)archStack->argv);
     PUSH(stack,int,archStack->argc);
     x86_jumpToUser(entryPoint,(int)stack);
@@ -490,3 +510,22 @@ static void setup_fpu() {
     asm volatile("finit");
 }
 
+int arch_syscall_getCallerRet() {
+	if (syscall_regs != NULL) {
+		return syscall_regs->eip;
+	}
+	return NULL;
+}
+void arch_forkProcess(process_t *parent,process_t *child) {
+	/*
+	 * X86 specifc code for fork system call
+	 * We set the arch specifc structure to indicate for thread_main that process is after fork, so it jump to the copied entry point and saved stack here
+	 * We use useresp because it's is a pointer to user space ESP value that automatically loaded for user space programs by iret
+	 * Also we need to copy parent's FPU state for our child, so it is able to continue using FPU commands
+	*/
+        x86_task_t *t = (x86_task_t *)child->arch_info;
+        t->forkESP = syscall_regs->useresp;
+	//kprintf("FORK ESP: 0x%x\n",t->forkESP);
+        // Copy FPU state
+	    memcpy(child->fpu_state,parent->fpu_state,512);
+}

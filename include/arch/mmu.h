@@ -10,7 +10,7 @@ int arch_mmu_query(aspace_t *aspace,vaddr_t vaddr,paddr_t *paddr,uint32_t *flags
 void arch_mmu_switch(aspace_t *aspace);
 void arch_mmu_mapPage(aspace_t *aspace,vaddr_t vaddr,paddr_t paddr,uint32_t flags);
 void *arch_mmu_newAspace();
-void arch_mmu_destroyAspace(aspace_t *aspace);
+void arch_mmu_destroyAspace(aspace_t *aspace,bool all);
 aspace_t *arch_mmu_getAspace();
 aspace_t *arch_mmu_getKernelSpace();
 /*

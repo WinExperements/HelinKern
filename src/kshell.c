@@ -185,7 +185,7 @@ static void parseCommand(int argc,char *cmd[]) {
                 return;
             }
 			vfs_readBlock(disk,0,file->size,data);
-			elf_load_file(data);
+			//elf_load_file(data);
 		}
         kfree(b);
 		kfree(data);
@@ -276,7 +276,7 @@ static void start_module() {
     int addr = arch_getModuleAddress();
     if (addr != 0) {
         kprintf("Trying to load initrd as ELF\r\n");
-        if (!elf_load_file((void *)addr)) {
+        if (!elf_load_file((void *)addr,NULL)) {
             kprintf("Failed to load ELF! Check console\r\n");
         } else {
             // change name to "module"

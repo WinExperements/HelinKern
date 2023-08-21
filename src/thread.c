@@ -41,29 +41,30 @@ void *thread_schedule(void *stack) {
      // Priority support
      process_t *nextTask = NULL;
     if (runningTask != NULL) {
-        if (runningTask->quota < PROCESS_QUOTA) {
+        /*if (runningTask->quota < PROCESS_QUOTA) {
             runningTask->quota++;
             return stack;
-        }
+        }*/
 	    nextTask = pop_prc();
         if (nextTask == NULL) {
             // Oh! Is this means that the init process just died?
-	    // We just send the warrning message and switch to idle
-	    //kprintf("Warrning: no processes left to run, maybe your init just died, please reboot device\r\n");
-	    push_prc(idle);
-	    return stack;
+	        // We just send the warrning message and switch to idle
+	        //kprintf("Warrning: no processes left to run, maybe your init just died, please reboot device\r\n");
+	        push_prc(idle);
+	        return stack;
         }
     }
     if (nextTask->state == STATUS_CREATING) {
 	    while(nextTask) {
 		    nextTask = pop_prc();
 		    if (nextTask->state == STATUS_RUNNING) break;
-	}
+	    }
     }
     nextTask = (nextTask && nextTask->state > 3) ? idle : nextTask;
     if (!nextTask) {
         nextTask = idle;
     }
+    nextTask->quota = 0;
     if (!nextTask->started) {
         nextTask->started = true;
     }
@@ -92,6 +93,7 @@ void *thread_schedule(void *stack) {
     arch_fpu_save(runningTask->fpu_state);
     arch_fpu_restore(nextTask->fpu_state);
     arch_mmu_switch(nextTask->aspace);
+    nextTask->switches++;
     arch_switchContext(nextTask);
     return stack;
 }
@@ -119,9 +121,6 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     enqueue(task_list,th);
     push_prc(th);
     //kprintf("PID of new process: %d\r\n",th->pid);
-    if (runningTask != NULL) {
-	    runningTask->quota = PROCESS_QUOTA; // New task must always starts after second timer interrupt
-	}
     return th;
 }
 // Clock implementation
@@ -151,8 +150,13 @@ int thread_getCurrent() {
     return (runningTask == NULL ? 0 : runningTask->pid);
 }
 process_t *thread_getThread(int pid) {
-    //DEBUG("G: %d\r\n",pid);
+    //kprintf("G: %d\r\n",pid);
+    if (pid < 0 || pid > freePid) return NULL;
     for (struct queue_node *n = task_list->head; n; n = n->next) {
+        if (!n || n == NULL || n->value == 0) {
+            kprintf("Corrupted process list!!\n");
+            PANIC("Process list corruption detected\n");
+        }
         process_t *p = (process_t *)n->value;
         if (p->pid == pid) {
             return p;
@@ -182,9 +186,26 @@ void thread_killThread(process_t *prc,int code) {
     arch_destroyArchStack(prc->arch_info);
     arch_mmu_switch(idle->aspace);
     if (prc->aspace != idle->aspace && prc->type != TYPE_THREAD) {
-        // Destroy address space
-        arch_mmu_destroyAspace(prc->aspace);
+        // Check if either the parent or all children have died
+        bool allChildrenDied = true;
+        process_t *child = prc->child;
+        while (child != NULL) {
+            if (!child->died) {
+                allChildrenDied = false;
+                break;
+            }
+            child = child->child;
     }
+
+    if (prc->parent->died && allChildrenDied) {
+        // Destroy address space
+        arch_mmu_destroyAspace(prc->aspace, true); // Destroy all memory
+    } else {
+        // Only destroy writable pages
+        arch_mmu_destroyAspace(prc->aspace,false);
+    }
+}
+
     kfree(prc->name);
     // Close all file descriptors
     for (int i = 0; i < prc->next_fd; i++) {
@@ -204,13 +225,15 @@ void thread_killThread(process_t *prc,int code) {
     process_t *parent = prc->parent;
     if (parent->died) {
 	    // Parent is died, we maybe thread or something else?
-	    return;
+	    arch_sti();
+        arch_reschedule();
     }
     if (parent->state == STATUS_WAITPID) {
         parent->state = STATUS_RUNNING;
         push_prc(parent);
     }
     runningTask->quota = PROCESS_QUOTA;
+    DEBUG("Died task %s switches by scheduler: %d\n",prc->name,prc->switches);
     arch_sti();
     arch_reschedule();
 }
@@ -262,4 +285,19 @@ process_t *pop_prc() {
 	}
 	return NULL; // No process
 }
-
+process_t *thread_cloneThread(process_t *parent) {
+	return NULL; // TODO
+}
+void thread_recreateStack(process_t *prc,int entryPoint,int isUser) {
+    // caller by elf_load_file to replace caller stack with loadable new
+    // Destroy original stack and arch information
+    if (prc == NULL || entryPoint == NULL) return;
+    void *new_stack = arch_prepareContext(entryPoint,isUser);
+    void *arch_info = arch_preapreArchStack(isUser);
+    arch_destroyContext(prc->stack);
+    arch_destroyArchStack(prc->arch_info);
+    // Recreate a new one
+    prc->stack = new_stack;
+    prc->arch_info = arch_info;
+    runningTask = NULL;
+}

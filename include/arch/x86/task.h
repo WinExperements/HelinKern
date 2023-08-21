@@ -8,5 +8,8 @@ typedef struct x86_task {
     int kesp_start;
     // User mode
     int argc,argv;
+    int forkESP;
+    int userESP_top;
 } x86_task_t;
+int read_eip();
 #endif

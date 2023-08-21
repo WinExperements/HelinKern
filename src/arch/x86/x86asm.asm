@@ -28,9 +28,9 @@ extern isrErrCode
   global isr%1
   isr%1:
     cli                         ; Disable interrupts firstly. 
-    push byte 0
-    push byte %1
-    jmp isr_common_stub         ; Go to our common handler code.
+    push dword 0
+    push dword %1
+    jmp irq_common_stub         ; Go to our common handler code.
 %endmacro
 
 ; This macro creates a stub for an ISR which passes it's own
@@ -39,9 +39,8 @@ extern isrErrCode
   global isr%1
   isr%1:
     cli                         ; Disable interrupts. 
-    push byte %0
-    push byte %1
-    jmp isr_common_stub
+    push dword %1
+    jmp irq_common_stub
 %endmacro
 
 ISR_NOERRCODE 0
@@ -126,8 +125,8 @@ extern irqNum
 %macro IRQ 2
   [GLOBAL irq%1]  ; Use the First Parameter
   irq%1:
-    push byte 0
-    push byte %2
+    push dword 0
+    push dword %2
     jmp irq_common_stub
 %endmacro
 
@@ -248,6 +247,8 @@ x86_jumpToUser:
     ; code segment selector, rpl = 3
     push 0x1b
     push eax
+    mov eax,0
+    mov ebx,0
     sti
     iretd
 
@@ -266,4 +267,43 @@ arch_fpu_restore:
     fldcw [eax]             ; Restore FPU control word from memory
     frstor [eax+2]          ; Restore FPU status word and FPU state from memory
     popf                    ; Restore flags register
+    ret
+
+
+
+[global read_eip]
+read_eip:
+	pop eax
+	jmp eax
+
+[GLOBAL copy_page_physical]
+copy_page_physical:
+    push ebx              ; According to __cdecl, we must preserve the contents of EBX.
+    pushf                 ; push EFLAGS, so we can pop it and reenable interrupts
+                          ; later, if they were enabled anyway.
+    cli                   ; Disable interrupts, so we aren't interrupted.
+                          ; Load these in BEFORE we disable paging!
+    mov ebx, [esp+12]     ; Source address
+    mov ecx, [esp+16]     ; Destination address
+  
+    mov edx, cr0          ; Get the control register...
+    and edx, 0x7fffffff   ; and...
+    mov cr0, edx          ; Disable paging.
+  
+    mov edx, 1024         ; 1024*4bytes = 4096 bytes
+  
+.loop:
+    mov eax, [ebx]        ; Get the word at the source address
+    mov [ecx], eax        ; Store it at the dest address
+    add ebx, 4            ; Source address += sizeof(word)
+    add ecx, 4            ; Dest address += sizeof(word)
+    dec edx               ; One less word to do
+    jnz .loop             
+  
+    mov edx, cr0          ; Get the control register again
+    or  edx, 0x80000000   ; and...
+    mov cr0, edx          ; Enable paging.
+  
+    popf                  ; Pop EFLAGS back.
+    pop ebx               ; Get the original value of EBX back.
     ret

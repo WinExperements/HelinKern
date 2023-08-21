@@ -38,6 +38,7 @@ typedef struct process {
     // User information
     int uid,gid;
     int priority;
+    int switches;
 } process_t;
 void thread_init();
 process_t *thread_create(char *name,int entryPoint,bool isUser);
@@ -54,4 +55,6 @@ void thread_waitPid(process_t *prc);
 int thread_getNextPID();
 void thread_changeName(process_t *prc,char *n);
 int thread_openFor(process_t *prc,vfs_node_t *node);
+process_t *thread_cloneThread(process_t *parent);
+void thread_recreateStack(process_t *prc,int entryPoint,int isUser);
 #endif

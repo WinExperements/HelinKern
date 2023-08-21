@@ -141,7 +141,7 @@ ssize_t unix_send(struct _socket* socket, int sockfd, const void *buf, size_t le
     arch_sti();
     // Just enqueue the message
     UnixSocketData *data = (UnixSocketData *)socket->conn->private_data;
-    if (!data || !data->data) return 0;
+    if (!data || !data->data || !buf) return len;
     while(1) {
 	arch_cli();
 	uint32_t free = queueSize_get_free(data->data);

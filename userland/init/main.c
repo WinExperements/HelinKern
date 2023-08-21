@@ -14,6 +14,10 @@ char path[128];
 int pid,ppid;
 char buff[100];
 
+int fork() {
+	return helin_syscall(49,0,0,0,0,0);
+}
+
 int main(int argcf,char **argvf) {
     printf("init starting up...\r\n");
     FILE *init_script = fopen("/initrd/init.sh","r");
@@ -196,20 +200,38 @@ bool execute(char *command,char **argv,int argc) {
 	        parallel = true;
             argc--;
         }
-        new_argv = malloc(100);
-        for (int i = 0; i < argc; i++) {
+	int newArgvSize = sizeof(char *)*argc;
+        new_argv = malloc(newArgvSize);
+	memset(new_argv,0,newArgvSize);
+        for (int i = 0; i < new_argc; i++) {
+	    //printf("%u %s\n",i,new_argv[i]);
             new_argv[i] = argv[i];
         }
 	//printf("u %u\n",new_argc);
     }
-    sprintf(buff,"%s/%s",run_path,command);
-    if ((_pid = execv(buff,argc,new_argv)) > 0) {
+    // if path is absolute doesn't call sprinf
+    if (command[0] != '/') {
+    	sprintf(buff,"%s/%s",run_path,command);
+    } else {
+	    strcpy(buff,command);
+    }
+    // fork then execute
+    _pid = fork();
+    if (_pid == 0) {
+	    execv(buff,new_argc,new_argv);
+	    // error :(
+	    exit(1);
+    }
+    if (_pid != 0) {
         if (!parallel) {
             waitpid(_pid,NULL,0);
             if (new_argv)free(new_argv);
+        } else {
+            printf("[%u]\r\n",_pid);
         }
         return true;
     } else {
+	    printf("PID: %u\n",_pid);
         if (new_argv)free(new_argv);
         return false;
     }

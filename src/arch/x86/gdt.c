@@ -2,14 +2,17 @@
 #include <arch/x86/idt.h>
 #include <arch/x86/isr.h>
 #include <arch/x86/io.h>
+#include <arch/x86/mmu.h> // COW fork
 #include<output.h>
 #include<typedefs.h>
 #include <kernel.h>
 #include <arch.h>
+#include <arch/mmu.h>
 gdt_entry_t gdt_entries[6];
 gdt_ptr_t   gdt_ptr;
 tss_entry_t tss_entry;
 extern void *x86_irq_handler(registers_t *regs);
+extern process_t *runningTask;
 void gdt_init()
 {
   gdt_ptr.limit = (sizeof(gdt_entry_t) * 6) - 1;
@@ -158,6 +161,47 @@ void idt_set_gate(uint8_t num,uint32_t base,uint16_t sel,uint8_t flags) {
   // It sets the interrupt gate's privilege level to 3.
   idt_entries[num].flags   = flags | 0x60;
 }
+static void dump_registers(const registers_t *regs) {
+    kprintf("Registers:\n");
+    kprintf("DS: 0x%x\n", regs->ds);
+    kprintf("EDI: 0x%x\n", regs->edi);
+    kprintf("ESI: 0x%x\n", regs->esi);
+    kprintf("EBP: 0x%x\n", regs->ebp);
+    kprintf("EBX: 0x%x\n", regs->ebx);
+    kprintf("EDX: 0x%x\n", regs->edx);
+    kprintf("ECX: 0x%x\n", regs->ecx);
+    kprintf("EAX: 0x%x\n", regs->eax);
+    kprintf("INT_NO: 0x%x\n", regs->int_no);
+    kprintf("ERROR_CODE: 0x%x\n", regs->error_code);
+    kprintf("EIP: 0x%x\n", regs->eip);
+    kprintf("CS: 0x%x\n", regs->cs);
+    kprintf("EFLAGS: 0x%x\n", regs->eflags);
+    kprintf("USERESP: 0x%x\n", regs->useresp);
+    kprintf("SS: 0x%x\n", regs->ss);
+}
+static bool handle_COW(int addr,int present) {
+    // Handle COW(Copy-On-Write) fork
+    if (present) {
+	     //kprintf("Page present, maybe COW, trying to copy and remap\n");
+             // Get faulting process
+            addr = addr & ~0xfff; // align
+            process_t *faulter = thread_getThread(thread_getCurrent());
+            if (faulter->parent == NULL) return false;
+            aspace_t *addrSpace = arch_mmu_getAspace();
+		     int phys = arch_mmu_getPhysical(addr);
+             //kprintf("Physical address of copy: 0x%x, address virtual: 0x%x, addr space: 0x%x\n",phys,addr,addrSpace);
+		     if (phys == 0) {
+			     //kprintf("Not COW reson, continuing default behaivor\n");
+                	     return false;
+			    }
+		     	arch_cli(); // for any case
+		     	int phys_of_copy = alloc_getPage();
+		     	copy_page_physical(phys,phys_of_copy);
+		     	arch_mmu_mapPage(NULL,addr,phys_of_copy,PG_PRESENT | PG_WRITE | PG_USER | PG_OWNED);
+             	return true;
+		}
+    return false;
+}
 void *x86_irq_handler(registers_t *regs) {
     // Tell the controller that the interrupt ended
     outb(PIC_SLAVE_COMMAND,0x20);
@@ -166,17 +210,17 @@ void *x86_irq_handler(registers_t *regs) {
     if (int_no < IRQ0) {
         arch_cli();
         int addr = 0;
-	int cr0 = 0;
 	asm volatile("movl %%cr2, %0" : "=r"(addr));
-	asm volatile("mov %%cr0, %0" : "=r"(cr0));
         if (int_no == 14) {
             // get faulting address
+             int rw = regs->error_code & 0x2;
              int present = regs->error_code & 0x1;
-            int rw = regs->error_code & 0x2;
-            kprintf("Page fault!!! When trying to %s %x - IP:%x\n", rw ? "write to" : "read from", addr, regs->eip);
+            if (rw && handle_COW(addr,present)) {
+                return regs;
+            }
+            kprintf("Page fault!!! When trying to %s %x - IP:0x%x\n", rw ? "write to" : "read from", addr, regs->eip);
             kprintf("The page was %s\n", present ? "present" : "not present");
         }
-	kprintf("CR0: 0x%x\n",cr0);
         if (regs->eflags != 518) {
             kprintf("%s in %s\r\n",exception_names[int_no],thread_getThread(thread_getCurrent())->name);
             thread_killThread(thread_getThread(thread_getCurrent()),18198);
@@ -188,6 +232,7 @@ void *x86_irq_handler(registers_t *regs) {
     }
     if (int_no == IRQ0) {
       // Timer interrupt redirection. See README.
+      // Save current process stack
       return clock_handler(regs);
     }
     return interrupt_handler(int_no,regs);

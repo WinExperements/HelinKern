@@ -7,4 +7,5 @@ insmod /initrd/ext2.mod
 #nano-X &
 #demo-hello &
 #demo-grabkey &
+#lua
 login

@@ -62,7 +62,8 @@ static int sys_connect(int sockfd,const struct sockaddr *addr,int len);
 static int sys_send(int sockfd,const void *buff,int len,int flags);
 static int sys_recv(int sockfd,void *buff,int len,int flags);
 static int sys_ready(int fd); // for select
-int syscall_table[49] = {
+static int sys_fork(); // yeah fork like in all UNIXes
+int syscall_table[50] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -112,8 +113,9 @@ int syscall_table[49] = {
     (int)sys_send,
     (int)sys_recv,
     (int)sys_ready,
+    (int)sys_fork,
 };
-int syscall_num = 49;
+int syscall_num = 50;
 static void sys_print(char *msg) {
     kprintf(msg);
 }
@@ -123,7 +125,7 @@ void syscall_init() {
 }
 int syscall_get(int n) {
 	if (n > syscall_num) return 0;
-	DEBUG("Get syscall %d from %s\r\n",n,thread_getThread(thread_getCurrent())->name);
+	//DEBUG("Get syscall %d from %s\r\n",n,thread_getThread(thread_getCurrent())->name);
 	return syscall_table[n];
 }
 static void sys_exit(int exitCode) {
@@ -204,9 +206,13 @@ static int sys_write(int _fd,int offset,int size,void *buff) {
 static void *sys_alloc(int size) {
     //process_t *prc = thread_getThread(thread_getCurrent());
     //kprintf("Process %s is trying to allocate space using kernel heap! FIX THIS SHIT\r\n",prc->name);
-    return kmalloc(size); // don't use this!
+    // Redirect to sys_sbrk
+    return kmalloc(size);
+    //return sys_sbrk(size); // redirect
 }
 static void sys_free(void *ptr) {
+    //int phys = arch_mmu_getPhysical((int)ptr);
+    //alloc_freePage(phys);
     kfree(ptr);
 }
 static int sys_exec(char *path,int argc,char **argv) {
@@ -219,20 +225,24 @@ static int sys_exec(char *path,int argc,char **argv) {
         kfree(buff);
         return -1;
     }
+    process_t *caller = thread_getThread(thread_getCurrent());
+    if (caller->pid == 0) caller = NULL;
     arch_cli();
     clock_setShedulerEnabled(false);
     int len = file->size;
-    aspace_t *sp = arch_mmu_getAspace();
+    aspace_t *sp = arch_mmu_newAspace();
+    aspace_t *original = (caller != NULL ? caller->aspace : NULL);
     arch_mmu_switch(arch_mmu_getKernelSpace());
     void *file_buff = kmalloc(len+1);
     vfs_read(file,0,len,file_buff);
-    elf_load_file(file_buff);
-    process_t *prc = thread_getThread(thread_getNextPID()-1);
+    if (caller != NULL )caller->aspace = sp;
+    elf_load_file(file_buff,caller);
+    process_t *prc = (caller != NULL ? caller : thread_getThread(thread_getNextPID()-1));
     // Change name to actual file name
     thread_changeName(prc,file->name);
     kfree(file_buff);
     kfree(buff);
-    arch_mmu_switch(sp);
+    if (caller != NULL )arch_mmu_switch(original);
     vfs_close(file);
     char **new_argv = NULL;
     if (argc == 0 || argv == 0) {
@@ -248,9 +258,10 @@ static int sys_exec(char *path,int argc,char **argv) {
         }
     }
     arch_putArgs(prc,argc,new_argv);
+    if (caller != NULL )arch_mmu_destroyAspace(original,false);
     DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize());
     clock_setShedulerEnabled(true);
-    arch_sti();
+    arch_reschedule();
     return prc->pid;
 }
 static void sys_reboot(int reason) {
@@ -355,10 +366,11 @@ static void sys_sysinfo() {
 	kprintf("HelinKern System Info report\r\n");
 	kprintf("Used kernel heap: %dKB\r\n",alloc_getUsedSize()/1024);
 	kprintf("Running tasks: %d\r\n",thread_getNextPID());
+	kprintf("Used physical memory: %dMB of %d MB available\n",alloc_getUsedPhysMem()/1024/1024,alloc_getAllMemory()/1024/1024);
 	arch_sysinfo();
     for (int i = 0; i < thread_getNextPID(); i++) {
         process_t *prc = thread_getThread(i);
-        if (!prc) continue;
+        if (!prc || prc->pid == 0) continue;
         kprintf("%s, %d\r\n",prc->name,prc->pid);
     }
 }
@@ -612,4 +624,40 @@ static int sys_ready(int fd) {
 		}
 	}
 	return (vfs_isReady(ft->node) ? 3 : 2);
+}
+/*
+ * Non Copy-On-Write implementation of fork system call, currently
+ *
+ * This sytem call is used as a part of fork-exec model on UNIX systems
+ *
+ * Return value is child PID. Any platform must clear the return value registers when switching to user mode like in src/arch/x86/x86asm.asm in x86_jumpToUser
+*/
+static int sys_fork() {
+	//i Firstly we need to clone parents process_t structure
+	process_t *parent = thread_getThread(thread_getCurrent());
+	// Clone!
+	int ret = arch_syscall_getCallerRet();
+	process_t *child =  thread_create(parent->name,arch_syscall_getCallerRet(),true);
+	child->state = STATUS_CREATING;
+	aspace_t *space = arch_mmu_newAspace();
+	arch_mmu_duplicate(arch_mmu_getAspace(),space);
+	// Arch specific code for fork
+    arch_forkProcess(parent,child);
+	child->aspace = space;
+	//arch_cloneStack(parent,child);
+	// Clone the FD's
+	for (int i = 0; i < parent->next_fd; i++) {
+		file_descriptor_t *desc = parent->fds[i];
+		if (desc != NULL && desc->node != NULL) {
+			thread_openFor(child,desc->node);
+		}
+	}
+	// sys_sbrk
+	child->brk_begin = parent->brk_begin;
+ 	child->brk_end = parent->brk_end;
+    	child->brk_next_unallocated_page_begin = parent->brk_next_unallocated_page_begin;
+	child->parent = parent;
+	parent->child = child;
+	child->state = STATUS_RUNNING; // yeah
+	return child->pid;
 }

@@ -37,4 +37,7 @@ void arch_trace();
 void arch_preapreProcess(process_t *prc);
 void arch_fpu_save(void *to);
 void arch_fpu_restore(void *from);
+/* Actually get syscall caller return address */
+int arch_syscall_getCallerRet();
+void arch_forkProcess(process_t *parent,process_t *child);
 #endif

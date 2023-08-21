@@ -59,6 +59,11 @@ uint32_t queueSize_enqueue(queueSize* fifo_buffer, uint8_t* data, uint32_t size)
         if (size > queueSize_get_free(fifo_buffer)) {
             return -1; // Not enough space
         }
+	// Security check!
+	if (!fifo_buffer->buffer) {
+		return -1;
+	}
+	if (arch_mmu_getPhysical(fifo_buffer->buffer) == NULL) return size;
         for (uint32_t i = 0; i < size; i++) {
             fifo_buffer->buffer[fifo_buffer->rear] = data[i];
             fifo_buffer->rear = (fifo_buffer->rear + 1) % fifo_buffer->capacity;

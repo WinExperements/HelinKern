@@ -63,7 +63,7 @@ uint32_t elf_get_end_in_memory(void *elf_data) {
 
     return result;
 }
-bool elf_load_file(void *addr) {
+bool elf_load_file(void *addr,process_t *caller) {
     int pe;
     Elf32_Ehdr *header = (Elf32_Ehdr *)addr;
     if (!elf_check_file(header)) {
@@ -88,18 +88,22 @@ bool elf_load_file(void *addr) {
     aspace_t *space = arch_mmu_getAspace();
     arch_mmu_switch(arch_mmu_getKernelSpace());
     // create process
-    process_t *prc = thread_create("ELF",header->e_entry,true);
+    process_t *prc = (caller != NULL ? caller : thread_create("ELF",header->e_entry,true));
     if (!prc) {
         kprintf("Failed to create process!\r\n");
         return false;
+    }
+    if (caller != NULL) {
+        //arch_mmu_switch()
+        thread_recreateStack(prc,header->e_entry,true);
     }
     prc->state = STATUS_CREATING;
     size_t elf_base = (size_t)addr;
     uint32_t memEnd = elf_get_end_in_memory(addr);
     // Switch to the new process memory map
-    prc->aspace = arch_mmu_newAspace();
+    if (caller == NULL) prc->aspace = arch_mmu_newAspace();
     arch_mmu_switch(prc->aspace);
-    alloc_initProcess(prc,memEnd - USER_OFFSET);
+	alloc_initProcess(prc,memEnd - USER_OFFSET);
     for (pe = 0; pe < header->e_phnum; pe++) {
         Elf32_Phdr *p_entry = (void *)(header->e_phoff + elf_base + pe * header->e_phentsize);
         uint32_t v_begin = p_entry->p_vaddr;
@@ -124,9 +128,9 @@ bool elf_load_file(void *addr) {
     if (!keyboard) keyboard = vfs_find("/dev/tty");
     vfs_node_t *ke = keyboard;
     if (ke) {
-	thread_openFor(prc,ke);
-	thread_openFor(prc,ke);
-	thread_openFor(prc,ke); // yeah 3 times
+	    thread_openFor(prc,ke);
+	    thread_openFor(prc,ke);
+	    thread_openFor(prc,ke); // yeah 3 times
     }
     prc->state = STATUS_RUNNING;
     return true;
