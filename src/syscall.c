@@ -119,6 +119,9 @@ int syscall_num = 50;
 static void sys_print(char *msg) {
     kprintf(msg);
 }
+static bool isAccessable(void *ptr) {
+    return arch_mmu_getPhysical((int)ptr) != 0;
+}
 void syscall_init() {
     // redirect to arch specific init code
     arch_syscall_init();
@@ -217,6 +220,7 @@ static void sys_free(void *ptr) {
 }
 static int sys_exec(char *path,int argc,char **argv) {
     // Yeah it's can be stupid, but the buff kmalloc is overwriting our argv array
+    if (!path || !isAccessable(path)) return -1;
     int m = strlen(path);
     char *buff = kmalloc(m+1);
     strcpy(buff,path);
@@ -626,11 +630,11 @@ static int sys_ready(int fd) {
 	return (vfs_isReady(ft->node) ? 3 : 2);
 }
 /*
- * Non Copy-On-Write implementation of fork system call, currently
+ * Copy-On-Write implementation of fork system call
  *
  * This sytem call is used as a part of fork-exec model on UNIX systems
  *
- * Return value is child PID. Any platform must clear the return value registers when switching to user mode like in src/arch/x86/x86asm.asm in x86_jumpToUser
+ * Return value is child PID.
 */
 static int sys_fork() {
 	//i Firstly we need to clone parents process_t structure

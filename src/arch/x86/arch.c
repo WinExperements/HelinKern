@@ -50,6 +50,7 @@ static char cpuName[48];
 static void setup_fpu();
 static registers_t *syscall_regs; // required by arch_syscall_getCallerRet
 extern bool showByte;
+extern void dump_registers(const registers_t *);
 void arch_entry_point(void *arg) {
 	// arg is our multiboot structure description
 	// Basically, we need just to extract the arguments from the sctructure then pass it to the global entry point
@@ -427,8 +428,11 @@ static void thread_main(int entryPoint,int esp,bool isUser) {
     if (task->forkESP != 0) {
 	    // We after fork, jump to user mode
 	    //kprintf("After fork! EIP: 0x%x\n",entryPoint);
-	    x86_jumpToUser(entryPoint,task->forkESP);
+	    //x86_jumpToUser(entryPoint,task->forkESP);
+        kfree((void *)task->forkESP);
+        x86_switch((registers_t *)task->forkESP);
 	    PANIC("Failed to switch to user mode!"); // never happening
+
     }
     // На данний момент часу ми працюємо в кільці ядра!
     //int stackSize = 50*4096;
@@ -524,8 +528,13 @@ void arch_forkProcess(process_t *parent,process_t *child) {
 	 * Also we need to copy parent's FPU state for our child, so it is able to continue using FPU commands
 	*/
         x86_task_t *t = (x86_task_t *)child->arch_info;
-        t->forkESP = syscall_regs->useresp;
+        //t->forkESP = syscall_regs->useresp;
+     registers_t *regs = (registers_t *)kmalloc(sizeof(registers_t));
+     memcpy(regs,syscall_regs,sizeof(registers_t));
+    regs->eax = 0; // we a child so clean EAX!
+    t->forkESP = (int)regs;
 	//kprintf("FORK ESP: 0x%x\n",t->forkESP);
         // Copy FPU state
-	    memcpy(child->fpu_state,parent->fpu_state,512);
+	memcpy(child->fpu_state,parent->fpu_state,512);
+	//dump_registers(syscall_regs);
 }

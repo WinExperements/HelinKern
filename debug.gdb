@@ -12,9 +12,9 @@ target remote localhost:1234
 #b sys_fork
 #b thread_main
 #b arch_cloneStack
-#add-symbol-file /home/sergij/newkernel/userland/initrd/sh 0x40000000
-#b execute
-#b sys_waitpid
+add-symbol-file /home/sergij/newkernel/userland/initrd/init 0x40000000
 #b sys_exec
-b *0x10543b
+#b dash_execute
+b x86_switch
 c
+

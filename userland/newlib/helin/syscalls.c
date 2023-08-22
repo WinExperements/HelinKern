@@ -63,7 +63,7 @@ int execve(char *name, char **argv, char **env) {
     return 0;
 }
 int fork() {
-    return -1;
+    return helin_syscall(49,0,0,0,0,0);
 }
 int fstat(int file, struct stat *st) {
     return -1;
@@ -474,8 +474,18 @@ int     accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 }
 
 int select(int nfds, fd_set *readfds, fd_set *writefds,
-                  fd_set *exceptfds, struct timeval *timeout) {
-	return 0;
+                  fd_set *exceptfds, struct timeval *timeout) 
+{
+	for (int i = 0; i < FD_SETSIZE; i++) {
+		if (FD_ISSET(i,readfds)) {
+			// check if it socket and if it is ready to accept
+			int type = helin_syscall(48,i,0,0,0,0);
+			if (type == 2) {
+				FD_CLR(i,readfds);
+			}
+		}
+	}
+	return nfds;
 }
 int nanosleep(const struct timespec *req, struct timespec *rem) {
 	return 0;
@@ -493,5 +503,12 @@ int recv(int sockfd,void *buf,int len,int flags) {
     return helin_syscall(47,sockfd,buf,len,flags,0);
 }
 pid_t vfork() {
-	return -1;
+	/*
+	 * By documentation we need to do fork then if fork return isn't zero call waitpid, so we do it
+	*/
+	int pid = fork();
+	if (pid != 0) {
+		waitpid(pid,NULL,0);
+	}
+	return pid;
 }

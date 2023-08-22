@@ -265,10 +265,14 @@ bool arch_mmu_duplicate(aspace_t *parent, aspace_t *child) {
                                 if ((pt[pt_index] & PG_PRESENT) == PG_PRESENT)
                                 {                                                 
                                         if ((pt[pt_index] & PG_OWNED) == PG_OWNED)
-                                        {                                                      
+                                        {      
+
+
+
                                                 uint32_t physicalFrame = pt[pt_index] & ~0xFFF;
 						                        uint32_t virtual = GET_VIRTUAL_ADDRESS(pd_index,pt_index,0);
 						                        //uint32_t child_phys = alloc_getPage();
+									            //copy_page_physical(physicalFrame,child_phys);
 						                        //kprintf("%s: copy address 0x%x, 0x%x\n",__func__,virtual,physicalFrame);
 						                        /* Copy-On-Write! */
 						                        CHANGE_PD(child);

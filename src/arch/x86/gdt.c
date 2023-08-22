@@ -161,7 +161,7 @@ void idt_set_gate(uint8_t num,uint32_t base,uint16_t sel,uint8_t flags) {
   // It sets the interrupt gate's privilege level to 3.
   idt_entries[num].flags   = flags | 0x60;
 }
-static void dump_registers(const registers_t *regs) {
+void dump_registers(const registers_t *regs) {
     kprintf("Registers:\n");
     kprintf("DS: 0x%x\n", regs->ds);
     kprintf("EDI: 0x%x\n", regs->edi);
@@ -187,18 +187,28 @@ static bool handle_COW(int addr,int present) {
             addr = addr & ~0xfff; // align
             process_t *faulter = thread_getThread(thread_getCurrent());
             if (faulter->parent == NULL) return false;
-            aspace_t *addrSpace = arch_mmu_getAspace();
+            	     aspace_t *addrSpace = arch_mmu_getAspace();
 		     int phys = arch_mmu_getPhysical(addr);
-             //kprintf("Physical address of copy: 0x%x, address virtual: 0x%x, addr space: 0x%x\n",phys,addr,addrSpace);
-		     if (phys == 0) {
+		     aspace_t *parentSP = faulter->parent->aspace;
+		     /*
+		      * If parent doesn't have the same address of page as we have, that means that parent is already have remaped page, that happening because our scheduler starts first parent then child
+		     */
+             		//kprintf("Physical address of copy: 0x%x, address virtual: 0x%x, addr space: 0x%x\n",phys,addr,addrSpace);
+		     	if (phys == 0) {
 			     //kprintf("Not COW reson, continuing default behaivor\n");
                 	     return false;
-			    }
+			}
+			/*CHANGE_PD(parentSP);
+			int parentPhys = 0;
+			if (phys != (parentPhys = arch_mmu_getPhysical(addr))) {
+				alloc_freePage(parentPhys);
+			}
+			CHANGE_PD(addrSpace);*/
 		     	arch_cli(); // for any case
 		     	int phys_of_copy = alloc_getPage();
 		     	copy_page_physical(phys,phys_of_copy);
 		     	arch_mmu_mapPage(NULL,addr,phys_of_copy,PG_PRESENT | PG_WRITE | PG_USER | PG_OWNED);
-             	return true;
+             		return true;
 		}
     return false;
 }
@@ -221,12 +231,12 @@ void *x86_irq_handler(registers_t *regs) {
             kprintf("Page fault!!! When trying to %s %x - IP:0x%x\n", rw ? "write to" : "read from", addr, regs->eip);
             kprintf("The page was %s\n", present ? "present" : "not present");
         }
-        if (regs->eflags != 518) {
+        if (regs->cs == 0x1b) {
             kprintf("%s in %s\r\n",exception_names[int_no],thread_getThread(thread_getCurrent())->name);
             thread_killThread(thread_getThread(thread_getCurrent()),18198);
             arch_reschedule(); // never return?
          }
-        kprintf("Exception: %s, halt\r\n",exception_names[int_no]);
+        kprintf("Exception: %s, halt, CS: 0x%x\r\n",exception_names[int_no],regs->cs);
         // Halt
         while(1) {}
     }
