@@ -15,6 +15,16 @@ typedef struct _pthread_str {
 	void *arg;
 } pthread_str;
 
+typedef struct utsname {
+    char *sysname;    /* Operating system name (e.g., "Linux") */
+    char *nodename;   /* Name within communications network */
+    char *release;
+    char *version;
+    char *machine;
+};
+
+static char *system_hostname = NULL;
+
 static void sys_default() {}
 static void sys_exit(int exitCode);
 static void sys_kill(int pid,int code);
@@ -34,12 +44,12 @@ static int sys_opendir(char *path);
 static void sys_closedir(int fd);
 static void *sys_readdir(int fd,int p);
 static int sys_mount(char *dev,char *mount_point,char *fs);
-static void sys_waitpid(int pid);
+static int sys_waitpid(int pid);
 static int sys_getppid();
 static void sys_sysinfo();
 static int sys_getuid();
 static void sys_setuid(int uid);
-static void sys_seek(int fd,int type,int how);
+static int sys_seek(int fd,int type,int how);
 static int sys_tell(int fd);
 static void *sys_mmap(int _fd,int addr,int size,int offset,int flags);
 static int sys_insmod(char *path);
@@ -63,7 +73,15 @@ static int sys_send(int sockfd,const void *buff,int len,int flags);
 static int sys_recv(int sockfd,void *buff,int len,int flags);
 static int sys_ready(int fd); // for select
 static int sys_fork(); // yeah fork like in all UNIXes
-int syscall_table[50] = {
+static int sys_uname(struct utsname *name);
+static int sys_sethostname(char *name,int len);
+static int sys_gethostname(char *name,int len);
+static int sys_creat(char *path,int type);
+static int sys_sync(int fd);
+static int sys_munmap(void *ptr,int size);
+static int sys_umount(char *mountpoint);
+static int sys_access(int fd);
+int syscall_table[58] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -114,10 +132,22 @@ int syscall_table[50] = {
     (int)sys_recv,
     (int)sys_ready,
     (int)sys_fork,
+    (int)sys_uname,
+    (int)sys_sethostname,
+    (int)sys_gethostname,
+    (int)sys_creat,
+    (int)sys_munmap,
+    (int)sys_umount,
+    (int)sys_access,
 };
-int syscall_num = 50;
+int syscall_num = 58;
 static void sys_print(char *msg) {
+    /*
+    	New POSIX model compatability!
+    	Now the sys_print will redirect to sys_write!
+    */
     kprintf(msg);
+    //sys_write(1,0,sizeof(msg),msg);
 }
 static bool isAccessable(void *ptr) {
     return arch_mmu_getPhysical((int)ptr) != 0;
@@ -303,12 +333,12 @@ static void *sys_readdir(int fd,int p) {
     return vfs_readdir(_fd->node,p);
 }
 static int sys_mount(char *dev,char *mount_point,char *fs) {
+    //kprintf("%s: %s %s %s\n",__func__,dev,mount_point,fs);
     char *dev_copy = strdup(dev);
     char *mountptr = strdup(mount_point);
     char *f = strdup(fs);
     vfs_node_t *de = vfs_find(dev_copy);
     if (!de) {
-        kprintf("Failed to find %s\r\n",dev);
         kfree(dev_copy);
         kfree(mountptr);
         kfree(f);
@@ -316,7 +346,6 @@ static int sys_mount(char *dev,char *mount_point,char *fs) {
     }
     vfs_fs_t *fol = vfs_findFS(f);
     if (!fol) {
-        kprintf("Failed to find FS: %s\r\n",fs);
         kfree(dev_copy);
         kfree(mountptr);
         kfree(f);
@@ -325,6 +354,8 @@ static int sys_mount(char *dev,char *mount_point,char *fs) {
     aspace_t *aspace = arch_mmu_getAspace();
     arch_cli();
     arch_mmu_switch(arch_mmu_getKernelSpace());
+   // kprintf("DEBUG! %s: fol: %x, de: %x, mountptr: 0x%x\n",__func__,fol,de,mountptr);
+   // kprintf("Calling vfs_mount\n");
     if (!vfs_mount(fol,de,mountptr)) {
 	    arch_sti();
 	    kfree(dev_copy);
@@ -339,12 +370,12 @@ static int sys_mount(char *dev,char *mount_point,char *fs) {
     arch_mmu_switch(aspace);
     return 0;
 }
-static void sys_waitpid(int pid) {
+static int sys_waitpid(int pid) {
     // Most important syscall!
+    process_t *parent = thread_getThread(thread_getCurrent());
     if (pid > 0) {
     // Check if the given process has been spawned by the current caller
     struct process *child = thread_getThread(pid);
-    process_t *parent = thread_getThread(thread_getCurrent());
 
     DEBUG("sys_waitpid called from %s to wait for %s\r\n", parent->name, child->name);
 
@@ -357,7 +388,15 @@ static void sys_waitpid(int pid) {
             arch_reschedule();
         }
     }
+} else if (pid < 0) {
+	// wait for any child that has been spawned by the fucking process
+	thread_waitPid(parent);
+	while(parent->state == STATUS_WAITPID) {
+		arch_reschedule();
+	}
+	return parent->died_child;
 }
+	return 0;
 }
 static int sys_getppid() {
     process_t *prc = thread_getThread(thread_getCurrent());
@@ -388,14 +427,17 @@ static void sys_setuid(int uid) {
     if (!prc) return;
     prc->uid = uid;
 }
-static void sys_seek(int _fd,int type,int how) {
-	process_t *caller = thread_getThread(thread_getCurrent());
+static int sys_seek(int _fd,int type,int how) {
+    process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *fd = caller->fds[_fd];
-    if (type == 2) {
+    if (type == 0) {
         fd->offset = how;
-    } else if (type == 3) {
+    } else if (type == 2) {
         fd->offset = fd->node->size;
+    } else if (type == 1) {
+    	return fd->offset;
     }
+    return 0;
 }
 static int sys_tell(int _fd) {
     process_t *caller = thread_getThread(thread_getCurrent());
@@ -422,7 +464,7 @@ static int sys_insmod(char *path) {
     }
     kfree(copy);
     aspace_t *aspace = arch_mmu_getAspace();
-    //arch_cli();
+    arch_cli();
     clock_setShedulerEnabled(false);
     arch_mmu_switch(arch_mmu_getKernelSpace());
     // allocate space that need to be used
@@ -444,12 +486,14 @@ static int sys_insmod(char *path) {
     kprintf("Module %s load address(used for GDB): 0x%x\n",mod->name,mod->load_address);
     // call the module entry point
     if (mod->init) {
+	kprintf("sys_insmod: calling entry point of module\n");
         mod->init(mod);
     }
     kfree(m);
     clock_setShedulerEnabled(true);
     arch_sti();
     arch_mmu_switch(aspace);
+    kprintf("syscall: exit from sys_insmod\n");
     return 0;
 }
 static void sys_rmmod(char *name) {
@@ -486,14 +530,18 @@ static int sys_dup(int oldfd,int newfd) {
 	file_descriptor_t *fd = prc->fds[oldfd];
 	if (!fd) return -1;
 	file_descriptor_t *copy = (file_descriptor_t *)kmalloc(sizeof(file_descriptor_t));
+	if (newfd > 0) {
+		// oldfd = newfd, copy the newfd file descriptor
+		file_descriptor_t *nefd = prc->fds[newfd];
+		// replace vfs node of oldfd to vfs node of newfd
+		fd->node = nefd->node;
+		return oldfd;
+	}
 	// We don't clear memory because we gonna copy it
 	memcpy(copy,fd,sizeof(file_descriptor_t));
 	// Incrmenet the next FD pointer
 	int fd_id = prc->next_fd;
 	prc->next_fd++;
-	if (newfd > 0) {
-		fd_id = newfd;
-	}
 	prc->fds[fd_id] = copy;
 	return fd_id;
 }
@@ -551,6 +599,7 @@ static int sys_truncate(int fd,int size) {
 	vfs_truncate(desc->node,size);
 	return 0;
 }
+
 static int sys_socket(int domain,int type,int protocol) {
 	Socket *s = kmalloc(sizeof(Socket));
 	memset(s,0,sizeof(Socket));
@@ -664,4 +713,71 @@ static int sys_fork() {
 	parent->child = child;
 	child->state = STATUS_RUNNING; // yeah
 	return child->pid;
+}
+
+static int sys_uname(struct utsname *name) {
+    if (name == NULL || !name) {
+        return -1;
+    }
+    process_t *caller = thread_getThread(thread_getCurrent());
+    aspace_t *a = arch_mmu_getAspace();
+    arch_mmu_switch(caller->aspace);
+    name->sysname = kmalloc(6);
+    strcpy(name->sysname,"Helin");
+    name->release = kmalloc(4);
+    strcpy(name->release,"0.2");
+    name->version = kmalloc(4);
+    strcpy(name->version,"0.1");
+    char *arch = arch_getName();
+    name->machine = kmalloc(sizeof(arch) + 1);
+    strcpy(name->machine,arch);
+    return 0;
+}
+static int sys_sethostname(char *name,int len) {
+	if (name == NULL || len == 0) return -1;
+	if (system_hostname != NULL) {
+		kfree(system_hostname);
+	}
+	system_hostname = strdup(name);
+	return 0;
+}
+static int sys_gethostname(char *name,int len) {
+	memcpy(name,system_hostname,len-1);
+	name[len] = 0;
+	return 0;
+}
+
+static int sys_creat(char *path,int type) {
+    // Used to create directory, yes i don't know why i named it as sys_creat
+    if (path == NULL ) return -1; // EINVL
+    vfs_node_t *in = NULL;
+    process_t *caller = thread_getThread(thread_getCurrent());
+    if (path[0] != '/') {
+        in = caller->workDir;
+    } else {
+        return -2; // not implemented :(
+    }
+    vfs_node_t *node = vfs_creat(in,path,VFS_DIRECTORY);
+    if (!node) {
+        return -3;
+    }
+    return 0;
+}
+
+static int sys_sync(int fd) {
+    return -1;
+}
+
+static int sys_munmap(void *ptr,int size) {
+    return -1;
+}
+static int sys_umount(char *mountpoint) {
+    return -1;
+}
+
+static int sys_access(int _fd) {
+	// Check if the process can access the file pointed by fd
+	process_t *prc = thread_getThread(thread_getCurrent());
+	file_descriptor_t *fd = prc->fds[_fd];
+	return 0;
 }

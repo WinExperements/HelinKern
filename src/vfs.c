@@ -74,15 +74,18 @@ bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
         return false;
     }
     if (!mountPoint || mountPoint[0] != '/') {
-        kprintf("%s: mount point are invalid",__func__);
+        kprintf("%s: mount point are invalid: %s!\n",__func__,mountPoint);
+        return false;
     }
     if (strcmp(mountPoint,"/")) {
 	if (!fs->mount) {
                 kprintf("%s: filesystem mount function are not defined\n",mountPoint);
                 return false;
         }
-        fs_root = kmalloc(sizeof(vfs_node_t));
-        memset(fs_root,0,sizeof(vfs_node_t));
+        if (fs_root == NULL) {            
+            fs_root = kmalloc(sizeof(vfs_node_t));
+            memset(fs_root,0,sizeof(vfs_node_t));
+        }
 	    bool root = fs->mount(dev,fs_root,NULL);
         if (!root) {
                 kprintf("%s: filesystem mount failed\n",mountPoint);

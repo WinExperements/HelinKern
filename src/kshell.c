@@ -14,6 +14,11 @@
 #include <lib/queue.h>
 #include <fs/cpio.h>
 #include <dev/socket.h>
+#ifdef X86
+#include <arch/x86/acpi.h>
+#endif
+#include <dev.h>
+#include <dev/fb.h>
 static vfs_node_t *keyboard;
 static void parseCommand(int argc,char *cmd[]);
 static bool exit = false;
@@ -21,12 +26,27 @@ static void start_module();
 static void load_m(void *);
 static void th_m();
 void kshell_main() {
+    kprintf("KShell V0.1\r\n");
+    kprintf("Please not that you are running in the kernel address space\r\n");
 	//output_changeToFB();
     arch_sti();
-	kprintf("KShell V0.1\r\n");
-    	kprintf("Please not that you are running in the kernel address space\r\n");
 	// open keyboard device
 	process_t *self = thread_getThread(thread_getCurrent());
+    // Update(30.01.2024): We need to mount the devfs
+    vfs_fs_t *devfs = vfs_findFS("devfs");
+    if (!devfs) {
+        kprintf("No devfs found! Devfs mount failed!\n");
+        return;
+    }
+    vfs_node_t *devM = vfs_find("/dev");
+    if (!devM) {
+        kprintf("No /dev found!\n");
+        return;
+    }
+    if (!vfs_mount(devfs,devM,"/dev")) {
+        kprintf("pre-init: failed to mount /dev\n");
+        return;
+    }
 	keyboard = vfs_find("/dev/keyboard");
 	if (!keyboard) {
 		kprintf("No keyboard found, exit\r\n");
@@ -36,6 +56,9 @@ void kshell_main() {
 	char *buff = kmalloc(100);
     int argc = 0;
     char **argv = kmalloc(100);
+    /*argv[0] = "loadm";
+    argv[1] = "/initrd/ahci.mod";*/
+    parseCommand(2,argv);
 	while(exit != true) {
         argc = 0;
 		kprintf("> ");
@@ -88,7 +111,8 @@ static void parseCommand(int argc,char *cmd[]) {
         symbols_print();
     } else if (strcmp(cmd[0],"loadm")) {
         if (argc > 1) {
-                /*vfs_node_t *f = vfs_find(cmd[1]);
+                char *a = strdup(cmd[1]);
+                vfs_node_t *f = vfs_find(a);
                 if (!f) {
                     kprintf("failed to load module %s: no file found\r\n",cmd[1]);
                     return;
@@ -96,11 +120,12 @@ static void parseCommand(int argc,char *cmd[]) {
                 int len = f->size;
                 void *addr = kmalloc(len+elf_get_module_bytes(f));
                 vfs_read(f,0,len,addr);
-                load_m(addr);
-                kfree(addr);*/
-                // check if our syscall is working
-                int (*insmod)(char *) = ((int(*)(char *))syscall_get(30));
-                insmod(cmd[1]);
+                module_t *mod = load_module(addr);
+                if (mod != NULL) {
+                    kprintf("kshell(internal kernel API), calling\n");
+                    mod->init(mod);
+                } 
+                kfree(addr);
       } else {
         load_m((void *)arch_getModuleAddress());
       }
@@ -119,6 +144,8 @@ static void parseCommand(int argc,char *cmd[]) {
                 return;
             }
             vfs_mount(fs,dev,cmd[3]);
+        } else {
+            kprintf("kshell: use mount <fs> <device> <mount ptr>\n");
         }
     } else if (strcmp(cmd[0],"poweroff")) {
         arch_poweroff();
@@ -155,51 +182,35 @@ static void parseCommand(int argc,char *cmd[]) {
         kprintf("Starting up UI\r\n");
         fb_putc('h');
     } else if (strcmp(cmd[0],"hdt")) {
-		vfs_node_t *file = vfs_find("/bin/init");
-		if (!file) {
-			kprintf("Failed to open ELF\r\n");
-			return;
-		}
-		vfs_node_t *disk = vfs_find("/dev/hdap0");
-		if (!disk) {
-			kprintf("No disk found(hdap0)\r\n");
-			return;
-		}
-        if (!strcmp(disk->name,"hdap0")) {
-            kprintf("Invalid node\r\n");
-            return;
-        }
-		char *data = kmalloc(file->size);
-		kprintf("Select action: write/exec: ");
-		char *b = kmalloc(6);
-		vfs_read(keyboard,0,6,b);
-		if (strcmp(b,"write")) {
-            vfs_read(file,0,file->size,data);
-			kprintf("Writing %d bytes to the first partition of disk %s\r\n",file->size,disk->name);
-			vfs_writeBlock(disk,0,file->size,data);
-		} else if (strcmp(b,"read")) {
-            if (!strcmp(disk->name,"hdap0")) {
-                kprintf("WTF?\r\n");
-                kfree(data);
-                kfree(b);
-                return;
-            }
-			vfs_readBlock(disk,0,file->size,data);
-			//elf_load_file(data);
-		}
-        kfree(b);
-		kfree(data);
+		void *a = kmalloc(512);
+        	memset(a,0,512);
+        	dev_t *dev = dev_find("hdap3");
+        	if (dev == NULL) {
+            		kprintf("Nope, hard drive not found, /dev/hdap3 doesn't exist\n");
+            		return;
+        	}
+        	vfs_node_t *nod = dev->devNode;
+        	kprintf("Reading up to 254 sectors as one command\n");
+            void *buff = kmalloc(512*254);
+            vfs_readBlock(nod,0,512*254,buff);
+            kprintf("Readed, check the HDD active led\n");
+            kfree(buff);
+        	//kprintf("%d sectors of hdd readed\n",secCount);
 	} else if (strcmp(cmd[0],"wr")) {
-        vfs_node_t *n = vfs_find("/dev/hdap0");
-        if (!n) return;
-        arch_cli();
-        char *data = "Hi!";
-        uint16_t *d = kmalloc(512);
-        strcpy((char *)d,data);
-        vfs_writeBlock(n,0,512,d);
-        kprintf("Writen 1 sector: %s, verifying\r\n",d);
-        kfree(d);
-        arch_sti();
+        	dev_t *dev = dev_find("hdap3");
+        	if (!dev) return;
+        	kprintf("Writing screenshot!\n");
+        	vfs_node_t *nod = dev->devNode;
+        	fbinfo_t *inf = kmalloc(sizeof(fbinfo_t));
+        	arch_getFBInfo(inf);
+        	int size = (inf->pitch * inf->width) - 4096;
+        	uint8_t *buf = (uint8_t *)0x01400000;
+        	for (int i = 0; i < size / 512; i++) {
+        		vfs_writeBlock(nod,i,512,buf);
+        		buf+=512;
+        	}
+        	kfree(inf);
+        	kprintf("Writen, w -> 0x%x, h -> 0x%x, pitch -> 0x%x\n",inf->width,inf->height,inf->pitch);
     } else if (strcmp(cmd[0],"r")) {
         char *b = kmalloc(512);
         vfs_node_t *n = vfs_find("/dev/hdap0");
@@ -266,6 +277,37 @@ static void parseCommand(int argc,char *cmd[]) {
 	    serv->destroy(serv);
 	    kfree(serv);
 	    kprintf("Currently, test finished\n");
+    #ifdef X86
+    } else if (strcmp(cmd[0],"findacp")) {
+        kprintf("Okay, finding ACPI\n");
+        void *ptr = acpiGetRSDPtr();
+        if (ptr != NULL) {
+            kprintf("AAAjr\n");
+        } else {
+            kprintf("ACPI didn't found on this system\n");
+        }
+	kprintf("Acer Aspire M1935 test\n");
+	unsigned int startAddressOfACPI = 0xda5db000;
+	unsigned int realACPIAddress = 0xda5be000;
+	kprintf("Counting steps to reach 0x%x\n",realACPIAddress);
+	int step = 0;
+	for (unsigned int a = startAddressOfACPI; a < 0xda5dffff; a+=4) {
+		if (a >= realACPIAddress) {
+			kprintf("Step is %d, finded address 0x%x\n",step,a);
+			break;
+		}
+		step++;
+	}
+	kprintf("All steps ended\n");
+	kprintf("0x%x, 0x%x\n",realACPIAddress,startAddressOfACPI+118784);
+    #endif
+    } else if (strcmp(cmd[0],"atapi")) {
+            arch_cli();
+            #ifdef X86
+            atapi_init();
+            #endif
+            kprintf("did i still here?\n");
+            arch_sti();
     } else {
         kprintf("Unknown commmand: %s\r\n",cmd[0]);
     }

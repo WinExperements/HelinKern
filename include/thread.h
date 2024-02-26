@@ -20,6 +20,7 @@ typedef struct process {
     void *aspace;
     int state;
     int wait_time;
+    int died_child;
     int type; // process or thread
     void *fpu_state;
     // Waitpid

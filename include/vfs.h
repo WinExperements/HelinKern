@@ -39,6 +39,7 @@ typedef struct vfs_fs {
     void *(*mmap)(struct vfs_node *node,int addr,int size,int offset,int flags);
     void (*rm)(struct vfs_node *node);
     bool (*isReady)(struct vfs_node *node);
+    bool (*umount)(struct vfs_node *node);
     struct vfs_fs *next;
 } vfs_fs_t;
 typedef struct file_descriptor {

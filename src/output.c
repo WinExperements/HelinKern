@@ -1,6 +1,7 @@
 // Global implementation
 #include <output.h>
 #include <stdarg.h>
+bool disableOutput = true; // can be changed from somewhere in kernel
 void output_writeInt(int u) {
     	if (u == 0) {
           output_write("0");
@@ -46,6 +47,7 @@ void output_printHex(int num) {
 	}
 }
 void kprintf(char *format,...) {
+	if (disableOutput) return;
     va_list arg;
 	va_start(arg,format);
 	while (*format != '\0') {

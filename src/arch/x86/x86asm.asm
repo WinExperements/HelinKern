@@ -205,8 +205,8 @@ syscall_irq:
 [GLOBAL scheduler_irq]
 extern process_schedule
 scheduler_irq:
-    push 0
-    push 32
+    push dword 0
+    push dword 32
     ; Check if runningTask isn't zero
     jmp irq_common_stub
 [global x86_switchContext]

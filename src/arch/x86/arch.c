@@ -51,15 +51,19 @@ static void setup_fpu();
 static registers_t *syscall_regs; // required by arch_syscall_getCallerRet
 extern bool showByte;
 extern void dump_registers(const registers_t *);
+extern bool disableOutput;
 void arch_entry_point(void *arg) {
 	// arg is our multiboot structure description
 	// Basically, we need just to extract the arguments from the sctructure then pass it to the global entry point
 	info = (multiboot_info_t *)arg;
     // Check if we booted from multiboot, otwise just reset the system
     if (!(info->flags >> 6 & 0x1)) {
+    	// Init serial, and print that we loaded by wrong bootloader
+    	
         arch_reset();
         return;
     }
+
     kernel_main((char *)info->cmdline);
 }
 void arch_reset() {
@@ -90,11 +94,14 @@ void arch_init() {
     outb(0x43,0x00 | 0x06 | 0x30 | 0x00);
     outb(0x40,divisor);
     outb(0x40,divisor >> 8);
-    initAcpi();
+    initAcpi(info);
     if (dontFB && !dontVGA) vga_change();
     //apic_init();
     //smp_init();
     setup_fpu();
+    // detect and copy the initrd if the address is bigger that the reserved area of MMU
+    
+    
 }
 void arch_sti() {
     asm volatile("sti");
@@ -219,6 +226,7 @@ void arch_post_init() {
     /*if (dontFB) {
 	vga_change();
     }*/
+    kprintf("%s: begin of post init\n",__func__);
     symbols_init(info);
     // Copy all modules into rootfs
     vfs_node_t *node = vfs_find("/bin");
@@ -249,6 +257,7 @@ void arch_post_init() {
 	smp_post_init();
 	if (!acpiIsOn()) {
 		kprintf("WARRNING: No ACPI available, the system can't be shutted down\r\n");
+        
 	}
 	unsigned int cr0;
 
@@ -259,6 +268,7 @@ void arch_post_init() {
         }  else {
 		kprintf("FPU isn't enabled with MSDOS compatibility mode\n");
 	}
+    acpiPostInit();
 	kprintf("HelinOS X86 part is successfully ended in arch_post_init\r\n");
 }
 bool arch_relocSymbols(module_t *mod,void *ehdr) {
@@ -516,6 +526,7 @@ static void setup_fpu() {
 
 int arch_syscall_getCallerRet() {
 	if (syscall_regs != NULL) {
+        //kprintf("%s: caller userESP: 0x%x, ESP: 0x%x\n",__func__,syscall_regs->useresp,0);
 		return syscall_regs->eip;
 	}
 	return NULL;
@@ -537,4 +548,8 @@ void arch_forkProcess(process_t *parent,process_t *child) {
         // Copy FPU state
 	memcpy(child->fpu_state,parent->fpu_state,512);
 	//dump_registers(syscall_regs);
+}
+
+char *arch_getName() {
+    return "x86";
 }

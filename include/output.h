@@ -11,4 +11,5 @@ void output_changeToFB();
 void kprintf(char *format,...);
 void putc(char c);
 void output_clear();
+void kprintf_user(char *msg); // by default if the -v not passed to kernel then we disable the kprintf itself, but for the user programs we don't do that
 #endif

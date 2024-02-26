@@ -267,3 +267,8 @@ int alloc_getUsedPhysMem() {
 int alloc_getAllMemory() {
 	return total_pages*4096;
 }
+int alloc_alignAddress(int addr,int al) {
+    al--;
+    uintptr_t aligned_addr = (addr + al) & ~al;
+    return aligned_addr;
+}

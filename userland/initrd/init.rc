@@ -1,0 +1,15 @@
+# this is an comment in init rc script!
+# we run all required services for window server, no more console login or something
+
+#windowserver /initrd/windowserver
+
+# format:
+# <service name>	<executable path>	<service priority>
+
+
+# Prepare system to mount the directories
+mkdir proc
+mkdir sys
+mount devfs /dev /dev
+#mount ext2 /dev/hdap3 /fat
+service login /initrd/login

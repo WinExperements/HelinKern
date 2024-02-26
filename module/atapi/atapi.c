@@ -5,10 +5,19 @@
 #include <mm/alloc.h>
 #include <lib/string.h>
 /*
+    Update 20.01.2024: IDE PCI support
+*/
+#include <pci/driver.h> // PCI
+#include <pci/registry.h>
+#include <thread.h>
+#include <fs/parttab.h>
+#include <kernel.h> // interrupts for da controller
+#include <arch/x86/idt.h>
+#include <arch.h>
+/*
     Ported version of https://github.com/klange/toaruos/blob/toaru-1.x/modules/ata.c
 */
 // === Add module name here ===
-char modname[] __attribute__((section(".modname"))) = "atapi";
 // === Internal functions here ===
 typedef struct {
 	uint16_t flags;
@@ -129,9 +138,12 @@ static int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void
 static void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf);
 int ata_print_error(ata_device_t *dev);
 static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf);
+static int ata_vdev_ioctl(vfs_node_t *node,int request,...);
 static char ata_start_char = 'a';
 static char ata_cdrom_char = 'a';
 static uint64_t next_lba = 0;
+static ata_device_t *inter_ata;
+void *ata_irq_handler(void *stack);
 void ata_io_wait(ata_device_t *dev) {
 	inb(dev->base+ATA_REG_ALTSTATUS);
 	inb(dev->base+ATA_REG_ALTSTATUS);
@@ -183,19 +195,37 @@ int ata_max_offset(ata_device_t *dev) {
 	return sectors * 512;
 }
 // Initialization and detection code
-bool ata_device_init(ata_device_t *dev) {
-	outb(dev->base+1,1);
-	outb(dev->ctrl,0);
-	outb(dev->base+ATA_REG_HDDEVSEL, 0xA0 | dev->slave << 4);
+bool ata_device_init(ata_device_t *dev,bool second) {
+    arch_sti();
+   // kprintf("Interrupts enabled\n");    
+  //  kprintf("%s is broken somehow\n",__func__);
+   // kprintf("Selecting drive...");
+    int bit = (second ? 0xB0 : 0xA0);
+	outb(dev->base+ATA_REG_HDDEVSEL, bit | dev->slave << 4);
+	//kprintf("ata: waiting for ports\n");
 	ata_io_wait(dev);
 	/*if (inb(dev->base+ATA_REG_STATUS) != 0x50) {
 		kprintf("Softreset failed(device not present): %x\n",inb(dev->base+ATA_REG_STATUS));
 		return false;
 	}*/
-	//uint8_t tmpStatus = inb(dev->base+ATA_REG_STATUS);
+  //  kprintf("selected\n");
+	unsigned char cl = inb(dev->base+ATA_REG_LBA1);
+	unsigned char ch = inb(dev->base+ATA_REG_LBA2);
+	if (cl == 0xFF && ch == 0xFF) {
+		kprintf("ata: channel reported no media(0xFF,0xFF)\n");
+		return 0;
+	}
+  //  kprintf("setting ATA_REG_CONTROL to 0...");
+    outb(dev->base+ATA_REG_CONTROL,0);
+   // kprintf("seted\n");
+    //kprintf("getting status....");
+	//kprintf("identify command sended, waiting\n");
+	uint8_t tmpStatus = inb(dev->base+ATA_REG_STATUS);
+  //  kprintf("ok\nwriting some info....");
 	outb(dev->base+ATA_REG_LBA0,0);
 	outb(dev->base+ATA_REG_LBA1,0);
 	outb(dev->base+ATA_REG_LBA2,0);
+  //  kprintf("ok\nwriting ATA_CMD_IDENTIFY....");
 	outb(dev->base+ATA_REG_COMMAND,ATA_CMD_IDENTIFY);
 	ata_io_wait(dev);
 	//outb(dev->base+ATA_REG_COMMAND,ATA_CMD_CACHE_FLUSH); //test
@@ -203,7 +233,10 @@ bool ata_device_init(ata_device_t *dev) {
 		kprintf("Media not present.\n");
 		return false;
 	}
+   // kprintf("ok\n");
 	unsigned char status,err,type;
+    //kprintf("ata: waiting to drive become ready\n");
+   // kprintf("Waiting device to become ready to transfer data\n");
 	while(inb(dev->base+ATA_REG_STATUS) & ATA_SR_BSY ) {
 		/*if ((inb(dev->base+ATA_REG_LBA1) != 0) && (inb(dev->base+ATA_REG_LBA2) != 0)) {
 			kprintf("Disk not present or this isn't ATA device\n");
@@ -215,10 +248,12 @@ bool ata_device_init(ata_device_t *dev) {
 	status = inb(dev->base+ATA_REG_STATUS);
 	if (status & ATA_SR_ERR) {
 		err = true;
+        return false;
 	}
 	if (status & ATA_SR_DF) {
 		kprintf("Device fault %x\n",status);
 		err = true;
+        return false;
 	}
 	if ((status & ATA_SR_DRQ) == 0) {
 		kprintf("Isn't ATA probing ATAPI\n");
@@ -233,32 +268,42 @@ bool ata_device_init(ata_device_t *dev) {
 			return false;
 		}
 	}
+  //  kprintf("The device is ready and doesn't reported any errors, reading the identify structure...");
 	uint16_t *buf = (uint16_t *)&dev->identify;
 	for (int i = 0; i < 256; i++) {
 		buf[i] = inw(dev->base);
 	}
+  //  kprintf("readed\n");
 	uint8_t *ptr = (uint8_t *)&dev->identify.model;
 	for (int i = 0; i < 39; i+=2) {
 		uint8_t tmp = ptr[i+1];
 		ptr[i+1] = ptr[i];
 		ptr[i] = tmp;
 	}
+    arch_cli();
 	return true;
 }
-int ata_device_detect(ata_device_t *dev) {
+int ata_device_detect(ata_device_t *dev,bool second) {
 	ata_soft_reset(dev);
-	while(1) {
+	ata_io_wait(dev);
+	/*while(1) {
 		uint8_t status = inb(dev->base+ATA_REG_STATUS);
 		if (!(status & ATA_SR_BSY)) break;
-	}
-	if (ata_device_init(dev)) {
+	}*/
+	if (ata_device_init(dev,second)) {
 		kprintf("ATA name: %s\n",dev->identify.model);
 		ata_create_device(true,dev);
+        if (inter_ata == NULL) {
+            kprintf("Adding inter_ata");
+            inter_ata = dev;
+            
+        }
 	}
 	return 0;
 }
 /* This function added for EXT2 FS driver */
 int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buffer) {
+   // kprintf("ATA: read %d bytes\n",how);
 	int start_block = (offset / 512);
         int end_block = (offset + how -1 ) / 512;
 	int b_offset = 0;
@@ -280,11 +325,16 @@ int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buffe
 		kfree(tmp);
 		end_block--;
 	}
+	int off = end_block - start_block;
+	off+=1;
+	int readedPerLoop = 0;
 	while(start_block <= end_block) {
 		ata_vdev_readBlock(node,start_block,512,(void *)buffer + b_offset);
 		b_offset+=512;
 		start_block++;
+		readedPerLoop++;
 	}
+	//ata_vdev_readBlock(node,start_block,512*off,(void *)buffer + b_offset);
 	return how;
 }
 /* Only for DEVELOPERS! */
@@ -296,7 +346,7 @@ void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 	if (sectors == 0) sectors = 1;
 	ata_device_t *dev = node->device;
 	if (dev->type == IDE_ATAPI) return;
-	outb(dev->base+ATA_REG_HDDEVSEL,0x40);
+	outb(dev->base+ATA_REG_HDDEVSEL,0xE0 | (dev->slave << 4));
 	outb(dev->base+ATA_REG_SECCOUNT0,(sectors >> 8) & 0xFF);
 	outb(dev->base+ATA_REG_LBA0, (lba & 0xff000000) >> 24);
 	outb(dev->base+ATA_REG_LBA1, (lba & 0xff000000) >> 32);
@@ -307,7 +357,7 @@ void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 	outb(dev->base+ATA_REG_LBA2,(lba >> 16) & 0xFF);
 	outb(dev->base+ATA_REG_COMMAND,ATA_CMD_WRITE_PIO_EXT); // ATA_CMD_WRITE_PIO_EXT
 	uint8_t i;
-	arch_sti();
+	//arch_sti();
 	for (i = 0; i < sectors; i++) {
 		while(1) {
 			uint8_t status = inb(dev->base+ATA_REG_STATUS);
@@ -327,6 +377,8 @@ void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 	outb(dev->base+ATA_REG_COMMAND,ATA_CMD_CACHE_FLUSH);
 	while(inb(dev->base+ATA_REG_STATUS) & ATA_SR_BSY) {}
 }
+// read one sector
+
 static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf) {
         ata_device_t *dev = node->device;
         if (dev->type == IDE_ATAPI) {
@@ -344,15 +396,19 @@ static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf) 
         }
         //kprintf("Read %d sectors at %d\r\n",sectors,lba);
         if (sectors == 0) sectors = 1;
+	if (sectors > 255) {
+		kprintf("ATA: Maximum count of sectors that able to read per one command is 255!\n");
+		sectors = 254;
+	}
         outb(dev->base+ATA_REG_HDDEVSEL,0x40);
         outb(dev->base+ATA_REG_SECCOUNT0,(sectors >> 8) & 0xFF);
-        outb(dev->base+ATA_REG_LBA0,(lba >> 24) & 0xFF);
-        outb(dev->base+ATA_REG_LBA1,(lba >> 32) & 0xFF);
-        outb(dev->base+ATA_REG_LBA2,(lba >> 40) & 0xFF);
-        outb(dev->base+ATA_REG_SECCOUNT0,sectors & 0xFF);
-        outb(dev->base+ATA_REG_LBA0,lba & 0xFF);
-        outb(dev->base+ATA_REG_LBA1,(lba >> 8) & 0xFF);
-        outb(dev->base+ATA_REG_LBA2,(lba >> 16) & 0xFF);
+		outb(dev->base+ATA_REG_LBA0, (lba & 0xff000000) >> 24);
+		outb(dev->base+ATA_REG_LBA1, (lba & 0xff000000) >> 32);
+		outb(dev->base+ATA_REG_LBA2, (lba & 0xff000000) >> 48);
+		outb(dev->base+ATA_REG_SECCOUNT0,sectors & 0xFF);
+		outb(dev->base+ATA_REG_LBA0,lba & 0xFF);
+		outb(dev->base+ATA_REG_LBA1,(lba >> 8) & 0xFF);
+		outb(dev->base+ATA_REG_LBA2,(lba >> 16) & 0xFF);
         outb(dev->base+ATA_REG_COMMAND,ATA_CMD_READ_PIO_EXT); // ATA_CMD_READ_PIO_EXT
         uint8_t i;
         // convert buffer
@@ -376,8 +432,15 @@ static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf) 
                 memcpy(dd,buf,how);
                 kfree(buf);
         }
+		if (sectors > 255) {
+			kprintf("ATA: Sectors count are bigger that 0xFF, repeat process\n");
+			sectors-=255;
+			ata_vdev_readBlock(node,blockNo+255,sectors*512,bu);
+		}
 }
+
 void ata_create_device(bool hda,ata_device_t *dev) {
+	kprintf("ATA: creating device: ctrl -> 0x%x, base -> 0x%x\n",dev->ctrl,dev->base);
 	char *name = kmalloc(4);
 	if (hda) {
 		name = "hd ";
@@ -387,6 +450,7 @@ void ata_create_device(bool hda,ata_device_t *dev) {
 		name = "cd ";
 		name[2] = ata_cdrom_char;
 		ata_cdrom_char++;
+		return;
 	}
 	name[3] = 0;
 	dev_t *disk = kmalloc(sizeof(dev_t));
@@ -397,33 +461,184 @@ void ata_create_device(bool hda,ata_device_t *dev) {
 	disk->buffer_sizeMax = 512; // default sector size
 	disk->device = dev;
 	disk->readBlock = ata_vdev_readBlock;
+	disk->ioctl = ata_vdev_ioctl;
+	if (hda) disk->type = DEVFS_TYPE_BLOCK; // this will trigger the partTab to scan partition table
 	// Now register device in our DEVFS
 	dev_add(disk);
 }
 // === Public functions here ===
+
+static int irqCounter = 0;
+
+void parseATAStatus(uint8_t status) {
+    kprintf("Status Byte: 0x%x\n", status);
+
+    // Bit 7
+    if (status & 0x80) {
+        kprintf("BSY (Busy) - Device is busy\n");
+    } else {
+        kprintf("BSY (Busy) - Device is not busy\n");
+    }
+
+    // Bit 6
+    if (status & 0x40) {
+        kprintf("DRDY (Device Ready) - Device is ready\n");
+    } else {
+        kprintf("DRDY (Device Ready) - Device is not ready\n");
+    }
+
+    // Bit 5
+    if (status & 0x20) {
+        kprintf("DF (Device Fault) - Device fault\n");
+    } else {
+        kprintf("DF (Device Fault) - No device fault\n");
+    }
+
+    // Bit 4
+    if (status & 0x10) {
+        kprintf("SERV (Service) - Service (command) error\n");
+    } else {
+        kprintf("SERV (Service) - No service error\n");
+    }
+
+    // Bit 3
+    if (status & 0x08) {
+        kprintf("DRQ (Data Request) - Data is ready to be transferred\n");
+    } else {
+        kprintf("DRQ (Data Request) - No data ready\n");
+    }
+
+    // Bit 2
+    if (status & 0x04) {
+        kprintf("CORR (Corrected Data) - Data corrected\n");
+    } else {
+        kprintf("CORR (Corrected Data) - No data correction\n");
+    }
+
+    // Bits 1-0
+    kprintf("ERR (Error) - Additional error information: 0x%x\n", status & 0x03);
+}
+
+void *ata_irq_handler(void *stack) {
+    inb(inter_ata->base+ATA_REG_STATUS);
+    /*kprintf("ATA IRQ handler!\n");
+    kprintf("Status of drive(after sending there commands): 0x%x\n",inb(inter_ata->base+ATA_REG_STATUS));
+    kprintf("Error register: 0x%x\n",inb(inter_ata->base+ATA_REG_ERROR));
+    kprintf("AA\n");*/
+    return stack;
+}
+
+static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
+{
+    unsigned int id = PCI_MAKE_ID(bus, dev, func);
+
+    PciDeviceInfo info;
+    info.vendorId = PciRead16(id, PCI_CONFIG_VENDOR_ID);
+    if (info.vendorId == 0xffff)
+    {
+        return false    ;
+    }
+
+    info.deviceId = PciRead16(id, PCI_CONFIG_DEVICE_ID);
+    info.progIntf = PciRead8(id, PCI_CONFIG_PROG_INTF);
+    info.subclass = PciRead8(id, PCI_CONFIG_SUBCLASS);
+    info.classCode = PciRead8(id, PCI_CONFIG_CLASS_CODE);
+    kprintf("0x%x ",PciRead8(id,PCI_CONFIG_INTERRUPT_LINE));
+    switch((info.classCode << 8) | info.subclass) {
+	    case PCI_STORAGE_IDE:
+		    unsigned int BAR0 = PciRead32(id,PCI_CONFIG_BAR0);
+		    unsigned int BAR1 = PciRead32(id,PCI_CONFIG_BAR1);
+		    unsigned int BAR2 = PciRead32(id,PCI_CONFIG_BAR2);
+		    unsigned int BAR3 = PciRead32(id,PCI_CONFIG_BAR3);
+            uint16_t base = (BAR0 & 0xFFFFFFFC) + 0x1F0 * (!BAR0);
+            uint16_t ctrl = (BAR1 & 0xFFFFFFFC) + 0x3F6 * (!BAR1);
+            uint16_t sec_base = (BAR2 & 0xFFFFFFFC) + 0x170 * (!BAR2);
+            uint16_t sec_ctrl = (BAR3 & 0xFFFFFFFC) + 0x376 * (!BAR3);
+            ata_device_t *ata_pri = kmalloc(sizeof(ata_device_t));
+            ata_pri->base = base;
+            ata_pri->ctrl = ctrl;
+            ata_pri->slave = 0;
+            ata_device_t *ata_sec = kmalloc(sizeof(ata_device_t));
+            ata_sec->base = base;
+            ata_sec->ctrl = ctrl;
+            ata_sec->slave = 1;
+            ata_device_t *sec_pri = kmalloc(sizeof(ata_device_t));
+            sec_pri->base = sec_base;
+            sec_pri->ctrl = sec_ctrl;
+            sec_pri->slave = 0;
+            ata_device_t *sec_sec = kmalloc(sizeof(ata_device_t));
+            sec_sec->base = sec_base;
+            sec_sec->ctrl = sec_ctrl;
+            sec_sec->slave = 1;
+            kprintf("PCI line: 0x%x, 0x%x\n",PciRead8(id,0x3c),PciRead8(id,PCI_CONFIG_INTERRUPT_PIN));
+            kprintf("PCI PRIF: 0x%x\n",PciRead8(id,0x09));
+            kprintf("ata: pci: detecting drives.... 0x%x\n",base);
+            if (base == 0x0) {
+                kprintf("device is zero! Skip\n");
+                return false;
+            }
+            inter_ata = &ata_pri;
+            interrupt_add(0x2a,ata_irq_handler);
+            interrupt_add(0x2f,ata_irq_handler);
+            interrupt_add(0x2e,ata_irq_handler);
+            ata_device_detect(ata_pri,false);
+            ata_device_detect(ata_sec,false);
+            ata_device_detect(sec_pri,true);
+            ata_device_detect(sec_sec,true);
+            //kprintf("ata: pci: detection finished\n");
+            return true;
+}
+    return false;
+
+}
+
 void atapi_init() {
 	kprintf("ATA device driver\n");
-	kprintf("Detecting on channel 0\n");
-	ata_device_detect(&ata_primary_master);
-	ata_device_detect(&ata_primary_slave);
-	kprintf("Detecting on channel 1\n");
-	ata_device_detect(&ata_secondary_master);
-	ata_device_detect(&ata_secondary_slave);
-	/*kprintf("Detecting on channel 2\n");
-	ata_device_detect(&ata_channel2_master);
-	ata_device_detect(&ata_channel2_slave);
-	kprintf("Detecting on channel 3\n");
-	ata_device_detect(&ata_channel3_master);
-	ata_device_detect(&ata_channel3_slave);*/
+    kprintf("ata: scanning PCI bus\n");
+    for (unsigned int bus = 0; bus < 256; ++bus)
+    {
+        for (unsigned int dev = 0; dev < 32; ++dev)
+        {
+            unsigned int baseId = PCI_MAKE_ID(bus, dev, 0);
+            uint8_t headerType = PciRead8(baseId, PCI_CONFIG_HEADER_TYPE);
+            unsigned int funcCount = headerType & PCI_TYPE_MULTIFUNC ? 8 : 1;
+
+            for (unsigned int func = 0; func < funcCount; ++func)
+            {
+               // kprintf("ata: pci: visiting PCI\n");
+                if (PciVisit(bus, dev, func)) {
+                    /*kprintf("Drive detected, but only one controller supported\n");
+                    return;*/
+                }
+                //PciVisit(bus,dev,func);
+            }
+        }
+    }
+    
 }
 // === Loading as module support! ===
-static void module_main() {
-	atapi_init();
-}
 int ata_print_error(ata_device_t *dev) {
 	uint8_t type = inb(dev->base + ATA_REG_ERROR);
 	if (type == 0) {kprintf("No error reported\n"); return type;}
 	if (type == 0xff) {kprintf("Media not present but returned error\n"); return type;}
 	kprintf("ATA error type: %x\n",type);
 	return type;
+}
+
+static int ata_vdev_ioctl(vfs_node_t *node,int request,...) {
+	ata_device_t *dev = node->device;
+	if (dev == NULL || dev->base == 0) return -1;
+	switch (request) {
+		case 0x10:
+			kprintf("ata: spin off drive, ctrl-> 0x%x, base -> 0x%x\n",dev->ctrl,dev->base);
+			outb(dev->base+ATA_REG_COMMAND,0xE0);
+			while(inb(dev->base + ATA_REG_STATUS) & ATA_SR_BSY);
+			break;
+		case 0x20:
+			kprintf("ata: waking up device\n");
+			outb(dev->base+ATA_REG_COMMAND,0xE1);
+			while(inb(dev->base + ATA_REG_STATUS) & ATA_SR_BSY);
+			break;
+		}
+	return 0;
 }

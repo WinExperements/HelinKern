@@ -22,7 +22,7 @@
 #define GET_VIRTUAL_ADDRESS(pd_index, pt_index, offset) \
     (((pd_index) << 22) | ((pt_index) << 12) | (offset))
 
-static int RESERVED_AREA = 0x01000000; //16 mb
+static int RESERVED_AREA = 0; //16 mb
 static int KERN_PD_AREA_BEGIN = 0x0; //12 mb
 static int KERN_PD_AREA_END = 0x0; 
 static uint32_t *kernel_pg = (uint32_t *)KERN_PAGE_DIRECTORY;
@@ -42,20 +42,22 @@ void arch_mmu_init() {
     // Reserve specific memory
     KERN_PD_AREA_BEGIN = 0x00F00000;
     KERN_PD_AREA_END = 0x0100000A;
+    RESERVED_AREA = arch_getKernelEnd();
     alloc_reserve(0,RESERVED_AREA);
     kprintf("Reserved area: 0x%x, KERN_PD_AREA_BEGIN: 0x%x, KERN_PD_AREA_END: 0x%x\n",RESERVED_AREA,KERN_PD_AREA_BEGIN,KERN_PD_AREA_END);
     if (arch_getKernelEnd() > RESERVED_AREA) {
 	    PANIC("Initrd is overwriting our page tables!");
 	}
     int i = 0;
-    int end_index = PAGE_INDEX_4M(KERN_PD_AREA_END);
-    for (i = 0; i < 4; ++i)
+    int end_index = PAGE_INDEX_4M(RESERVED_AREA);
+    if (end_index == 0) end_index = 4;
+    for (i = 0; i < end_index; ++i)
     {
 	    // TODO: Remove PG_USER and fix all #PG after it
         kernel_pg[i] = (i * PAGESIZE_4M | (PG_PRESENT | PG_WRITE | PG_4MB | PG_USER));//add PG_USER for accesing kernel code in user mode
 	
     }
-    for (i = 4; i < 1024; ++i)
+    for (i = end_index; i < 1024; ++i)
     {
         kernel_pg[i] = 0;
     }

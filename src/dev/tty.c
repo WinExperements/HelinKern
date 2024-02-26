@@ -14,6 +14,7 @@ static int tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
 static int tty_ioctl(vfs_node_t *node,int request,va_list args);
 static bool tty_isReady(vfs_node_t *node);
 int tty_flags = FLAG_ECHO;
+extern bool disableOutput;
 
 void tty_init() {
 	dev = kmalloc(sizeof(dev_t));
@@ -26,7 +27,10 @@ void tty_init() {
 	dev->isReady = tty_isReady;
 	dev_add(dev);
 	// Find keyboard in our devfs
-	keyboard = vfs_find("/dev/keyboard");
+	dev_t *kbd = dev_find("keyboard");
+    if (kbd != NULL) {
+        keyboard = kbd->devNode;
+    }
 }
 
 static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {

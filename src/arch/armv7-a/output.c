@@ -1,25 +1,29 @@
 #include <output.h>
+#include <dev/fb.h>
 
-
-#define UART0_BASE 0x1c090000
+static bool redirectToFb = false;
 
 void output_uart_init() {}
 
 static void uart_write(char c) {
-    *(volatile uint32_t *)(UART0_BASE) = c;    
+      
 }
 
 void output_write(char *msg) {
-    int i = 0;
+   int i = 0;
     while(msg[i]) {
-        uart_write(msg[i]);
+        putc(msg[i]);
         i++;
     }
 }
 
-void output_changeToFB() {}
+void output_changeToFB() {
+	redirectToFb = true;
+}
 
 void putc(char c) {
-    uart_write(c);
+    if (redirectToFb) {
+    	fb_putc(c);
+    }
 }
 void output_clear() {}

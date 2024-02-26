@@ -25,7 +25,7 @@ int main(int argcf,char **argvf) {
 		printf("init: no init.sh found at /bin. Droping to shell\n");
     } else {
 	    process_initScript(init_script);
-	    //  while(1) {}
+	    while(1) {}
     }
     return 0;
 }

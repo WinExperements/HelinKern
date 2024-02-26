@@ -131,4 +131,6 @@ struct ext2_disk {
 #define	EXT2_S_IWOTH	0x0002	/* write */
 #define	EXT2_S_IXOTH	0x0001	/* execute */
 
+void ext2_main();
+
 #endif

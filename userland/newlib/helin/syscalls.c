@@ -47,7 +47,7 @@ void _exit() {
 }
 int close(int file) {
 	if (file <= 2) return 0;
-    return helin_syscall(8,file,0,0,0,0);
+    	return helin_syscall(8,file,0,0,0,0);
 }
 char **environ; /* pointer to array of char * strings that define the current environment variables */
 int execve(char *name, char **argv, char **env) {

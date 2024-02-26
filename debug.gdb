@@ -12,9 +12,9 @@ target remote localhost:1234
 #b sys_fork
 #b thread_main
 #b arch_cloneStack
-add-symbol-file /home/sergij/newkernel/userland/initrd/init 0x40000000
+#add-symbol-file /home/servadmin/HelinKern/userland/initrd/sh 0x40000000
 #b sys_exec
 #b dash_execute
-b x86_switch
-c
-
+#b fb_enable
+#b fb_putc
+b kernel_main

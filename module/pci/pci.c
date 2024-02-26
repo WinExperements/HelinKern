@@ -2,12 +2,13 @@
 // pci/pci.c
 // ------------------------------------------------------------------------------------------------
 
-#include "pci.h"
+#include "pci/pci.h"
 #include <output.h>
-#include "registry.h"
-#include "driver.h"
+#include "pci/registry.h"
+#include "pci/driver.h"
 
 char modname[] __attribute__((section(".modname"))) = "pci";
+
 
 // ------------------------------------------------------------------------------------------------
 static void PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
@@ -26,13 +27,14 @@ static void PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
     info.subclass = PciRead8(id, PCI_CONFIG_SUBCLASS);
     info.classCode = PciRead8(id, PCI_CONFIG_CLASS_CODE);
 
-    kprintf("ID: %d, 0x%x:0x%x:%d 0x%x/0x%x: %s\n",
+    kprintf("ID: %d, 0x%x:0x%x:%d 0x%x/0x%x: %s, 0x%x, 0x%x\n",
         id,
         bus, dev, func,
         info.vendorId, info.deviceId,
-        PciClassName(info.classCode, info.subclass, info.progIntf)
+        PciClassName(info.classCode, info.subclass, info.progIntf),
+        PciRead32(id,PCI_CONFIG_INTERRUPT_LINE),
+	PciRead32(id,PCI_CONFIG_INTERRUPT_PIN)
         );
-
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -55,6 +57,6 @@ void PciInit()
     }
 }
 
-static void module_main() {
+void pci_init() {
     PciInit();
 }

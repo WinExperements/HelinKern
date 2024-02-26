@@ -7,6 +7,7 @@
 #include <lib/string.h>
 #include <module.h>
 #include <debug.h>
+#include <dev.h>
 static vfs_node_t *keyboard = NULL;
 bool elf_check_file(Elf32_Ehdr *hdr) {
     if (!hdr) {
@@ -125,12 +126,20 @@ bool elf_load_file(void *addr,process_t *caller) {
     }
     // back to original space
     arch_mmu_switch(space);
-    if (!keyboard) keyboard = vfs_find("/dev/tty");
-    vfs_node_t *ke = keyboard;
-    if (ke) {
-	    thread_openFor(prc,ke);
-	    thread_openFor(prc,ke);
-	    thread_openFor(prc,ke); // yeah 3 times
+    if (!keyboard) {
+        dev_t *tt = dev_find("tty");
+        if (tt != NULL) {
+            keyboard = tt->devNode;
+        }
+    }
+    // Open stdin,stdout,stderr only for new processes that doesn't forked or something
+    if (caller == NULL) {
+    	vfs_node_t *ke = keyboard;
+    	if (ke) {
+	    	thread_openFor(prc,ke);
+	    	thread_openFor(prc,ke);
+	    	thread_openFor(prc,ke); // yeah 3 times
+    	}
     }
     prc->state = STATUS_RUNNING;
     return true;

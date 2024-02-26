@@ -32,8 +32,12 @@ int main(int argc,char **argv) {
 	bool needUsername = true;
         int ppid = getppid();
 	int numUsers = sizeof(users)/sizeof(users[0]);
-	if (argc > 1) {
+	if (argc > 2) {
 		// Нащо нам питати ім'я користувача? Ми і так його отримали з аргументів
+		printf("argv: %u\n",argc);
+		for (int i = 0; i < argc; i++) {
+			printf("%s\n",argv[i]);
+		}
 		strcpy(username,argv[1]);
 		needUsername = false;
 	}

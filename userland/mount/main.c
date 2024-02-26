@@ -6,6 +6,7 @@ int main(int argc,char **argv) {
         printf("mount: <fs type> <device path> <mount point>\n");
         return 0;
     }
+    printf("%s %s %s\n",argv[1],argv[2],argv[3]);
     int ret = helin_syscall(21,(int)argv[2],(int)argv[3],(int)argv[1],0,0);
     if (ret == -2) {
         printf("mount: %s: no such device\n",argv[2]);

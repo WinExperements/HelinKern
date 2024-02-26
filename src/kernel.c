@@ -16,14 +16,22 @@
 #include <kshell.h>
 #include <debug.h>
 #include <fs/cpio.h>
+#include <fs/parttab.h>
 #include <tty.h>
 #include <lib/string.h>
 #include <dev/input.h>
 #include <dev/socket.h>
+#include <mbr/mbr.h>
+#include <atapi/atapi.h>
+#include <ahci/ahci.h>
+#include <ext2/ext2.h>
 // Sockets!
 #include <socket/unix.h>
 static int fb_addr;
 extern int *syscall_table;
+int AHCI_BASE;
+extern bool disableOutput;
+bool dontUseAta;
 void *memset(void *dest,char val,int count) {
   char *temp = (char *)dest;
   for( ; count != 0; count--) *temp++ = val;
@@ -53,7 +61,12 @@ void kernel_main(const char *args) {
         fb_init(&fb);
         fb_enable();
         fb_addr = (int)fb.addr;
-	//output_changeToFB(); // important!
+        fb_clear(0xffffff);
+        // Pre-boot framebuffer
+	output_changeToFB(); // important!
+	disableOutput= false;
+	kprintf("Pre-Boot Platform Framebuffer. This buffer doesn't support scrolling outwise the MMU doesn't be initialized by arch-specific code\r\n");
+	disableOutput = true; // change to false if you want to run it on an Lumia device with the provided in tree bootloader.
     }
     arch_init();
     // Hi!
@@ -66,6 +79,22 @@ void kernel_main(const char *args) {
     fb_enableCursor();
     // Bootstrap end
     kheap_init();
+    kprintf("%s: begin of parsing kernel arguments!\n",__func__);
+    char *begin = strtok(args," ");
+    while(begin != NULL) {
+    	if (strcmp(begin,"-v")) {
+    		// verbose boot
+    		disableOutput = false;
+    	} else if (strcmp(begin,"crash")) {
+    		PANIC("For debug purpose only");
+    	} else if (strcmp(begin,"noatapi")) {
+    		// Don't init ATA/ATAPI driver at boot
+    		dontUseAta = true;
+    	} else {
+    		kprintf("WARRNING: Unknown boot argument: %s\n",begin);
+    	}
+    	begin = strtok(NULL," ");
+    }
     thread_init();
     syscall_init();
     vfs_init();
@@ -77,6 +106,7 @@ void kernel_main(const char *args) {
     vfs_creat(vfs_getRoot(),"initrd",VFS_DIRECTORY);
     vfs_creat(vfs_getRoot(),"fat",VFS_DIRECTORY);
     dev_init();
+    partTab_init();
     cpio_init();
     #ifdef X86
     keyboard_init();
@@ -91,6 +121,7 @@ void kernel_main(const char *args) {
     if (fb.addr != 0) output_changeToFB();
     clock_setShedulerEnabled(true);
     arch_detect();
+    kprintf("Monolitic kernel: Booting up some drives drivers....\n");
     // Directly try to mount initrd and run init if it fails then panic like Linux kernel or spawn kshell
     vfs_node_t *initrd = vfs_find("/bin/initrd.cpio");
     if (!initrd) {
@@ -106,6 +137,7 @@ void kernel_main(const char *args) {
 	PANIC("Failed to mount initrd");
     }
 #if 1
+    //kprintf("52 syscall points to 0x%x\n",syscall_get(52));
     int (*exec)(char *,int,char **) = ((int (*)(char *,int,char **))syscall_get(13));
     int pid = exec("/initrd/init",0,NULL); // Ядро передасть параметри за замовчуванням.
     if (pid < 0) {
@@ -114,14 +146,8 @@ void kernel_main(const char *args) {
    //exec("/initrd/demo-hello",0,NULL);
 #else
     //thread_create("kshell",(int)kshell_main,false);
-    kprintf("Fork test\n");
-    aspace_t *child = arch_mmu_newAspace();
-    if (arch_mmu_duplicate(arch_mmu_getAspace(),child)) {
-	kprintf("arch_mmu_duplicate: ok, used non COW method\n");
-	arch_mmu_destroyAspace(child);
-	kprintf("Starting kshell\n");
 	thread_create("kshell",(int)kshell_main,false);
-   }
 #endif
     arch_sti();
 }
+

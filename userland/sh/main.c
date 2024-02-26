@@ -25,6 +25,13 @@ typedef struct _pthread_str {
         void *arg;
 } pthread_str;
 
+typedef struct utsname {
+    char *sysname;    /* Operating system name (e.g., "Linux") */
+    char *nodename;   /* Name within communications network */
+    char *release;
+    char *version;
+    char *machine;
+};
 
 // fork-exec model!
 int fork() {
@@ -104,9 +111,10 @@ void sh_parseCommand(char **argv,int argc) {
 	    }
         struct dirent *di = NULL;
         while((di = readdir(d)) != 0) {
-            printf("%s\n",di->name);
+            printf("%s ",di->name);
         }
         closedir(d);
+        printf("\n");
     } else if (!strcmp(argv[0],"fault")) {
         uint32_t *a = (uint32_t *)0xf0000000;
         uint32_t aa = *a;
@@ -147,7 +155,14 @@ void sh_parseCommand(char **argv,int argc) {
     } else if (!strcmp(argv[0],"sysinfo")) {
         printf("Custom Shell for HelinOS\r\n");
         printf("UID: %u, GID: %u\r\n",getuid(),getgid());
-        helin_syscall(24,0,0,0,0,0);
+        struct utsname *sys = malloc(sizeof(struct utsname));
+        memset(sys,0,sizeof(struct utsname));
+        helin_syscall(50,(int)sys,0,0,0,0);
+        printf("OS: %s\n",sys->sysname);
+        printf("Release: %s\n",sys->release);
+        printf("Version: %s\n",sys->version);
+        printf("Running on %s PC\n",sys->machine);
+        free(sys);
     } else if (!strcmp(argv[0],"id")) {
         int uid = getuid();
         printf("UID: %u\n",uid);
@@ -190,7 +205,7 @@ void sh_parseCommand(char **argv,int argc) {
 	        int offset = ftell(init_sh);
 	        fseek(init_sh,0,SEEK_SET);
             if (offset == 0) {
-		printf("Zero size\n");
+		        printf("Zero size\n");
                 fclose(init_sh);
                 return;
             }
@@ -231,6 +246,37 @@ void sh_parseCommand(char **argv,int argc) {
 	    }
 	    execute("demo-hello",parallelArgv,2);
 	    execute("demo-grabkey",parallelArgv,2);
+    } else if (!strcmp(argv[0],"hdd")) {
+        printf("Hard Disk Test Suite utility\n");
+        FILE *n = fopen("/dev/hda","r");
+        if (n == -1) {
+            printf("Failed to open first detect hard drive! (Is the ATA driver correctly work?)\n");
+            return;
+        }
+        printf("Select choise\n");
+        printf("a. Spin off first detected hard drive\n");
+        printf("b. Spin on first detected hard drive\n");
+        printf("c. Read sector 20 of first detected hard drive.\n");
+        char sel[2];
+        fread(&sel,2,1,stdin);
+        if (sel[0] == 'a') {
+        	if (ioctl(n,0x10) < 0) {
+        		printf("HDD spin off fail\n");
+        	}
+        } else if (sel[0] == 'b') {
+        	if (ioctl(n,0x20) < 0) {
+        		printf("HDD spin on fail\n");
+        	}
+        } else if (sel[0] == 'c') {
+        	char *bufa = malloc(512*23127);
+        	fread(bufa,512*23127,1,n);
+        	for (int i = 0; i < 512; i++) {
+        		printf("0x%X ",bufa[i]);
+        	}
+        	printf("\n");
+        	free(bufa);
+        }
+         fclose(n);
     } else {
         if (!execute(argv[0],argv,argc)) {
             printf("Commmand %s not found\n",argv[0]);

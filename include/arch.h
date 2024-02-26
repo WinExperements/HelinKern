@@ -40,4 +40,5 @@ void arch_fpu_restore(void *from);
 /* Actually get syscall caller return address */
 int arch_syscall_getCallerRet();
 void arch_forkProcess(process_t *parent,process_t *child);
+char *arch_getName();
 #endif

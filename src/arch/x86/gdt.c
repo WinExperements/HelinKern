@@ -212,10 +212,18 @@ static bool handle_COW(int addr,int present) {
 		}
     return false;
 }
-void *x86_irq_handler(registers_t *regs) {
-    // Tell the controller that the interrupt ended
+
+void interrupt_sendEOI() {
     outb(PIC_SLAVE_COMMAND,0x20);
     outb(PIC_MASTER_COMMAND,0x20);
+}
+
+void *x86_irq_handler(registers_t *regs) {
+    // Tell the controller that the interrupt ended
+    if (regs->int_no == IRQ7 || regs->int_no == IRQ15) {
+        kprintf("X86: Spurious IRQ: 0x%x!\n",regs->int_no);
+        return regs;
+    }
     int int_no = regs->int_no;
     if (int_no < IRQ0) {
         arch_cli();
@@ -231,6 +239,7 @@ void *x86_irq_handler(registers_t *regs) {
             kprintf("Page fault!!! When trying to %s %x - IP:0x%x\n", rw ? "write to" : "read from", addr, regs->eip);
             kprintf("The page was %s\n", present ? "present" : "not present");
         }
+        //arch_poweroff();
         if (regs->cs == 0x1b) {
             kprintf("%s in %s\r\n",exception_names[int_no],thread_getThread(thread_getCurrent())->name);
             thread_killThread(thread_getThread(thread_getCurrent()),18198);
@@ -243,7 +252,13 @@ void *x86_irq_handler(registers_t *regs) {
     if (int_no == IRQ0) {
       // Timer interrupt redirection. See README.
       // Save current process stack
+      interrupt_sendEOI();
       return clock_handler(regs);
-    }
-    return interrupt_handler(int_no,regs);
+    } /*else {
+        kprintf("Unknown interrupt 0x%x\n",int_no);
+    }*/
+    void *ret_regs = interrupt_handler(int_no,regs);
+    outb(PIC_SLAVE_COMMAND,0x20);
+    outb(PIC_MASTER_COMMAND,0x20);
+    return ret_regs;
 }

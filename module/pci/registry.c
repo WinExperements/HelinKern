@@ -2,7 +2,7 @@
 // pci/registry.c
 // ------------------------------------------------------------------------------------------------
 
-#include "registry.h"
+#include "pci/registry.h"
 
 // ------------------------------------------------------------------------------------------------
 const char *PciDeviceName(unsigned int vendorId, unsigned int deviceId)

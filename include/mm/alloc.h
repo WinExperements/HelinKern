@@ -43,4 +43,5 @@ int alloc_getEnd(); // needed for FB :(
 void alloc_reserve(int start,int end); // reserve there address space
 int alloc_getUsedPhysMem(); // get used physical memory
 int alloc_getAllMemory(); // get all available amount of memory
+int alloc_alignAddress(int address,int aligment);
 #endif

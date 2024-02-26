@@ -1,13 +1,13 @@
 #include <typedefs.h>
 #include <vfs.h>
 
-#include "ext2.h"
+#include "ext2/ext2.h"
 
 #include <output.h>
 #include <mm/alloc.h>
 #include <lib/string.h>
 #include <elf.h>
-__attribute__((section(".modname"))) char *name = "ext2";
+//__attribute__((section(".modname"))) char *name = "ext2";
 
 /*
  * The original code belongs to:
@@ -241,7 +241,7 @@ static void ext2_read_directory(struct ext2_disk *disk,struct ext2_inode *inode)
         if (!ext2_is_directory(disk,dentry->inode)) {
             struct ext2_inode *file = ext2_read_inode(disk,dentry->inode);
             char *cont = ext2_read_file(disk,file,file->i_size);
-	    elf_load_file(cont);
+	    elf_load_file(cont,thread_getThread(thread_getCurrent()));
            // kprintf("Reading file: %s\n",cont);
             kfree(cont);
             kfree(file);
@@ -371,7 +371,7 @@ static int ext2_fs_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buf
 	return size;
 }
 
-static void module_main() {
+void ext2_main() {
 	ext2 = kmalloc(sizeof(vfs_fs_t));
 	memset(ext2,0,sizeof(vfs_fs_t));
 	ext2->fs_name = "ext2";

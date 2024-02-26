@@ -1,0 +1,28 @@
+﻿  Generate ARM32 support assembly object
+  Microsoft (R) ARM Macro Assembler Version 14.39.33520.0
+  Copyright (C) Microsoft Corporation.  All rights reserved.
+  
+  EFIApp.c
+C:\Users\User\source\repos\boot-shim\src\EFIApp.c(384,19): warning C4047: '==': 'EFI_PHYSICAL_ADDRESS' differs in levels of indirection from 'void *'
+  uefi-simple.vcxproj -> C:\Users\User\source\repos\boot-shim\build\BootShim\ARM\Debug\BootShim.efi
+  Sign binaries
+  The following certificate was selected:
+      Issued to: HelinOS Inc
+  
+      Issued by: HelinOS Inc.
+  
+      Expires:   Sun Jan 01 01:59:59 2040
+  
+      SHA1 hash: 5C0EF1BC48F585A6845F79F991EAF0E062A23F77
+  
+  
+  Done Adding Additional Store
+  Successfully signed: C:\Users\User\source\repos\boot-shim\build\BootShim\ARM\Debug\BootShim.efi
+  
+  
+  Number of files successfully Signed: 1
+  
+  Number of warnings: 0
+  
+  Number of errors: 0
+  

@@ -6,6 +6,8 @@ void *interrupt_handler(int irq_no,void *arch_stack) {
     if (irq_no < 256) {
         if (handlers[irq_no] != 0) {
             return handlers[irq_no](arch_stack);
+        } else {
+            kprintf("[WARRNING]: Not handled interrupt: 0x%x\n",irq_no);
         }
     }
     return arch_stack;

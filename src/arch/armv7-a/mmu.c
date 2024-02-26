@@ -48,21 +48,8 @@ void arch_mmu_init() {
     // Calculate kernel size
     int size = kernel_end-kernel_start;
     kprintf("ARMV7-A MMU: Kernel size %d bytes\r\n",size);
-    int pde = 0;
-    int mapped_bytes = 0; 
-    int addr = (int)kernel_start;
-    pde = addr / ARM_SECTION_SIZE;
-    kprintf("Mapping from 0x%x to 0x%x\r\n",addr,addr+size);
-    while(mapped_bytes < size) {
-        kernel_pd[pde] = (addr & ARM_VM_SECTION_MASK) | ARM_VM_SECTION |
-                   ARM_VM_SECTION_SUPER | ARM_VM_SECTION_DOMAIN |
-                   ARM_VM_SECTION_CACHED;
-        mapped_bytes += ARM_SECTION_SIZE;
-        addr += ARM_SECTION_SIZE;
-        pde++;
-    }
-    arch_mmu_switch(kernel_pd);
-    enable_paging();
+    kprintf("I protect you, my device from this hell\r\n");
+    PANIC("Self protection");
 }
 int arch_mmu_map(aspace_t *aspace,vaddr_t base,size_t size,uint32_t flags) {return 0;}
 int arch_mmu_unmap(aspace_t *aspace,vaddr_t vaddr,uint32_t count) {return 0;}
@@ -77,6 +64,12 @@ void arch_mmu_mapPage(aspace_t *aspace,vaddr_t vaddr,paddr_t paddr,uint32_t flag
 
 }
 void *arch_mmu_newAspace() {return NULL;}
-void arch_mmu_destroyAspace(aspace_t *aspace) {}
+void arch_mmu_destroyAspace(aspace_t *aspace,bool all) {}
 aspace_t *arch_mmu_getAspace() {return 0;}
 aspace_t *arch_mmu_getKernelSpace() {return 0;}
+void *arch_mmu_getPhysical(void *virtual) {
+	return NULL;
+}
+bool arch_mmu_duplicate(aspace_t *parent, aspace_t *child) {
+	return false;
+}

@@ -49,7 +49,7 @@ void *thread_schedule(void *stack) {
         if (nextTask == NULL) {
             // Oh! Is this means that the init process just died?
 	        // We just send the warrning message and switch to idle
-	        //kprintf("Warrning: no processes left to run, maybe your init just died, please reboot device\r\n");
+	        kprintf("Warrning: no processes left to run, maybe your init just died, please reboot device\r\n");
 	        push_prc(idle);
 	        return stack;
         }
@@ -120,7 +120,7 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     arch_prepareProcess(th);
     enqueue(task_list,th);
     push_prc(th);
-    //kprintf("PID of new process: %d\r\n",th->pid);
+    //kprintf("PID of new process: %d, entry point 0x%x\r\n",th->pid,entryPoint);
     return th;
 }
 // Clock implementation
@@ -133,6 +133,7 @@ void *clock_handler(void *stack) {
     if (schedulerEnabled) {
         return thread_schedule(stack);
     }
+   // kprintf("ich bin disabled\n");
     return stack;
 }
 void kwait(int ms) {
@@ -173,6 +174,10 @@ void thread_killThread(process_t *prc,int code) {
     // called when thread is killed by an exception or wants to exit
     // remove the process from processes list and insert it into the died list
     arch_cli();
+    if (prc->pid == 1) {
+        kprintf("Attempt to kill init with exit code = 0x%x!\n",code);
+        PANIC("Init died!");
+    }
     // Remove the process from the lists
     prc->died = true;
     queue_remove(priority[prc->priority],prc);
@@ -228,8 +233,9 @@ void thread_killThread(process_t *prc,int code) {
 	    arch_sti();
         arch_reschedule();
     }
-    if (parent->state == STATUS_WAITPID) {
+    if ((parent->state & STATUS_WAITPID) == STATUS_WAITPID) {
         parent->state = STATUS_RUNNING;
+        parent->died_child = prc->pid;
         push_prc(parent);
     }
     runningTask->quota = PROCESS_QUOTA;

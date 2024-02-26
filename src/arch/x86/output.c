@@ -1,7 +1,8 @@
 #include <arch/x86/io.h>
 #include <output.h>
 #include <dev/fb.h>
-#define PORT 0x3f8
+//#define PORT 0x3f8
+static int PORT = 0x3f8;
 static bool fbUsed = false;
 static uint16_t *vgaBuff = (uint16_t *)0xB8000; // alternative output
 static uint16_t vga_x,vga_y;
@@ -65,6 +66,9 @@ void output_write(char *msg) {
 void output_changeToFB() {
     if (vgaUsed) return;
     fbUsed = true;
+   // fb_map();
+    
+    fb_clear(0x0);
 }
 void putc(char c) {
     if (fbUsed) {

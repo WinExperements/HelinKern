@@ -1,0 +1,30 @@
+﻿  initplat.c
+  math.c
+  boxdraw.c
+  cmdline.c
+  console.c
+  crc.c
+  data.c
+  debug.c
+  dpath.c
+  error.c
+  event.c
+  guid.c
+  hand.c
+  hw.c
+  init.c
+  lock.c
+  misc.c
+  print.c
+  efirtlib.c
+  rtdata.c
+  Generating Code...
+  Compiling...
+  rtlock.c
+  rtstr.c
+  vm.c
+  smbios.c
+  sread.c
+  str.c
+  Generating Code...
+  gnu-efi.vcxproj -> C:\Users\User\source\repos\boot-shim\build\gnu-efi\ARM\Debug\gnu-efi.lib

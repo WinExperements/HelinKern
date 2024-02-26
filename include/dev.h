@@ -2,6 +2,9 @@
 #define DEV_H
 #include<typedefs.h>
 #include<vfs.h>
+
+#define DEVFS_TYPE_BLOCK	0x2
+
 typedef struct dev {
     char *name;
     int buffer_sizeMax;
@@ -13,6 +16,8 @@ typedef struct dev {
     int (*ioctl)(struct vfs_node *node,int request,va_list args);
     bool (*isReady)(struct vfs_node *node); // select syscall
     void *device;
+    int type;
+    vfs_node_t *devNode;
     struct dev *next;
     struct dev *prev;
 } dev_t;

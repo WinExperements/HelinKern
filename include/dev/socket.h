@@ -40,6 +40,7 @@ typedef struct _socket {
 	ssize_t (*recv)(struct _socket* socket, int sockfd, void *buf, size_t len, int flags);
 	bool (*isReady)(struct _socket* socket);
 	void *private_data; // socket specific data, like vfs_node_t->priv_data
+	int flags; // like non block or something else
 } Socket;
 
 void socket_init();

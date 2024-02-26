@@ -30,6 +30,7 @@ static char *charBuff;
 static void syncFB(); // draw all characters from charBuff
 static int fb_ioctl(struct vfs_node *node,int request,va_list args);
 static int GFX_MEMORY = 0;
+extern bool disableOutput;
 void fb_init(fbinfo_t *fb) {
     if (!fb) return;
     psf_init();
@@ -45,7 +46,14 @@ void fb_init(fbinfo_t *fb) {
 void fb_enable() {
     // Must disable UART output and enable this FB output
     if (width == 0) return;
-    fb_clear(BLACK);
+    // Don't clear the framebuffer, because i want to see the butifull black screen or device manufactorer logo(Hello Android!)
+    cursor_x = cursor_y = 0;
+    bcolor = WHITE;
+    fcolor = BLACK; // UNIX!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    if (charBuff != NULL) {
+	    // At init
+	    memset(charBuff,0,ws_col*ws_row);
+    }
     DEBUG("ws_col: %d, ws_row: %d\r\n",ws_col,ws_row);
 }
 void fb_putchar(
@@ -167,7 +175,7 @@ void fb_putc(char ch) {
   else if (ch == '\n')
     {
       fb_putchar(' ',cursor_x,cursor_y,0xffffff,BLACK);
-      cursor_x = 1;
+      cursor_x = 0;
       cursor_y++;
     }
 
@@ -181,9 +189,9 @@ void fb_putc(char ch) {
     }
 
   // IF after all the printing we need to insert a new line
-  if (cursor_x >= ws_col-1)
+  if (cursor_x >= ws_col)
     {
-      cursor_x = 1;
+      cursor_x = 0;
       cursor_y++;
     }
     scroll();
@@ -208,6 +216,7 @@ void fb_map() {
 	    }
 	    addr = GFX_MEMORY;
 	    mapped = true;
+	    cursor_x = cursor_y = 0; // why not?
     }
     DEBUG("FB mapped: from 0x%x to 0x%x\r\n",addr,(addr)+(pitch*width));
 }
@@ -219,11 +228,13 @@ void fb_clear(int color) {
         bcolor = color;
         fcolor = 0xffffff;
     }
-    uint32_t *fb = (uint32_t *)addr;
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            fb[x+y*width] = color;
-        }
+    if (!disableOutput) {
+    	uint32_t *fb = (uint32_t *)addr;
+    	for (int y = 0; y < height; y++) {
+        	for (int x = 0; x < width; x++) {
+            		fb[x+y*width] = color;
+        	}
+    	}
     }
     cursor_x = cursor_y = 0;
     // Clear character buffer
@@ -282,7 +293,7 @@ void fbdev_init() {
     memset(charBuff,0,ws_row*ws_col);
     // Намалюємо рамку
     if (width == 0 || height == 0) return;
-    fb_disableCursor();
+    /*fb_disableCursor();
     bcolor = 0x0000FF;
     for (int i = 1; i < ws_row-1; i++) {
 		fb_putchar('|',0,i,fcolor,bcolor);
@@ -303,8 +314,8 @@ void fbdev_init() {
         i++;
         cursor_x++;
     }
-    fb_enableCursor();
-    cursor_x = cursor_y = 1;
+    fb_enableCursor();*/
+    cursor_x = cursor_y = 0;
 }
 int fb_getX() {
     return cursor_x;
@@ -314,8 +325,8 @@ int fb_getY() {
 }
 static void syncFB() {
     // Ми не чіпаємо рамки тому все починається з 1
-	for (int y = 1; y < ws_row-1; y++) {
-		for (int x =1; x <  ws_col-1; x++) {
+	for (int y = 0; y < ws_row; y++) {
+		for (int x =0; x <  ws_col; x++) {
 			fb_putchar(charBuff[y * ws_col + x],x,y,fcolor,bcolor);
 		}
 	}

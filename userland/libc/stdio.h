@@ -7,9 +7,9 @@ typedef unsigned int uint32_t;
 typedef void FILE;
 typedef unsigned int size_t;
 typedef enum seek_type {
-	SEEK_SET = 2,
-	SEEK_END = 3,
-	SEEK_CUR = 0
+	SEEK_SET = 0,
+	SEEK_END = 2,
+	SEEK_CUR = 1
 } seek_type_t;
 int printf(const char *,...);
 FILE *fopen(char *file,char *mode);

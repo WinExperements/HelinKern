@@ -19,6 +19,7 @@ word SLP_TYPb;
 word SLP_EN;
 word SCI_EN;
 byte PM1_CNT_LEN;
+static multiboot_info_t *acpiBInfo;
 
 
 
@@ -50,6 +51,8 @@ struct FACP
    byte PM1_CNT_LEN;
 };
 
+static unsigned int acpiPtr;
+
 
 
 // check if the given address has a valid header
@@ -60,6 +63,15 @@ unsigned int *acpiCheckRSDPtr(unsigned int *ptr)
    byte *bptr;
    byte check = 0;
    int i;
+   /*kprintf("dump of RSDPtr inside %s\n",__func__);
+   kprintf("Dumping 8 byte signature\n");
+   for (int i = 0; i < 8; i++) {
+        kprintf("0x%x ",rsdp->Signature[i]);
+   }
+   kprintf("\r\n");
+   kprintf("Checksum: 0x%x\n",rsdp->CheckSum);
+   kprintf("Revision: 0x%x\n",rsdp->Revision);
+   kprintf("Address of RSDT: 0x%x\n",rsdp->RsdtAddress);*/
 
    if (memcmp(sig, rsdp, 8) == 0)
    {
@@ -93,7 +105,6 @@ unsigned int *acpiGetRSDPtr(void)
 {
    unsigned int *addr;
    unsigned int *rsdp;
-
    // search below the 1mb mark for RSDP signature
    for (addr = (unsigned int *) 0x000E0000; (int) addr<0x00100000; addr += 0x10/sizeof(addr))
    {
@@ -114,6 +125,36 @@ unsigned int *acpiGetRSDPtr(void)
       if (rsdp != NULL)
          return rsdp;
    }
+   kprintf("%s: Cannot find the ACPI data on the Legacy BIOS Place, parsing memory map\r\n",__func__);
+   for (unsigned long i = 0; i < acpiBInfo->mmap_length; i+=sizeof(multiboot_memory_map_t)) {
+		multiboot_memory_map_t *en = (multiboot_memory_map_t *)(acpiBInfo->mmap_addr+i);
+		if (en->type == 3) {
+            kprintf("%s: Detected type: %d, address(low): 0x%x, address(high): 0x%x, size: %d bytes, len_low: 0x%x, len_high: 0x%x\n",__func__,en->type,en->addr_low,en->addr_high,en->size,en->len_low,en->len_high);
+            // Yes, map it before using
+            int howPages = en->len_low / 4096;
+            howPages+=20;
+            unsigned int add = 0;
+            for (int page = 0; page < howPages; page++) {
+                add = en->addr_low + (4096 * page);
+                arch_mmu_mapPage(NULL,add,add,7);
+            }
+            unsigned int *addr_end = (unsigned int *)en->addr_low+en->len_low;
+            kprintf("So, here: 0x%x, 0x%x\n",add,addr_end+20);
+            // search below the 1mb mark for RSDP signature
+            for (addr = (unsigned int *) en->addr_low; (int) addr<addr_end; )
+            {
+                rsdp = acpiCheckRSDPtr(addr);
+                if (rsdp != NULL) {
+                    kprintf("%s: EFI ACPI found at address: ",__func__);
+                    kprintf("0x%x\n",addr);
+                    return rsdp;
+                }
+                int newAddr = (int)addr;
+                newAddr += 4;
+                addr = (unsigned int *)newAddr;
+            }
+        }
+	}
 
    return NULL;
 }
@@ -202,8 +243,11 @@ int acpiEnable(void)
 //
 // (Pkglength bit 6-7 encode additional PkgLength bytes [shouldn't be the case here])
 //
-int initAcpi(void)
+int initAcpi(multiboot_info_t *forEfi)
 {
+   kprintf("initialize of ACPI begin\n");
+   kprintf("Sizeof RSDPtr is %d bytes\n",sizeof(struct RSDPtr));
+   acpiBInfo = forEfi;
    unsigned int *ptr = acpiGetRSDPtr();
 
    // check if address is correct  ( if acpi is available on this pc )
@@ -213,6 +257,7 @@ int initAcpi(void)
       int entrys = *(ptr + 1);
       entrys = (entrys-36) /4;
       ptr += 36/4;   // skip header information
+      acpiPtr = (unsigned int)ptr;
 
       while (0<entrys--)
       {
@@ -306,3 +351,9 @@ void acpiPowerOff(void)
 bool acpiIsOn() {
 	return SCI_EN != 0;
 }
+
+void acpiPostInit() {
+    kprintf("X86 ACPI report\n");
+    kprintf("ACPI found at 0x%x\n",acpiPtr);
+}
+
