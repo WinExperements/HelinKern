@@ -42,4 +42,4 @@ make run # Run via QEMU
 - If the system doesn't boot in graphical mode, then disable UI mode [here](src/arch/x86/boot.s), and set `dontFB` [here](src/arch/x86/arch.c) to `true` and the system must boot in VGA text mode
 
 # Userland
-See (this file)[scripts/README.md)
+See [this file](scripts/README.md)
