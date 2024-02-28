@@ -42,5 +42,4 @@ make run # Run via QEMU
 - If the system doesn't boot in graphical mode, then disable UI mode [here](src/arch/x86/boot.s), and set `dontFB` [here](src/arch/x86/arch.c) to `true` and the system must boot in VGA text mode
 
 # Userland
-The system support newlib applicaitions, but the building process will be documented later, but if you want to do it manually you can apply GCC and binutils patchs and build it using OSDEV OS-specific toolchain build tutorial
-
+See (this file)[scripts/README.md)
