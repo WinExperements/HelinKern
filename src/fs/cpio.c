@@ -56,7 +56,7 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
         int data_offset = offset;
         vfs_read(dev,data_offset,sizeof(struct cpio_hdr),&hdr);
         if (hdr.magic != CPIO_MAGIC) {
-            DEBUG_N("Invalid magic\r\n");
+            kprintf("cpiofs: Invalid magic\r\n");
             me->workDir = home;
             return false;
         }
@@ -86,6 +86,8 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
         parent->flags = VFS_DIRECTORY;
         new_child_node(parent,node);
     }
+    mountpoint->fs = cpio_fs;
+    mountpoint->priv_data = p;
     me->workDir = home;
     return true;
 }

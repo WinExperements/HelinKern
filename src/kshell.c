@@ -58,7 +58,6 @@ void kshell_main() {
     char **argv = kmalloc(100);
     /*argv[0] = "loadm";
     argv[1] = "/initrd/ahci.mod";*/
-    parseCommand(2,argv);
 	while(exit != true) {
         argc = 0;
 		kprintf("> ");
@@ -308,6 +307,21 @@ static void parseCommand(int argc,char *cmd[]) {
             #endif
             kprintf("did i still here?\n");
             arch_sti();
+    } else if (strcmp(cmd[0],"hdd")) {
+    	dev_t *hdd = dev_find("hda");
+    	if (!hdd) {
+    		kprintf("Failed to find HD drive A in devfs!\r\n");
+    		return;
+    	}
+    	vfs_node_t *node = hdd->devNode;
+	int size = 200 * 1024 * 1024;
+    	void *buff = kmalloc(size);
+	if (!buff) {
+		kprintf("Failed to allocate buffer!\r\n");
+	}
+	vfs_readBlock(node,0,size / 512,buff);
+    	kprintf("Readed!!!\r\n");
+    	kfree(buff);
     } else {
         kprintf("Unknown commmand: %s\r\n",cmd[0]);
     }

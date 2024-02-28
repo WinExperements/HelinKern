@@ -268,10 +268,16 @@ void sh_parseCommand(char **argv,int argc) {
         		printf("HDD spin on fail\n");
         	}
         } else if (sel[0] == 'c') {
-        	char *bufa = malloc(512*23127);
-        	fread(bufa,512*23127,1,n);
-        	for (int i = 0; i < 512; i++) {
-        		printf("0x%X ",bufa[i]);
+        	printf("Okay, okay,reading, about 200M of disk\r\n");
+        	int sectorsIn200M = (200*1024*1024) / 512;
+        	int iterations = sectorsIn200M / 255;
+        	printf("Sectors in 200M: %u, iterations: %u\r\n",sectorsIn200M,iterations);
+        	char *bufa = malloc(512*255);
+        	for (int i = 0; i < iterations; i++) {
+        		fread(bufa,512*255,1,n);
+        		if (i % 10 == 0 && i != 0) {
+        			printf("Passed %u iterration of reading!\r\n",i);
+        		}
         	}
         	printf("\n");
         	free(bufa);

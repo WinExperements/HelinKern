@@ -1,0 +1,36 @@
+diff -ur newlib-2.5.0.20171222/config.sub src/config.sub
+--- newlib-2.5.0.20171222/config.sub	2017-12-19 19:58:06.000000000 +0200
++++ src/config.sub	2024-02-28 10:40:53.335662151 +0200
+@@ -1399,7 +1399,7 @@
+ 	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
+ 	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
+ 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops* | -es* \
+-	      | -onefs* | -tirtos* | -phoenix*)
++	      | -onefs* | -tirtos* | -phoenix* | -helin*)
+ 	# Remember, each alternative MUST END IN *, to match a version number.
+ 		;;
+ 	-qnx*)
+diff -ur newlib-2.5.0.20171222/newlib/configure.host src/newlib/configure.host
+--- newlib-2.5.0.20171222/newlib/configure.host	2017-12-19 19:58:06.000000000 +0200
++++ src/newlib/configure.host	2024-02-28 10:38:40.179664453 +0200
+@@ -468,6 +468,9 @@
+ 	sys_dir=sysvi386
+ 	unix_dir=unix
+ 	;;
++  i[3-7]86-*-helin*)
++	sys_dir=helin
++	;;
+   i[34567]86-pc-linux-*)
+ 	sys_dir=linux
+ 	unix_dir=unix
+diff -ur newlib-2.5.0.20171222/newlib/libc/sys/configure.in src/newlib/libc/sys/configure.in
+--- newlib-2.5.0.20171222/newlib/libc/sys/configure.in	2017-12-19 19:58:06.000000000 +0200
++++ src/newlib/libc/sys/configure.in	2024-02-28 10:38:50.651664272 +0200
+@@ -49,6 +49,7 @@
+ 	tirtos) AC_CONFIG_SUBDIRS(tirtos) ;;
+ 	w65) AC_CONFIG_SUBDIRS(w65) ;;
+ 	z8ksim) AC_CONFIG_SUBDIRS(z8ksim) ;;
++	helin) AC_CONFIG_SUBDIRS(helin) ;;
+   esac;
+ fi
+ 

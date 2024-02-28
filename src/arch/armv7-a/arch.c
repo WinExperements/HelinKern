@@ -14,8 +14,9 @@ static kernelInfo *bootDesc;
 extern char kernel_end[]; // linker.ld!!!
 extern char _binary_font_psf_start;
 extern char _binary_font_psf_end;
+extern int disableOutput;
 // Let's port the kernel to the ARMv7A MSM8909
-
+// There will be a lot of #ifdef and something simular. Yes, ARM requires to port kernel to manyy machines.
 void ClearScreenWith(uint32_t *fb,int startX,int startY,int w,int h,int color) {
 	for (int y = startY; y < h; y++) {
 		for (int x = startX; x < w; x++) {
@@ -26,11 +27,16 @@ void ClearScreenWith(uint32_t *fb,int startX,int startY,int w,int h,int color) {
 
 void arch_entry_point(void *arg) {
 	// Hahaha, we now have the fricking custom bootloader
+	#ifdef MSM_SCREEN
 	bootDesc = (kernelInfo *)arg;
 	if (bootDesc->magic != HELINBOOT_KERNINFO_MAGIC) {
 		// Why you trying to boot this kernel by non compatable bootloader?
 		return;
 	}
+	#endif
+	#ifdef QEMUBOARD
+	disableOutput = false;
+	#endif
 	kernel_main("-v");
 }
 void arch_pre_init() {}
@@ -52,6 +58,7 @@ void arch_poweroff() {
 	// Analogichno z arch_reset
 }
 bool arch_getFBInfo(fbinfo_t *info) {
+	#ifdef MSM_SCREEN
 	if (bootDesc == NULL) return false;
 	info->addr = (void *)bootDesc->framebufferAddress;
 	info->width = (int)bootDesc->framebufferWidth;
@@ -60,8 +67,12 @@ bool arch_getFBInfo(fbinfo_t *info) {
 	// Math!
 	info->pitch = 2880;
 	return true;
+	#else
+	return false;
+	#endif
 }
 int arch_getMemSize() {
+#ifdef HELINBOOT_USED
 	// Nah, okay, the kernel supports a ton of boot methods, so this is why it's here.
 	// By the realization, we need....
 	uint64_t mostBigChunk;
@@ -80,6 +91,9 @@ int arch_getMemSize() {
 		}
 	}
 	return mostBigChunk;
+	#else
+	return 20*1024;
+	#endif
 }
 void arch_switchContext(void *prSt) {
 	// We don't have a MMU......how we able even have multitasking on this platform?

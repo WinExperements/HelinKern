@@ -280,7 +280,6 @@ bool ata_device_init(ata_device_t *dev,bool second) {
 		ptr[i+1] = ptr[i];
 		ptr[i] = tmp;
 	}
-    arch_cli();
 	return true;
 }
 int ata_device_detect(ata_device_t *dev,bool second) {
@@ -292,7 +291,11 @@ int ata_device_detect(ata_device_t *dev,bool second) {
 	}*/
 	if (ata_device_init(dev,second)) {
 		kprintf("ATA name: %s\n",dev->identify.model);
-		ata_create_device(true,dev);
+		if (dev->identify.model[0] == 0) {
+			kprintf("??\r\n");
+		} else {
+			ata_create_device(true,dev);
+		}
         if (inter_ata == NULL) {
             kprintf("Adding inter_ata");
             inter_ata = dev;
@@ -326,7 +329,6 @@ int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buffe
 		end_block--;
 	}
 	int off = end_block - start_block;
-	off+=1;
 	int readedPerLoop = 0;
 	while(start_block <= end_block) {
 		ata_vdev_readBlock(node,start_block,512,(void *)buffer + b_offset);
@@ -334,7 +336,6 @@ int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buffe
 		start_block++;
 		readedPerLoop++;
 	}
-	//ata_vdev_readBlock(node,start_block,512*off,(void *)buffer + b_offset);
 	return how;
 }
 /* Only for DEVELOPERS! */
@@ -455,16 +456,18 @@ void ata_create_device(bool hda,ata_device_t *dev) {
 	name[3] = 0;
 	dev_t *disk = kmalloc(sizeof(dev_t));
     	memset(disk,0,sizeof(dev_t));
-	disk->name = name;
+	disk->name = strdup(name);
 	disk->writeBlock = ata_vdev_writeBlock;
 	disk->read = ata_vdev_read;
 	disk->buffer_sizeMax = 512; // default sector size
 	disk->device = dev;
 	disk->readBlock = ata_vdev_readBlock;
 	disk->ioctl = ata_vdev_ioctl;
+	kprintf("Device name address: 0x%x\r\n",name);
 	if (hda) disk->type = DEVFS_TYPE_BLOCK; // this will trigger the partTab to scan partition table
 	// Now register device in our DEVFS
 	dev_add(disk);
+	kfree(name);
 }
 // === Public functions here ===
 

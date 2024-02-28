@@ -64,7 +64,7 @@ void kernel_main(const char *args) {
         fb_clear(0xffffff);
         // Pre-boot framebuffer
 	output_changeToFB(); // important!
-	disableOutput= false;
+	//disableOutput= false;
 	kprintf("Pre-Boot Platform Framebuffer. This buffer doesn't support scrolling outwise the MMU doesn't be initialized by arch-specific code\r\n");
 	disableOutput = true; // change to false if you want to run it on an Lumia device with the provided in tree bootloader.
     }
@@ -85,6 +85,7 @@ void kernel_main(const char *args) {
     	if (strcmp(begin,"-v")) {
     		// verbose boot
     		disableOutput = false;
+    		kprintf("Verbose boot!\r\n");
     	} else if (strcmp(begin,"crash")) {
     		PANIC("For debug purpose only");
     	} else if (strcmp(begin,"noatapi")) {
@@ -112,13 +113,15 @@ void kernel_main(const char *args) {
     keyboard_init();
     fbdev_init();
     ps2mouse_init();
+    pci_init();
+    mbr_init();
+    atapi_init();
     #endif
     tty_init();
     socket_init();
     // register some sockets
     unix_register();
     arch_post_init();
-    if (fb.addr != 0) output_changeToFB();
     clock_setShedulerEnabled(true);
     arch_detect();
     kprintf("Monolitic kernel: Booting up some drives drivers....\n");

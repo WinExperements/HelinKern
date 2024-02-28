@@ -1,6 +1,8 @@
 #ifndef MNTENT_H
 #define MNTENT_H
 
+#define _PATH_MOUNTED "/proc/mounts"
+
 struct mntent
   {
     char *mnt_fsname;           /* Device or server for filesystem.  */

@@ -21,6 +21,9 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/select.h>
+#include <sys/reboot.h>
+#include <sys/utsname.h>
+#include <arpa/inet.h>
 // Structure from src/thread.c from kernel source
 typedef struct _pthread_str {
         int entry;
@@ -47,7 +50,7 @@ void _exit() {
 }
 int close(int file) {
 	if (file <= 2) return 0;
-    	return helin_syscall(8,file,0,0,0,0);
+    return helin_syscall(8,file,0,0,0,0);
 }
 char **environ; /* pointer to array of char * strings that define the current environment variables */
 int execve(char *name, char **argv, char **env) {
@@ -175,14 +178,22 @@ char *getcwd (char *__buf, size_t __size) {
 int mount(const char *source,const char *target,
               const char *filesystemtype,unsigned long mountflags,
               const void *data) {
-    return helin_syscall(21,(int)source,(int)target,(int)filesystemtype,mountflags,(int)data);
+    int ret = helin_syscall(21,(int)source,(int)target,(int)filesystemtype,mountflags,(int)data);
+    if (ret == -1) {
+    	errno = ENOENT;
+    } else if (ret == -2) {
+    	errno = ENODEV;
+    } else if (ret == -3) {
+    	errno = EINVAL;
+    }
+    if (ret < 0) {
+    	return -1;
+    }
+    return ret;
 }
 
 // waitpid
 pid_t waitpid(pid_t pid,int *status,int options) {
-    if (pid <= 0) {
-        return -1; // doesn't supported currently
-    }
     helin_syscall(22,pid,0,0,0,0);
 }
 // Need to port dash shell to our OS
@@ -245,10 +256,12 @@ int sleep(int sec) {
 
 int tcgetattr(int fd,struct termios* tio) {
 	// Return success
-	return 0;
+	errno = ENOSYS;
+	return -ENOSYS;
 }
 int tcsetattr(int fd,struct termios* tio) {
-	return 0;
+	errno = -ENOSYS; // isn't implemented
+	return -ENOSYS;
 }
 
 int access(const char *pathname,int mode) {
@@ -331,10 +344,12 @@ int sigaction(int signum, const struct sigaction *act,
 
 int gethostname(char *name, size_t len) {
 	if (name == NULL || len == 0) return -1;
-	snprintf(name,len,"Helin");
-	return 0;
+	return helin_syscall(52,(int)name,len,0,0,0);
 }
 
+int sethostname(char *name,size_t len) {
+	return helin_syscall(51,(int)name,len,0,0,0);
+}
 
 uid_t geteuid(void) {
 	return getuid();
@@ -408,7 +423,7 @@ pid_t setsid(void) {
 	return -1;
 }
 int mkdir(const char *path, mode_t mode) {
-	return 0;
+	return helin_syscall(53,(int)path,mode,0,0,0);
 }
 int creat(const char *path, mode_t mode) {
 	return open(path,7);
@@ -511,4 +526,53 @@ pid_t vfork() {
 		waitpid(pid,NULL,0);
 	}
 	return pid;
+}
+
+int umount(char *target) {
+    return helin_syscall(56,(int)target,0,0,0,0);
+}
+
+int reboot(int reason) {
+	if (reason == RB_POWER_OFF) {
+		return helin_syscall(14,0xfffc04,0,0,0,0);
+	} else if (reason == RB_AUTOBOOT) {
+		return helin_syscall(14,0,0,0,0,0);
+	} else {
+		errno = -ENOSYS;
+		return -1;
+	}
+	return 0;
+}
+
+int uname(struct utsname *name) {
+	if (name == NULL) {
+		errno = EFAULT;
+		return -1;
+	}
+	return helin_syscall(50,(int)name,0,0,0,0);
+}
+int execl(const char *path, const char *arg, ...) {
+    // Count the number of arguments passed
+    va_list args;
+    va_start(args, arg);
+    int num_args = 1; // Start from 1 to include the initial arg
+    while (va_arg(args, const char *) != NULL) {
+        num_args++;
+    }
+    va_end(args);
+
+    // Create an array to hold the arguments
+    char *argv[num_args + 1]; // Add 1 for the NULL terminator
+
+    // Fill the array with the arguments
+    argv[0] = (char *)arg; // Set the initial argument
+    va_start(args, arg); // Restart the va_list
+    for (int i = 1; i < num_args; i++) {
+        argv[i] = va_arg(args, char *);
+    }
+    va_end(args);
+    argv[num_args] = NULL; // NULL-terminate the array
+
+    // Call execve with the constructed argument array
+    return execve(path, argv, NULL);
 }
