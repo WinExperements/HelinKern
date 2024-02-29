@@ -50,7 +50,7 @@ elif [ "$1" = "build-binutils" ]; then
 	tar xf ../archives/binutils-2.33.1.tar.gz
 	mv binutils-2.33.1 src
 	cd src
-	patch -p2 < /home/user/HelinKern/userland/patches/binutils.patch
+	patch -p2 < ../../../userland/patches/binutils.patch
 	cd ld
 	# create the elf_i386_helin.sh and elf_x86_64_helin.sh
 	cp ../../../elf_i386_helin.sh emulparams/
@@ -90,10 +90,10 @@ elif [ "$1" = "build-newlib" ]; then
 	make install
 	cd ../..
 	cd $toA/newlib/src
-	patch -p1 < /home/user/HelinKern/userland/patches/newlib.patch
+	patch -p1 < $toA/../userland/patches/newlib.patch
 	export PATH="$toA/bin/bin:$PATH"
 	# copy the fucking helin folder to sys
-	cp -r /home/user/HelinKern/userland/newlib/helin newlib/libc/sys/
+	cp -r $toA/../userland/newlib/helin newlib/libc/sys/
 	cd newlib/libc/sys
 	autoconf
 	cd helin
@@ -142,7 +142,7 @@ elif [ $1 = "build-gcc" ]; then
 	tar xf ../archives/gcc-7.5.0.tar.gz
 	mv gcc-7.5.0 src
 	cd src
-	patch -p1 < /home/user/HelinKern/userland/patches/gcc.patch
+	patch -p1 < ../../..//userland/patches/gcc.patch
 	export PATH=$instT/bin/bin:$PATH
 	cd libstdc++-v3
 	autoconf
