@@ -25,3 +25,12 @@ bash build-userland.sh build-gcc
 
 ## Some info
 The additional files places here are required to build binutils due to broken patch file placed at root/userland/patches.
+
+## For x86
+If you want to build all userland including the userland programs for x86, use this commands:
+```console
+bash build-userland-x86.sh
+<when nano will be openned, remove all newlines and save-exit.
+make -C ../ all makeiso
+```
+Now the userland is builded and can be used.
