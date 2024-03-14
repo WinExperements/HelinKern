@@ -31,7 +31,7 @@ typedef struct process {
     vfs_node_t *workDir;
     bool died;
     // Memory information
-    uint32_t brk_begin,brk_end,brk_next_unallocated_page_begin;
+    uint32_t brk_begin,brk_end,brk_next_unallocated_page_begin; // 64-bit support :)
     // Misc
     file_descriptor_t **fds;
     int next_fd;

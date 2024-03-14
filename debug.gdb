@@ -17,5 +17,5 @@ target remote localhost:1234
 #b dash_execute
 #b fb_enable
 #b fb_putc
-b cpio_mount
-b kernel_main
+b elf_load_file
+c

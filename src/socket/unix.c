@@ -17,7 +17,7 @@ typedef struct _unix {
 	queueSize *data;
 } UnixSocketData;
 // Define methods that we gonna use
-int unix_destroy(Socket *);
+bool unix_destroy(Socket *);
 int unix_bind(struct _socket* socket, int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 int unix_listen(struct _socket* socket, int sockfd, int backlog);
 int unix_accept(struct _socket* socket, int sockfd, struct sockaddr *addr, socklen_t *addrlen);
@@ -31,7 +31,7 @@ bool unix_isReady(struct _socket *socket);
  * Usually called by sys_socket via socket methods that used when we register our sockets into one database
  * We need to allocate the socket structure and our socket specific data, then we need to fill it and now we can return it user
 */
-int unix_create(Socket *socket) {
+bool unix_create(Socket *socket) {
 	// Okay, socket structure must be allocated before calling actual creating body
 	// Parameter check
 	if (socket == NULL) return false; // failed to create socket, clean please
@@ -56,7 +56,7 @@ int unix_create(Socket *socket) {
 
 
 // Destroy our socket instance
-int unix_destroy(Socket *socket) {
+bool unix_destroy(Socket *socket) {
 	if (socket == NULL || socket->private_data == NULL) return false; // you know why
 	UnixSocketData *pr = (UnixSocketData *)socket->private_data;
 	arch_sti();
@@ -97,7 +97,10 @@ int unix_listen(struct _socket* socket, int sockfd, int backlog) {
 }
 int unix_accept(struct _socket* socket, int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	arch_sti(); // for any case
-	while(1) {
+	bool nonBlock = socket->flags & O_NONBLOCK ? 1 : 0;
+	// -1 cause the for to be endless.
+	int until = 0;
+	while(until > 0) {
 		Socket *other = NULL;
 		if (socket->acceptQueue->size > 0) {
 			other = (Socket *)dequeue(socket->acceptQueue);
@@ -120,6 +123,7 @@ int unix_accept(struct _socket* socket, int sockfd, struct sockaddr *addr, sockl
 				return thread_openFor(thread_getThread(thread_getCurrent()),n);
 			}
 		}
+		if (nonBlock) until++; // if non block flag ISN'T set, then we act like endless loop.
 	}
 	return -1;
 }
@@ -132,7 +136,7 @@ int unix_connect(struct _socket* socket, int sockfd, struct sockaddr *addr, sock
 	Socket *so = (Socket*)node->priv_data;
 	if (so->acceptQueue == NULL) return -1;
 	enqueue(so->acceptQueue,socket);
-	while(socket->conn == NULL);
+	if ((!socket->flags & O_NONBLOCK)) {while(socket->conn == NULL);}
 	return 0;
 }
 ssize_t unix_send(struct _socket* socket, int sockfd, const void *buf, size_t len, int flags) {

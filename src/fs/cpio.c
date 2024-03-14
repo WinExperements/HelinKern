@@ -93,7 +93,7 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
 }
 
 static int cpio_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
-   if ((size_t)offset >= node->size) return 0;
+   if ((size_t)offset >= (uint64_t)node->size) return 0;
     how = min(how,node->size - offset);
     struct cpio *p = node->priv_data;
     //kprintf("Reading %d bytes, file size: %d\n",how,node->size);

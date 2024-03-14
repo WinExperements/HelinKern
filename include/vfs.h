@@ -2,15 +2,16 @@
 #define VFS_H
 #include<typedefs.h>
 #include <stdarg.h>
+#include <syscall.h> // syscall sync for sys_stat and other VFS syscall specific things.
 #define VFS_DIRECTORY 0x02
 typedef struct vfs_node {
     char *name;
-    uint32_t mask;
-    uint32_t guid;
-    uint32_t uid;
-    uint32_t flags;
-    uint32_t inode;
-    uint32_t size;
+    int mask;
+    int guid;
+    int uid;
+    int flags;
+    int inode;
+    int size;
     struct vfs_node *prev;
     struct vfs_node *first_child;
     struct vfs_node *next_child;
@@ -40,6 +41,7 @@ typedef struct vfs_fs {
     void (*rm)(struct vfs_node *node);
     bool (*isReady)(struct vfs_node *node);
     bool (*umount)(struct vfs_node *node);
+    int (*stat)(struct stat *stat);
     struct vfs_fs *next;
 } vfs_fs_t;
 typedef struct file_descriptor {

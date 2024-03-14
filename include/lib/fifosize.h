@@ -27,5 +27,6 @@ uint32_t queueSize_get_capacity(queueSize* fifo_buffer);
 uint32_t queueSize_get_free(queueSize* fifo_buffer);
 uint32_t queueSize_enqueue(queueSize* fifo_buffer, uint8_t* data, uint32_t size);
 uint32_t queueSize_dequeue(queueSize* fifo_buffer, uint8_t* data, uint32_t size);
+void queueSize_destroy(queueSize* fifo_buffer);
 
 #endif

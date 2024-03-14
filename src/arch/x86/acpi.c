@@ -4,6 +4,7 @@
 #include <arch/x86/io.h>
 #include <kernel.h>
 #include <thread.h>
+#include <arch/mmu.h>
 
 typedef uint32_t dword;
 typedef uint8_t byte;
@@ -141,7 +142,7 @@ unsigned int *acpiGetRSDPtr(void)
             unsigned int *addr_end = (unsigned int *)en->addr_low+en->len_low;
             kprintf("So, here: 0x%x, 0x%x\n",add,addr_end+20);
             // search below the 1mb mark for RSDP signature
-            for (addr = (unsigned int *) en->addr_low; (int) addr<addr_end; )
+            for (addr = (unsigned int *) en->addr_low; (int) addr<(int)addr_end; )
             {
                 rsdp = acpiCheckRSDPtr(addr);
                 if (rsdp != NULL) {

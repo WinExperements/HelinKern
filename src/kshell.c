@@ -16,6 +16,7 @@
 #include <dev/socket.h>
 #ifdef X86
 #include <arch/x86/acpi.h>
+#include <atapi/atapi.h>
 #endif
 #include <dev.h>
 #include <dev/fb.h>
@@ -261,7 +262,7 @@ static void parseCommand(int argc,char *cmd[]) {
 		}
 	    kprintf("Socket created, creating client\n");
 	    serv->listen(serv,0,0);
-	    thread_create("ss",th_m,false);
+	    thread_create("ss",(int)th_m,false);
 	    int r = serv->accept(serv,0,a,NULL);
 	    kprintf("A: %d\n",r);
 	    process_t *c = thread_getThread(1);
@@ -300,13 +301,6 @@ static void parseCommand(int argc,char *cmd[]) {
 	kprintf("All steps ended\n");
 	kprintf("0x%x, 0x%x\n",realACPIAddress,startAddressOfACPI+118784);
     #endif
-    } else if (strcmp(cmd[0],"atapi")) {
-            arch_cli();
-            #ifdef X86
-            atapi_init();
-            #endif
-            kprintf("did i still here?\n");
-            arch_sti();
     } else if (strcmp(cmd[0],"hdd")) {
     	dev_t *hdd = dev_find("hda");
     	if (!hdd) {
@@ -314,14 +308,26 @@ static void parseCommand(int argc,char *cmd[]) {
     		return;
     	}
     	vfs_node_t *node = hdd->devNode;
-	int size = 200 * 1024 * 1024;
-    	void *buff = kmalloc(size);
-	if (!buff) {
-		kprintf("Failed to allocate buffer!\r\n");
-	}
-	vfs_readBlock(node,0,size / 512,buff);
-    	kprintf("Readed!!!\r\n");
-    	kfree(buff);
+        void *buff = kmalloc(8192);
+        kprintf("allocated, reading\r\n");
+        int start = clock_getUptimeMsec();
+        int i;
+        int longestRead = 0;
+       	for (i = 0; i < (500 * 1024 * 1024) / 8192; i++) {
+       		int e = clock_getUptimeMsec();
+       		vfs_readBlock(node,i,8192,buff);
+       		i+=8;
+       		int b = clock_getUptimeMsec();
+       		int of = b - e;
+       		if (of > longestRead) {
+       			kprintf("Long read detected: %d ms\r\n",of);
+       			longestRead = of;
+       		}
+       	}
+        clock_setShedulerEnabled(true);
+    	int end = clock_getUptimeMsec();
+    	kprintf("it's took: %d milliseconds\r\n",end-start);
+    	
     } else {
         kprintf("Unknown commmand: %s\r\n",cmd[0]);
     }

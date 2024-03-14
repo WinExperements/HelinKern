@@ -27,6 +27,9 @@
 #include <ext2/ext2.h>
 // Sockets!
 #include <socket/unix.h>
+#ifdef X86
+#include <pci/pci.h>
+#endif
 static int fb_addr;
 extern int *syscall_table;
 int AHCI_BASE;
@@ -63,10 +66,10 @@ void kernel_main(const char *args) {
         fb_addr = (int)fb.addr;
         fb_clear(0xffffff);
         // Pre-boot framebuffer
-	output_changeToFB(); // important!
-	//disableOutput= false;
-	kprintf("Pre-Boot Platform Framebuffer. This buffer doesn't support scrolling outwise the MMU doesn't be initialized by arch-specific code\r\n");
-	disableOutput = true; // change to false if you want to run it on an Lumia device with the provided in tree bootloader.
+        output_changeToFB(); // important!
+        //disableOutput= false;
+        kprintf("Pre-Boot Platform Framebuffer. This buffer doesn't support scrolling outwise the MMU doesn't be initialized by arch-specific code\r\n");
+        disableOutput = true; // change to false if you want to run it on an Lumia device with the provided in tree bootloader.
     }
     arch_init();
     // Hi!
@@ -113,9 +116,6 @@ void kernel_main(const char *args) {
     keyboard_init();
     fbdev_init();
     ps2mouse_init();
-    pci_init();
-    mbr_init();
-    atapi_init();
     #endif
     tty_init();
     socket_init();
@@ -128,23 +128,23 @@ void kernel_main(const char *args) {
     // Directly try to mount initrd and run init if it fails then panic like Linux kernel or spawn kshell
     vfs_node_t *initrd = vfs_find("/bin/initrd.cpio");
     if (!initrd) {
-	PANIC("Cannot find initrd. Pass it as module with initrd.cpio argument");
+        PANIC("Cannot find initrd. Pass it as module with initrd.cpio argument");
     }
     vfs_fs_t *cpio = vfs_findFS("cpio");
     if (!cpio) {
-	PANIC("Cannot find CPIO FS in kernel!");
+        PANIC("Cannot find CPIO FS in kernel!");
     }
     vfs_mount(cpio,initrd,"/initrd");
     vfs_node_t *mounted = vfs_find("/initrd");
     if (!mounted || !strcmp(mounted->fs->fs_name,"cpio")) {
-	PANIC("Failed to mount initrd");
+        PANIC("Failed to mount initrd");
     }
 #if 1
     //kprintf("52 syscall points to 0x%x\n",syscall_get(52));
     int (*exec)(char *,int,char **) = ((int (*)(char *,int,char **))syscall_get(13));
     int pid = exec("/initrd/init",0,NULL); // Ядро передасть параметри за замовчуванням.
     if (pid < 0) {
-	PANIC("Failed to execute init");
+        PANIC("Failed to execute init");
    }
    //exec("/initrd/demo-hello",0,NULL);
 #else

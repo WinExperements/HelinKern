@@ -90,7 +90,7 @@ void PciGetBar(PciBar *bar, unsigned int id, unsigned int index)
         uint32_t maskHigh;
         PciReadBar(id, index + 1, &addressHigh, &maskHigh);
 
-        bar->u.address = (void *)(((uint64_t)addressHigh << 32) | (addressLow & ~0xf));
+        bar->u.address = (uint64_t *)(((uint64_t)addressHigh << 32) | (addressLow & ~0xf));
         bar->size = ~(((uint64_t)maskHigh << 32) | (maskLow & ~0xf)) + 1;
         bar->flags = addressLow & 0xf;
     }

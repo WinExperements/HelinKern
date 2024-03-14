@@ -9,6 +9,7 @@
 #include <debug.h>
 #include <tty.h> // TTY!!!
 #include <lib/queue.h>
+#include <arch.h>
 static void *keyboard_handler(void *);
 static bool shift,ctrl = false;
 static void keyboard_keyHandler(char key);
@@ -60,7 +61,7 @@ static void *keyboard_handler(void *stack) {
     uint8_t key = inb(0x60);
     if (key < 0x80) {
 	    if ((tty_flags & FLAG_RAW)) {
-		    enqueue(keys,key);
+		    enqueue(keys,(void *)(int)key);
 		    return stack;
 	    }
         if (key == 0x2a || key == 0x36) {
@@ -97,7 +98,7 @@ static void *keyboard_handler(void *stack) {
 
 static void keyboard_keyHandler(char key) {
     // Ці елементи більше не потрібні!
-    enqueue(keys,key);
+    enqueue(keys,(void *)(int)key);
     if ((tty_flags & FLAG_ECHO)) {
 		kprintf("%c",key);
 	}
@@ -115,7 +116,7 @@ static int keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, v
     arch_sti();
     if (how == 1) 
     {
-	    char key = dequeue(keys);
+	    char key = (int)dequeue(keys);
 	    if (key > 0) {
 		    buff[0] = key;
 	    	    return 1;
@@ -125,7 +126,7 @@ static int keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, v
     while (i < (how - 1)) {
         while (keys->size == 0);
 
-        char c = dequeue(keys);
+        char c = (int)dequeue(keys);
 
         if (c >= 8 && c <= 0x7e) {
             buff[i] = c;

@@ -62,7 +62,7 @@ typedef struct PciBar
 {
     union
     {
-        void *address;
+        uint64_t *address;
         uint16_t port;
     } u;
     uint64_t size;

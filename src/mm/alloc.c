@@ -175,9 +175,9 @@ static void sbrk_page(process_t* process, int page_count)
         {
             if ((process->brk_next_unallocated_page_begin + PAGESIZE_4K) > (MEMORY_END - PAGESIZE_4K))
             {
+                kprintf("%s: warrning!! process->brk_next_unallocated_page_begin -> 0x%x, memory end + pg -> 0x%x!\r\n",__func__,process->brk_next_unallocated_page_begin + PAGESIZE_4K,MEMORY_END - PAGESIZE_4K);
                 return;
             }
-
             uint32_t p_addr = alloc_getPage();
 
             if ((int)(p_addr) < 0)

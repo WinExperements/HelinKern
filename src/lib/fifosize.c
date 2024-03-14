@@ -1,6 +1,6 @@
 #include <lib/fifosize.h>
 #include <mm/alloc.h>
-
+#include <arch/mmu.h>
 
 queueSize* queueSize_create(uint32_t capacity) {
     queueSize* fifo_buffer = (queueSize*)kmalloc(sizeof(queueSize));

@@ -8,6 +8,8 @@
 #include <kernel.h>
 #include <arch.h>
 #include <arch/mmu.h>
+#include <mm/alloc.h>
+extern void copy_page_physical(int,int);
 gdt_entry_t gdt_entries[6];
 gdt_ptr_t   gdt_ptr;
 tss_entry_t tss_entry;
@@ -188,7 +190,7 @@ static bool handle_COW(int addr,int present) {
             process_t *faulter = thread_getThread(thread_getCurrent());
             if (faulter->parent == NULL) return false;
             	     aspace_t *addrSpace = arch_mmu_getAspace();
-		     int phys = arch_mmu_getPhysical(addr);
+		     int phys = (int)arch_mmu_getPhysical((void *)addr);
 		     aspace_t *parentSP = faulter->parent->aspace;
 		     /*
 		      * If parent doesn't have the same address of page as we have, that means that parent is already have remaped page, that happening because our scheduler starts first parent then child

@@ -131,7 +131,7 @@ int arch_getMemSize() {
 void *arch_prepareContext(int entry,bool isUser) {
     int frame = (int)(kmalloc(4096)+4096);
     stack_addr = ((int)frame-4096);
-    memset(stack_addr,0,4096);
+    memset((void *)stack_addr,0,4096);
     if (!isUser) {
         PUSH(frame,int,0);
         PUSH(frame,int,entry);
@@ -227,6 +227,7 @@ void arch_post_init() {
 	vga_change();
     }*/
     kprintf("%s: begin of post init\n",__func__);
+    kprintf("X86 official port post init process begin. Not all X86 platforms are supported. Build date of this support module: %s\r\n",__DATE__);
     symbols_init(info);
     // Copy all modules into rootfs
     vfs_node_t *node = vfs_find("/bin");

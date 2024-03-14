@@ -49,7 +49,7 @@ static void cpu_set_apic_base(uintptr_t apic) {
 
 #ifdef __PHYSICAL_MEMORY_EXTENSION__
    edx = (apic >> 32) & 0x0f;
-#endif 
+#endif
    setMsr(IA32_APIC_BASE_MSR, eax, edx);
 }
 

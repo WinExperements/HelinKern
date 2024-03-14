@@ -265,7 +265,7 @@ unsigned int vsnprintf(char* s1, unsigned int n, const char* s2, va_list list)
     return count;
 }
 
-int strncmp(const char* s1, const char* s2, uint32_t n)
+int strncmp(const char* s1, const char* s2, int n)
 {
     for (int i = 0; i < n; ++i) {
         if (*s1 != *s2)

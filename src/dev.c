@@ -8,7 +8,6 @@
 #include <fs/parttab.h>
 /* Since 30.01.2024 this is now a completlly independ DEVFS(must be mounted by init) */
 static dev_t *device;
-static vfs_node_t *dev_dir;
 static vfs_fs_t *fs;
 static int devfs_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
 static int devfs_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
@@ -151,7 +150,7 @@ static vfs_node_t *devfs_finddir(struct vfs_node *in,char *name) {
     return NULL;
 }
 static struct dirent *devfs_readdir(struct vfs_node *dir,uint32_t index) {
-    int i = 0;
+    uint32_t i = 0;
     dev_t *start = device;
     while(start) {
         if (start->devNode != NULL) {

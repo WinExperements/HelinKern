@@ -59,7 +59,7 @@ elif [ "$1" = "build-binutils" ]; then
 	cd ..
 	cd ../build
 	../src/configure --target=i686-helin --prefix=$helinroot --with-sysroot=$sysrootPath --disable-werror
-	make -j5
+	make -j$(nproc)
 	make install
 elif [ "$1" = "build-newlib" ]; then
 	toA=$(pwd)
@@ -101,7 +101,7 @@ elif [ "$1" = "build-newlib" ]; then
 	cd ../../../../../build
 	export PATH="$toA/../gcc-i686/bin:$PATH"
 	../src/configure --target=i686-helin --prefix=/usr
-	make -j5
+	make -j$(nproc)
 	echo If build failed, please remove latest symbols in $toA/newlib/build/i686-helin/newlib/libc/sys/helin/Makefile, then enter bash $0 retry-newlib
 elif [ $1 = "retry-newlib" ]; then
 	toA=$(pwd)
@@ -111,7 +111,7 @@ elif [ $1 = "retry-newlib" ]; then
 	cd newlib/build
 	make -C i686-helin/newlib/libc/sys/helin
 	make -C i686-helin/newlib/libc/sys
-	make -j5
+	make -j$(nproc)
 	make DESTDIR=$sysrootPath install
 elif [ $1 = "build-gcc" ]; then
 	# Here we do a GCC like stuff
@@ -152,8 +152,8 @@ elif [ $1 = "build-gcc" ]; then
 	export PATH=/home/user/gcc-i686/bin:$PATH
 	cp -vr $sysrootPath/usr/i686-helin $helinroot/
 	../src/configure --target=i686-helin --prefix=$helinroot --with-sysroot=$sysrootPath --enable-languages=c,c++ --with-newlib
-	make all-gcc all-target-libgcc -j5
-	make all-target-libstdc++-v3 -j5
+	make all-gcc all-target-libgcc -j$(nproc)
+	make all-target-libstdc++-v3 -j$(nproc)
 	make install-gcc install-target-libgcc install-target-libstdc++-v3
 else
 	echo Script debug! hostDir: $hostDir sysroot path: $sysrootPath root of all: $helinroot

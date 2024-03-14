@@ -14,6 +14,7 @@
 #include <kernel.h> // interrupts for da controller
 #include <arch/x86/idt.h>
 #include <arch.h>
+#include <arch/mmu.h>
 /*
     Ported version of https://github.com/klange/toaruos/blob/toaru-1.x/modules/ata.c
 */
@@ -38,6 +39,13 @@ typedef struct {
 	uint64_t sectors_48;
 	uint16_t unused7[152];
 } __attribute__((packed)) ata_identify_t;
+
+typedef struct {
+	uintptr_t offset;
+	uint16_t bytes;
+	uint16_t last;
+} prdt_t;
+
 typedef struct {
 	uint8_t reserved;
 	uint8_t channel;
@@ -53,6 +61,14 @@ typedef struct {
 	uint16_t nein;
 	int slave;
 	ata_identify_t identify;
+	prdt_t * dma_prdt;
+	uintptr_t dma_prdt_phys;
+	uint8_t * dma_start;
+	uintptr_t dma_start_phys;
+	uint32_t bar4;
+	uint32_t pci_id;
+	int latestSector; // for ata_vdev_read optimization, check latest lba before reading
+	int busy; // because we like to not read the PIO register :/
 } ata_device_t;
 #define ATA_SR_BSY     0x80
 #define ATA_SR_DRDY    0x40
@@ -125,6 +141,7 @@ typedef struct {
 #define ATA_REG_ALTSTATUS  0x0C
 #define ATA_REG_DEVADDRESS 0x0D
 #define ATA_SECTOR_SIZE 512
+#define ATA_CACHE_SIZE 4096
 static ata_device_t ata_primary_master   = {.base = 0x1F0, .ctrl = 0x3F6, .slave = 0};
 static ata_device_t ata_primary_slave    = {.base = 0x1F0, .ctrl = 0x3F6, .slave = 1};
 static ata_device_t ata_secondary_master = {.base = 0x170, .ctrl = 0x370, .slave = 0};
@@ -138,7 +155,7 @@ static int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void
 static void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf);
 int ata_print_error(ata_device_t *dev);
 static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf);
-static int ata_vdev_ioctl(vfs_node_t *node,int request,...);
+static int ata_vdev_ioctl(vfs_node_t *node,int request,char *buf);
 static char ata_start_char = 'a';
 static char ata_cdrom_char = 'a';
 static uint64_t next_lba = 0;
@@ -294,6 +311,28 @@ int ata_device_detect(ata_device_t *dev,bool second) {
 		if (dev->identify.model[0] == 0) {
 			kprintf("??\r\n");
 		} else {
+			kprintf("ATA: Enabling DMA support on this drive!\r\n");
+			dev->dma_prdt = kmalloc(4096);
+			dev->dma_start = kmalloc(4096);
+			dev->dma_prdt_phys = (uintptr_t)arch_mmu_getPhysical(dev->dma_prdt);
+			dev->dma_start_phys = (uintptr_t)arch_mmu_getPhysical(dev->dma_start);
+			dev->dma_prdt[0].offset = dev->dma_start_phys;
+			dev->dma_prdt[0].bytes = 16*512;
+			dev->dma_prdt[0].last = 0x8000;
+			uint16_t command_reg = PciRead32(dev->pci_id, PCI_CONFIG_COMMAND);
+			if (!(command_reg & (1 << 2))) {
+				command_reg |= (1 << 2); /* bit 2 */
+				PciWrite32(dev->pci_id, PCI_CONFIG_COMMAND,command_reg);
+				command_reg = PciRead16(dev->pci_id, PCI_CONFIG_COMMAND);
+				kprintf("Enabled bit 2 in command register of this PCI device\r\n");
+			}
+			dev->bar4 =PciRead32(dev->pci_id, PCI_CONFIG_BAR4);
+			if (dev->bar4 & 0x00000001) {
+				dev->bar4 = dev->bar4 & 0xFFFFFFFC;
+			} else {
+				kprintf("ERROR: We don't know what to do with this DMA device!\r\n");
+				return 1; /* No DMA because we're not sure what to do here */
+			}
 			ata_create_device(true,dev);
 		}
         if (inter_ata == NULL) {
@@ -307,37 +346,39 @@ int ata_device_detect(ata_device_t *dev,bool second) {
 /* This function added for EXT2 FS driver */
 int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buffer) {
    // kprintf("ATA: read %d bytes\n",how);
-	int start_block = (offset / 512);
-        int end_block = (offset + how -1 ) / 512;
-	int b_offset = 0;
-	if (offset % 512 || how < 512) {
-		unsigned int pr_size = (512 - (offset % 512));
-		if (pr_size > how) pr_size = how;
-		char *tmp = kmalloc(512);
-		ata_vdev_readBlock(node,start_block,512,tmp);
-		memcpy(buffer, (void *)((uintptr_t)tmp + ((uintptr_t)offset % 512)), pr_size);
-		kfree(tmp);
-		b_offset += pr_size;
-		start_block++;
+	ata_device_t *dev = node->device;
+	if (dev->type == IDE_ATAPI) return 0;
+	kprintf("%s(0x%x,%d,%d,0x%x)\r\n",__func__,node,offset,how,buffer);
+	int startSec = offset / 512;
+	int totalSectors = how / 8192;
+	if (totalSectors == 0) {
+		ata_vdev_readBlock(node,startSec,8192,NULL);
+		kprintf("ATA: copy %d bytes of data\r\n",how);
+		memcpy(buffer,dev->dma_start,how);
+		return how;
 	}
-	if ((offset + how)  % 512 && start_block <= end_block) {
-		int prr_size = (offset + how) % 512;
-		char *tmp = kmalloc(512);
-                ata_vdev_readBlock(node,end_block,512,tmp);
-                memcpy((void *)((uintptr_t)buffer + how - prr_size), tmp, prr_size);
-		kfree(tmp);
-		end_block--;
-	}
-	int off = end_block - start_block;
-	int readedPerLoop = 0;
-	while(start_block <= end_block) {
-		ata_vdev_readBlock(node,start_block,512,(void *)buffer + b_offset);
-		b_offset+=512;
-		start_block++;
-		readedPerLoop++;
+	// okay, now we need some loop.
+	int total_bytes = how;
+	int off = 0;
+	while(total_bytes > 0) {
+		// We need to check if the buffer can fit into 8192
+		int howToCopy = total_bytes - 8192;
+		kprintf("ATA: yes, we in loop\r\n");
+		if (howToCopy < 0) {
+			// We don't fit, retry
+			howToCopy = total_bytes;
+			kprintf("%s: don't fit on this iteration\r\n",__func__);
+		}
+		kprintf("%s: %d\r\n",__func__,howToCopy);
+		ata_vdev_readBlock(node,startSec,8192,NULL);
+		memcpy(buffer+off,dev->dma_start,howToCopy);
+		total_bytes-=8192;
+		off+=8192;
+		startSec+=16;
 	}
 	return how;
 }
+
 /* Only for DEVELOPERS! */
 void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 	// Convert void * to uint8_t *
@@ -390,55 +431,86 @@ static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf) 
         int doCopy = false;
         uint64_t lba = blockNo;
         uint16_t sectors = how/512;
-        if (sectors == 0) {
-                sectors = 1;
-                buf = kmalloc(512);
-                doCopy = 1;
-        }
         //kprintf("Read %d sectors at %d\r\n",sectors,lba);
         if (sectors == 0) sectors = 1;
 	if (sectors > 255) {
 		kprintf("ATA: Maximum count of sectors that able to read per one command is 255!\n");
 		sectors = 254;
 	}
+	if (blockNo == 0) {
+		goto readActual;
+	}
+	
+	// Before issusing real READ DMA command, check if we don't readed the sectors previously
+readActual:
+	// DMA support!
+	outb(dev->bar4,0x00);
+	outl(dev->bar4 + 0x04, dev->dma_prdt_phys);
+	outb(dev->bar4 + 0x2, inb(dev->bar4 + 0x02) | 0x04 | 0x02);
+	outb(dev->bar4, 0x08);
+	while (1) {
+		uint8_t status = inb(dev->base + ATA_REG_STATUS);
+		if (!(status & ATA_SR_BSY)) break;
+	}
+	int cache_sectors = sectors;
         outb(dev->base+ATA_REG_HDDEVSEL,0x40);
-        outb(dev->base+ATA_REG_SECCOUNT0,(sectors >> 8) & 0xFF);
-		outb(dev->base+ATA_REG_LBA0, (lba & 0xff000000) >> 24);
-		outb(dev->base+ATA_REG_LBA1, (lba & 0xff000000) >> 32);
-		outb(dev->base+ATA_REG_LBA2, (lba & 0xff000000) >> 48);
-		outb(dev->base+ATA_REG_SECCOUNT0,sectors & 0xFF);
-		outb(dev->base+ATA_REG_LBA0,lba & 0xFF);
-		outb(dev->base+ATA_REG_LBA1,(lba >> 8) & 0xFF);
-		outb(dev->base+ATA_REG_LBA2,(lba >> 16) & 0xFF);
-        outb(dev->base+ATA_REG_COMMAND,ATA_CMD_READ_PIO_EXT); // ATA_CMD_READ_PIO_EXT
+        ata_io_wait(dev);
+        outb(dev->base + ATA_REG_FEATURES, 0x01);
+        outb(dev->base+ATA_REG_SECCOUNT0,(cache_sectors >> 8) & 0xFF);
+	outb(dev->base+ATA_REG_LBA0, (lba & 0xff000000) >> 24);
+	outb(dev->base+ATA_REG_LBA1, (lba & 0xff000000) >> 32);
+	outb(dev->base+ATA_REG_LBA2, (lba & 0xff000000) >> 48);
+	outb(dev->base+ATA_REG_SECCOUNT0,cache_sectors & 0xFF);
+	outb(dev->base+ATA_REG_LBA0,lba & 0xFF);
+	outb(dev->base+ATA_REG_LBA1,(lba >> 8) & 0xFF);
+	outb(dev->base+ATA_REG_LBA2,(lba >> 16) & 0xFF);
         uint8_t i;
         // convert buffer
         uint8_t *bu = (uint8_t *)buf;
-        arch_sti();
-        for (i = 0; i < sectors; i++) {
-                while(1) {
-                        uint8_t status = inb(dev->base+ATA_REG_STATUS);
-                        if (status & ATA_SR_DRQ) {
-                                // Disk is ready to transfer data
-                                break;
-                        } else if (status & ATA_SR_ERR) {
-                                kprintf("ATA: Disk error. Cancel\n");
-                                return;
-                        }
-                }
-                insw(dev->base,bu,256);
-                bu+=256;
-        }
+        while (1) {
+		uint8_t status = inb(dev->base + ATA_REG_STATUS);
+		if (!(status & ATA_SR_BSY) && (status & ATA_SR_DRDY)) break;
+	}
+	outb(dev->base + ATA_REG_COMMAND, ATA_CMD_READ_DMA_EXT);
+	ata_io_wait(dev);
+
+	outb(dev->bar4, 0x08 | 0x01);
+	inter_ata->busy = 1;
+	/*while (1) {
+		int status = inb(dev->bar4 + 0x02);
+		int dstatus = inb(dev->base + ATA_REG_STATUS);
+		if (!(status & 0x04)) {
+			continue;
+		}
+		if (!(dstatus & ATA_SR_BSY)) {
+			break;
+		}
+	}
+*/
+	while(inter_ata->busy);
+	/* Inform device we are done. */
+	outb(dev->bar4 + 0x2, inb(dev->bar4 + 0x02) | 0x04 | 0x02);
         if (doCopy) {
                 memcpy(dd,buf,how);
                 kfree(buf);
         }
-		if (sectors > 255) {
-			kprintf("ATA: Sectors count are bigger that 0xFF, repeat process\n");
-			sectors-=255;
-			ata_vdev_readBlock(node,blockNo+255,sectors*512,bu);
-		}
+	if (sectors > 255) {
+		kprintf("ATA: Sectors count are bigger that 0xFF, repeat process\n");
+		sectors-=255;
+		ata_vdev_readBlock(node,blockNo+255,sectors*512,bu);
+	}
+	// Dump the PDRT
+	if (how > 8192) {
+		kprintf("WARRNING: DMA support only 8 sectors :). So we copy only 8 sectors\r\n");
+	}
+	if (buf == NULL) {
+		dev->latestSector = blockNo;
+		return;
+	}
+	memcpy(bu,dev->dma_start,(how > 8192) ? 8192 : how);
+	//kprintf("%s: ended\r\n",__func__);
 }
+
 
 void ata_create_device(bool hda,ata_device_t *dev) {
 	kprintf("ATA: creating device: ctrl -> 0x%x, base -> 0x%x\n",dev->ctrl,dev->base);
@@ -524,6 +596,9 @@ void parseATAStatus(uint8_t status) {
 
 void *ata_irq_handler(void *stack) {
     inb(inter_ata->base+ATA_REG_STATUS);
+	if (inter_ata->busy) {
+		inter_ata->busy = 0;
+	}
     /*kprintf("ATA IRQ handler!\n");
     kprintf("Status of drive(after sending there commands): 0x%x\n",inb(inter_ata->base+ATA_REG_STATUS));
     kprintf("Error register: 0x%x\n",inb(inter_ata->base+ATA_REG_ERROR));
@@ -553,6 +628,8 @@ static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
 		    unsigned int BAR1 = PciRead32(id,PCI_CONFIG_BAR1);
 		    unsigned int BAR2 = PciRead32(id,PCI_CONFIG_BAR2);
 		    unsigned int BAR3 = PciRead32(id,PCI_CONFIG_BAR3);
+	    unsigned int BAR4 = PciRead32(id,PCI_CONFIG_BAR4);
+	    kprintf("BAR4 for the controller: 0x%x\r\n",BAR4);
             uint16_t base = (BAR0 & 0xFFFFFFFC) + 0x1F0 * (!BAR0);
             uint16_t ctrl = (BAR1 & 0xFFFFFFFC) + 0x3F6 * (!BAR1);
             uint16_t sec_base = (BAR2 & 0xFFFFFFFC) + 0x170 * (!BAR2);
@@ -561,18 +638,26 @@ static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
             ata_pri->base = base;
             ata_pri->ctrl = ctrl;
             ata_pri->slave = 0;
+            ata_pri->bar4 = BAR4;
+            ata_pri->pci_id = id;
             ata_device_t *ata_sec = kmalloc(sizeof(ata_device_t));
             ata_sec->base = base;
             ata_sec->ctrl = ctrl;
             ata_sec->slave = 1;
+            ata_sec->bar4 = BAR4;
+            ata_sec->pci_id = id;
             ata_device_t *sec_pri = kmalloc(sizeof(ata_device_t));
             sec_pri->base = sec_base;
             sec_pri->ctrl = sec_ctrl;
             sec_pri->slave = 0;
+            sec_pri->bar4 = BAR4;
+            sec_pri->pci_id = id;
             ata_device_t *sec_sec = kmalloc(sizeof(ata_device_t));
             sec_sec->base = sec_base;
             sec_sec->ctrl = sec_ctrl;
             sec_sec->slave = 1;
+            sec_sec->bar4 = BAR4;
+            sec_sec->pci_id = id;
             kprintf("PCI line: 0x%x, 0x%x\n",PciRead8(id,0x3c),PciRead8(id,PCI_CONFIG_INTERRUPT_PIN));
             kprintf("PCI PRIF: 0x%x\n",PciRead8(id,0x09));
             kprintf("ata: pci: detecting drives.... 0x%x\n",base);
@@ -580,7 +665,7 @@ static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
                 kprintf("device is zero! Skip\n");
                 return false;
             }
-            inter_ata = &ata_pri;
+            inter_ata = ata_pri;
             interrupt_add(0x2a,ata_irq_handler);
             interrupt_add(0x2f,ata_irq_handler);
             interrupt_add(0x2e,ata_irq_handler);
@@ -628,7 +713,7 @@ int ata_print_error(ata_device_t *dev) {
 	return type;
 }
 
-static int ata_vdev_ioctl(vfs_node_t *node,int request,...) {
+static int ata_vdev_ioctl(vfs_node_t *node,int request,char *buf) {
 	ata_device_t *dev = node->device;
 	if (dev == NULL || dev->base == 0) return -1;
 	switch (request) {

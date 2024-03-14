@@ -2,6 +2,7 @@
 #include <arch/x86/mmu.h>
 #include <mm/alloc.h>
 #include <arch.h>
+#include <output.h>
 
 // MMU implementation
 /*
@@ -128,7 +129,7 @@ int arch_mmu_map(aspace_t *aspace,vaddr_t base,size_t size,uint32_t flags) {
     int s = PAGE_INDEX_4K(base);
     for (size_t i = 0; i < (size/PAGESIZE_4K)+1; i++) {
         // Bro WTF?
-        add_page_to_pd(base+(i*4096),alloc_getPage(),flags);
+            add_page_to_pd((void *)base+(i*4096),alloc_getPage(),flags);
     }
     return 0;
 }
@@ -217,7 +218,7 @@ void *arch_mmu_getPhysical(void *virtual) {
     int vaddr = (int)virtual;
     uint32_t cr3 = 0;
 
-    if (vaddr < (void *)KERN_HEAP_END) {
+    if (vaddr < (int)KERN_HEAP_END) {
         cr3 = read_cr3();
         CHANGE_PD(kernel_pg);
     }

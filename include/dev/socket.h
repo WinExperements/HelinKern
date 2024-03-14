@@ -14,6 +14,7 @@
 #define PF_UNIX         PF_LOCAL
 #define PF_FILE         PF_LOCAL
 
+#define O_NONBLOCK	1	// Non blocking socket
 
 typedef uint16_t sa_family_t;
 typedef uint32_t socklen_t;
@@ -40,6 +41,9 @@ typedef struct _socket {
 	ssize_t (*recv)(struct _socket* socket, int sockfd, void *buf, size_t len, int flags);
 	bool (*isReady)(struct _socket* socket);
 	void *private_data; // socket specific data, like vfs_node_t->priv_data
+	/*
+	 * Flags are the same as the domain type
+	*/
 	int flags; // like non block or something else
 } Socket;
 

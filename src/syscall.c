@@ -15,7 +15,7 @@ typedef struct _pthread_str {
 	void *arg;
 } pthread_str;
 
-typedef struct utsname {
+struct utsname {
     char *sysname;    /* Operating system name (e.g., "Linux") */
     char *nodename;   /* Name within communications network */
     char *release;
@@ -33,9 +33,12 @@ static int sys_open(char *path,int flags);
 static void sys_close(int fd);
 static int sys_read(int fd,int offset,int size,void *buff);
 static int sys_write(int fd,int offset,int size,void *buff);
+// This 3 syscalls need to be changed.
+// TODO: Reformate this syscalls into clock_* syscalls.
 static void *sys_alloc(int size);
 static void sys_free(void *ptr);
 static void sys_print(char *msg);
+// End of deprecated system calls. Need reform. Never use it.
 static int sys_exec(char *path,int argc,char **argv);
 static void sys_reboot(int reason);
 static int sys_chdir(char *to);
@@ -46,7 +49,6 @@ static void *sys_readdir(int fd,int p);
 static int sys_mount(char *dev,char *mount_point,char *fs);
 static int sys_waitpid(int pid);
 static int sys_getppid();
-static void sys_sysinfo();
 static int sys_getuid();
 static void sys_setuid(int uid);
 static int sys_seek(int fd,int type,int how);
@@ -106,7 +108,7 @@ int syscall_table[58] = {
     (int)sys_mount,
     (int)sys_waitpid,
     (int)sys_getppid,
-    (int)sys_sysinfo,
+    (int)sys_sync,
     (int)sys_getuid,
     (int)sys_setuid,
     (int)sys_seek,
@@ -143,14 +145,12 @@ int syscall_table[58] = {
 int syscall_num = 58;
 static void sys_print(char *msg) {
     /*
-    	New POSIX model compatability!
-    	Now the sys_print will redirect to sys_write!
-    */
-    kprintf(msg);
+    	WARRNING! Deprecated. Never use it.
+     */
     //sys_write(1,0,sizeof(msg),msg);
 }
 static bool isAccessable(void *ptr) {
-    return arch_mmu_getPhysical((int)ptr) != 0;
+    return arch_mmu_getPhysical(ptr) != 0;
 }
 void syscall_init() {
     // redirect to arch specific init code
@@ -237,16 +237,11 @@ static int sys_write(int _fd,int offset,int size,void *buff) {
     return wr;
 }
 static void *sys_alloc(int size) {
-    //process_t *prc = thread_getThread(thread_getCurrent());
-    //kprintf("Process %s is trying to allocate space using kernel heap! FIX THIS SHIT\r\n",prc->name);
-    // Redirect to sys_sbrk
-    return kmalloc(size);
-    //return sys_sbrk(size); // redirect
+    // actually this syscall will be reformed into clock_gettime.
+    return NULL;
 }
 static void sys_free(void *ptr) {
-    //int phys = arch_mmu_getPhysical((int)ptr);
-    //alloc_freePage(phys);
-    kfree(ptr);
+    // deprecated. Will be reformed into gettimeofday.
 }
 static int sys_exec(char *path,int argc,char **argv) {
     // Yeah it's can be stupid, but the buff kmalloc is overwriting our argv array
@@ -264,12 +259,11 @@ static int sys_exec(char *path,int argc,char **argv) {
     arch_cli();
     clock_setShedulerEnabled(false);
     int len = file->size;
-    aspace_t *sp = arch_mmu_newAspace();
     aspace_t *original = (caller != NULL ? caller->aspace : NULL);
     arch_mmu_switch(arch_mmu_getKernelSpace());
     void *file_buff = kmalloc(len+1);
     vfs_read(file,0,len,file_buff);
-    if (caller != NULL )caller->aspace = sp;
+    if (caller != NULL )caller->aspace = arch_mmu_newAspace();
     elf_load_file(file_buff,caller);
     process_t *prc = (caller != NULL ? caller : thread_getThread(thread_getNextPID()-1));
     // Change name to actual file name
@@ -404,18 +398,6 @@ static int sys_getppid() {
         return prc->parent->pid;
     }
     return -1;
-}
-static void sys_sysinfo() {
-	kprintf("HelinKern System Info report\r\n");
-	kprintf("Used kernel heap: %dKB\r\n",alloc_getUsedSize()/1024);
-	kprintf("Running tasks: %d\r\n",thread_getNextPID());
-	kprintf("Used physical memory: %dMB of %d MB available\n",alloc_getUsedPhysMem()/1024/1024,alloc_getAllMemory()/1024/1024);
-	arch_sysinfo();
-    for (int i = 0; i < thread_getNextPID(); i++) {
-        process_t *prc = thread_getThread(i);
-        if (!prc || prc->pid == 0) continue;
-        kprintf("%s, %d\r\n",prc->name,prc->pid);
-    }
 }
 static int sys_getuid() {
      process_t *prc = thread_getThread(thread_getCurrent());
@@ -569,7 +551,7 @@ static int sys_clone(int entryPoint,int arg1,int arg2) {
     // by mapping, the arg1 is actual entry point, and arg2 is an argument to thread function
     st->entry = arg1;
     st->arg = (void *)arg2;
-    arch_putArgs(thread,1,(int)st); // Only test
+    arch_putArgs(thread,1,(char **)(int)st); // Only test
     return thread->pid;
 }
 
@@ -634,14 +616,14 @@ static int sys_accept(int sockfd,struct sockaddr *addr,int len) {
         file_descriptor_t *desc = caller->fds[sockfd];
         if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
         Socket *s = desc->node->priv_data;
-        return s->accept(s,sockfd,addr,len);
+        return s->accept(s,sockfd,addr,(socklen_t *)&len);
 }
 static int sys_connect(int sockfd,const struct sockaddr *addr,int len) {
 	process_t *caller = thread_getThread(thread_getCurrent());
         file_descriptor_t *desc = caller->fds[sockfd];
         if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
         Socket *s = desc->node->priv_data;
-        return s->connect(s,sockfd,addr,len);
+        return s->connect(s,sockfd,addr,(socklen_t *)&len);
 }
 static int sys_send(int sockfd,const void *buff,int len,int flags) {
 	process_t *caller = thread_getThread(thread_getCurrent());
@@ -689,7 +671,6 @@ static int sys_fork() {
 	//i Firstly we need to clone parents process_t structure
 	process_t *parent = thread_getThread(thread_getCurrent());
 	// Clone!
-	int ret = arch_syscall_getCallerRet();
 	process_t *child =  thread_create(parent->name,arch_syscall_getCallerRet(),true);
 	child->state = STATUS_CREATING;
 	aspace_t *space = arch_mmu_newAspace();
@@ -720,7 +701,6 @@ static int sys_uname(struct utsname *name) {
         return -1;
     }
     process_t *caller = thread_getThread(thread_getCurrent());
-    aspace_t *a = arch_mmu_getAspace();
     arch_mmu_switch(caller->aspace);
     name->sysname = kmalloc(6);
     strcpy(name->sysname,"Helin");
@@ -777,7 +757,6 @@ static int sys_umount(char *mountpoint) {
 
 static int sys_access(int _fd) {
 	// Check if the process can access the file pointed by fd
-	process_t *prc = thread_getThread(thread_getCurrent());
-	file_descriptor_t *fd = prc->fds[_fd];
 	return 0;
 }
+

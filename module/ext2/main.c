@@ -16,6 +16,8 @@
  * Thanks for all there projects for it's drivers code
 */
 
+struct dirent *ext2_readdir(struct vfs_node *dir,uint32_t index);
+
 static void read(vfs_node_t *node, int pos, void *buffer, uint32_t sizee) {
     vfs_read(node,pos,sizee,buffer);
 }
@@ -85,6 +87,10 @@ static struct ext2_inode *ext2_read_inode(struct ext2_disk* hd, int i_num)
     uint32_t offset_in_block = inode_index * hd->sb->s_inode_size % hd->blocksize; // Use hd->sb->s_inode_size instead of hd->sb->s_inode_size
 
     struct ext2_inode *inode = (struct ext2_inode *)kmalloc(hd->sb->s_inode_size);
+	for (int i = 0; i < 10; i++) {
+		kmalloc(1024);
+	}
+	kprintf("10KB is leacked\r\n");
     if (!inode) {
         kprintf("Failed to allocate memory for inode!\n");
         return NULL;
@@ -97,11 +103,25 @@ static struct ext2_inode *ext2_read_inode(struct ext2_disk* hd, int i_num)
         return NULL;
     }
     memset(buf,0,hd->blocksize);
+	kprintf("MEMSET!\r\n");
+	for (int i = 0; i < 10; i++) {
+		kmalloc(1024);
+	}
+	kprintf("10KB is leacked\r\n");
     //kprintf("offset in block: %d\n",offset_in_block);
     //vfs_readBlock(hd->dev, (inta + block_offset)+(hd->blocksize/512), hd->blocksize,buf);
     read(hd->dev, (inta + block_offset) * hd->blocksize, buf, hd->blocksize);
+	kprintf("READED, leak\r\n");
+	for (int i = 0; i < 10; i++) {
+		kmalloc(1024);
+	}
+	kprintf("10KB is leacked\r\n");
     memcpy(inode, buf + offset_in_block, hd->sb->s_inode_size);
-
+	kprintf("MEMCPY! Loeak\r\n");
+	for (int i = 0; i < 10; i++) {
+		kmalloc(1024);
+	}
+	kprintf("10KB is leacked\r\n");
     kfree(buf);
     return inode;
 }
@@ -264,11 +284,19 @@ static bool ext2_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *) 
 		return false;
 	}
 	struct ext2_disk *d = readInfo(dev);
+	for (int i = 0; i < 10; i++) {
+		kmalloc(1024);
+	}
+	kprintf("10KB is leacked\r\n");
 	if (!ext2_is_directory(d,2)) {
 		kprintf("EXT2: root inode invalid\n");
 		kfree(d);
 		return false;
 	}
+	for (int i = 0; i < 10; i++) {
+		kmalloc(1024);
+	}
+	kprintf("10KB is leacked\r\n");
 	kprintf("Last mount point: %s\n",d->sb->s_last_mounted);
 	strcpy(d->sb->s_last_mounted,"/fat");
 	vfs_writeBlock(dev,2,512,d->sb);

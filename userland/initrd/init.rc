@@ -8,8 +8,9 @@
 
 
 # Prepare system to mount the directories
-mkdir proc
-mkdir sys
-mount devfs /dev /dev
+#mkdir proc
+#mkdir sys
+#mount devfs /dev /dev
 #mount ext2 /dev/hdap3 /fat
-service login /initrd/login
+echo Hello!
+service login 1 /initrd/login

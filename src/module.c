@@ -37,7 +37,7 @@ void *module_get_section_addr(module_t *mod,unsigned n) {
 	for (seg = mod->seg; seg; seg = seg->next) {
 		if (seg->section == n) {
            		if (n == 1) {
-				mod->load_address = seg->addr;
+				mod->load_address = (int)seg->addr;
 			}
 			return seg->addr;
 		}

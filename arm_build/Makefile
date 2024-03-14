@@ -1,6 +1,6 @@
 ARCH= armv7-a
 OBJECTS = ../src/arch/armv7-a/boot_qemuboard.o ../src/arch/armv7-a/arch.o ../src/arch/armv7-a/output.o ../src/kernel.o ../src/dev/fb.o ../src/output.o font.o ../src/arch/armv7-a/mmu.o ../src/mm/alloc.o ../src/isr.o ../src/thread.o ../src/lib/clist.o ../src/syscall.o ../src/elf.o ../src/lib/string.o ../src/vfs.o ../src/rootfs.o ../src/dev.o ../src/kshell.o ../src/symbols.o ../src/module.o ../src/fs/cpio.o ../src/dev/tty.o ../src/dev/input.o ../src/dev/socket.o ../src/socket/unix.o ../src/lib/fifosize.o ../src/fs/partTab.o
-CCOPTIONS =-std=gnu99 -ffreestanding -Wall -Wextra -Wno-unused-parameter -Wint-to-pointer-cast -Wsign-compare -nostdlib -fno-stack-protector -g -march=armv7-a
+CCOPTIONS =-std=gnu99 -ffreestanding -Wall -Wextra -Wno-unused-parameter -Wint-to-pointer-cast -Wsign-compare -nostdlib -fno-stack-protector -g -march=armv7-a -DMSM_SCREEN -DHELINBOOT_USED -Werror -Wno-discarded-qualifiers -Wno-int-to-pointer-cast
 CCPATH = arm-none-eabi-
 %.o: %.c
 	@echo [CC] $<
