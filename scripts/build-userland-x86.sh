@@ -1,4 +1,4 @@
-#!/bibash
+#!/bin/bash
 echo This scipt will automate build process for i386 architecture.
 echo gcc-i686 must be in $(pwd ..). Please check if the compiler works in this path.
 bash build-userland.sh prephost
