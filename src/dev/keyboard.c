@@ -24,6 +24,7 @@ static int keyboardBits = 0;
 static int readedI = 0;
 static queue_t *keys;
 extern int tty_flags;
+extern queue_t *priority[6];
 static char keymap[] = {
     0, 0, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', '\t',
     'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', 0, 'a',
@@ -82,11 +83,6 @@ static void *keyboard_handler(void *stack) {
             
             if (ctrl) {
                 // Handle Ctrl + key combinations
-                if ('a' <= character && character <= 'z') {
-                    character -= 'a';
-                } else if (character == '[') {
-                    character = 27; // Ctrl + [
-                }
                 ctrl = false; // Reset ctrl
             }
             
@@ -100,8 +96,8 @@ static void keyboard_keyHandler(char key) {
     // Ці елементи більше не потрібні!
     enqueue(keys,(void *)(int)key);
     if ((tty_flags & FLAG_ECHO)) {
-		kprintf("%c",key);
-	}
+		putc(key);
+    }
 }
 static int keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, void *buf) {
     if (how <= 0 || buf == NULL)

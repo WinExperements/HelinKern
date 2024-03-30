@@ -26,6 +26,10 @@ static bool exit = false;
 static void start_module();
 static void load_m(void *);
 static void th_m();
+// Signal testing.
+void sighand(int signal) {
+	kprintf("Signal handled!!\r\n");
+}
 void kshell_main() {
     kprintf("KShell V0.1\r\n");
     kprintf("Please not that you are running in the kernel address space\r\n");
@@ -328,6 +332,40 @@ static void parseCommand(int argc,char *cmd[]) {
     	int end = clock_getUptimeMsec();
     	kprintf("it's took: %d milliseconds\r\n",end-start);
     	
+    } else if (strcmp(cmd[0],"prcdump")) {
+	    kprintf("Dumping of first process(pid 1): \r\n");
+	    process_t *prc = thread_getThread(1);
+	    if (!prc) {
+		    kprintf("No PID 1? How\r\n");
+		    return;
+	    }
+	    kprintf("Stack -> 0x%x		name -> %s\r\n",prc->stack,prc->name);
+	    kprintf("PID -> %d		arch_info -> 0x%x\r\n",prc->pid,prc->arch_info);
+	    kprintf("Address Space -> 0x%x	state -> %d\r\n",prc->aspace,prc->state);
+	    kprintf("Wait time -> %d	last died child -> %d\r\n",prc->wait_time,prc->died_child);
+	    kprintf("Type -> %d		FPU state ptr -> 0x%x\r\n",prc->type,prc->fpu_state);
+	    kprintf("Parent -> 0x%x	child -> 0x%x\r\n",prc->parent,prc->child);
+	    kprintf("Process Quota %d	reschedule %d\r\n",prc->quota,prc->reschedule);
+	    kprintf("Working directory ptr -> 0x%x	brk_begin -> 0x%x\r\n",prc->workDir,prc->brk_begin);
+	    kprintf("brk_end -> 0x%x	brk_next_unallocated_page_begin -> 0x%x\r\n",prc->brk_end,prc->brk_next_unallocated_page_begin);
+	    kprintf("File Descriptor list pointer -> 0x%x	next fd -> %d\r\n",prc->fds,prc->next_fd);
+	    kprintf("Started -> %d	UID -> %d\r\n",prc->started,prc->uid);
+	    kprintf("GID -> %d		priority -> %d\r\n",prc->gid,prc->priority);
+	    kprintf("Number of switches -> %d	signal queue -> 0x%x\r\n",prc->switches,prc->signalQueue);
+    } else if (strcmp(cmd[0],"signal")) {
+	    kprintf("sending signal 3 to myself\r\n");
+	    process_t *prc = thread_getThread(1);
+	    if (!prc) {
+		    kprintf("Failed to retrive myself. Strange\r\n");
+		    return;
+	    }
+	    if (prc->signal_handlers[3] == 0) {
+		    kprintf("Installing signal 3 handler\r\n");
+		    prc->signal_handlers[3] = (int)sighand;
+	    }
+	    queue_t *signalQueue = (queue_t *)prc->signalQueue;
+	    enqueue(signalQueue,(void *)3);
+	    kprintf("done\r\n");
     } else {
         kprintf("Unknown commmand: %s\r\n",cmd[0]);
     }

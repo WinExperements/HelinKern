@@ -130,7 +130,9 @@ bool elf_load_file(void *addr,process_t *caller) {
         dev_t *tt = dev_find("tty");
         if (tt != NULL) {
             keyboard = tt->devNode;
-        }
+        } else {
+		kprintf("serial doesn't found!\r\n");
+	}
     }
     // Open stdin,stdout,stderr only for new processes that doesn't forked or something
     if (caller == NULL) {

@@ -11,6 +11,7 @@
 #define PROCESS_QUOTA 100 // 100 ms
 #define TYPE_PROCESS 0
 #define TYPE_THREAD 1
+#define NSIGNALS	32 // Number of signals supported by kernel that can be handled.
 typedef struct process {
     // Base information
     void *stack;
@@ -40,6 +41,10 @@ typedef struct process {
     int uid,gid;
     int priority;
     int switches;
+    bool userProcess;	// maximum arch independ code.
+    /* Signal specific information */
+    int signal_handlers[NSIGNALS]; // static
+    void *signalQueue;		// void pointer because of lib/queue.h dependies
 } process_t;
 void thread_init();
 process_t *thread_create(char *name,int entryPoint,bool isUser);

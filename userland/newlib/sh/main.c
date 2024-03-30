@@ -9,6 +9,8 @@
 #include <sys/wait.h>
 #include <sys/reboot.h> // poweroff and reboot shell commands.
 #include <sys/mount.h>
+#include <sys/utsname.h>
+#include <sys/syscall.h>
 char path[100];
 char oldpath[100];
 
@@ -118,9 +120,13 @@ void parse(int argc,char **argv) {
 	    printf("HelinOS newlib shell version 0.1\r\n");
 	    printf("Supported built-in commands: ls,cd,pwd,help,poweroff,reboot,mount. All other commands will be tried to be runned from /initrd/<command name>\r\n");
     } else if (!strcmp(argv[0],"poweroff")) {
-	    reboot(RB_POWER_OFF);
+	    if (reboot(RB_POWER_OFF) < 0) {
+		perror("Operation failed: ");
+	    }
     } else if (!strcmp(argv[0],"reboot")) {
-	    reboot(RB_AUTOBOOT);
+	    if (reboot(RB_AUTOBOOT) < 0) {
+		perror("Operation failed: ");
+	    }
     } else if (!strcmp(argv[0],"mount")) {
 	    if (argc < 3) {
 		    printf("Usage: mount <source> <target> <filesystem type>\r\n");
@@ -131,6 +137,13 @@ void parse(int argc,char **argv) {
 				return;
 			}
 		}
+    } else if (!strcmp(argv[0],"uname")) {
+	    struct utsname osname;
+	    uname(&osname);
+	    printf("%s %s %s %s\r\n",osname.sysname,osname.machine,osname.version,osname.release);
+	    printf("Number of implemented in kernel syscalls: %d\r\n",NUM_SYSCALLS);
+    } else if (!strcmp(argv[0],"id")) {
+	printf("%d\r\n",getuid());
     } else {
 	if (!executeCommand(argc,argv)) {
         	printf("Unknown command: %s\n",argv[0]);

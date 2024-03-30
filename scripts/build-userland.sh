@@ -150,7 +150,7 @@ elif [ $1 = "build-gcc" ]; then
 	# We in src folder
 	cd ../build
 	export PATH=/home/user/gcc-i686/bin:$PATH
-	cp -vr $sysrootPath/usr/i686-helin $helinroot/
+	cp -r $sysrootPath/usr/i686-helin $helinroot/
 	../src/configure --target=i686-helin --prefix=$helinroot --with-sysroot=$sysrootPath --enable-languages=c,c++ --with-newlib
 	make all-gcc all-target-libgcc -j$(nproc)
 	make all-target-libstdc++-v3 -j$(nproc)

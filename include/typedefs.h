@@ -29,6 +29,8 @@ typedef uintptr_t addr_t;
 typedef uintptr_t vaddr_t;
 typedef uintptr_t paddr_t;
 typedef enum {false,true} bool;
+#define OS_VERSION	"0.0.1"
+#define OS_RELEASE	__DATE__
 #define PANIC(msg) panic(__FILE__,__LINE__,msg)
 #define assert(exp) (exp) ? 0 : panic(__FILE__,__LINE__,"Assert fail!")
 static inline size_t strlen(const char* str) 

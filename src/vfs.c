@@ -105,11 +105,14 @@ bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
 		kprintf("%s: filesystem mount function are not defined\n",__func__);
 		return false;
 	}
+	vfs_fs_t *origFS = mount_point->fs;
 	bool root = fs->mount(dev,mount_point,NULL);
         if (!root) {
                 kprintf("%s: filesystem mount failed\n",mountPoint);
                 return false;
-        }
+        } else {
+		mount_point->orig_fs = origFS;
+	}
    }
     return true;
 }
@@ -214,11 +217,21 @@ void *vfs_mmap(struct vfs_node *node,int addr,int size,int offset,int flags) {
 	if (!node || !node->fs || !node->fs->mmap) return NULL;
 	return node->fs->mmap(node,addr,size,offset,flags);
 }
-void vfs_rm(vfs_node_t *node) {
-	if (!node || !node->fs || !node->fs->rm) return;
-	node->fs->rm(node);
+bool vfs_rm(vfs_node_t *node) {
+	if (!node || !node->fs || !node->fs->rm) return false;
+	return node->fs->rm(node);
 }
 bool vfs_isReady(struct vfs_node *node) {
 	if (!node || !node->fs || !node->fs->isReady) return false;
 	return node->fs->isReady(node);
 }
+bool vfs_umount(vfs_node_t *node) {
+	if (node == NULL || !node->fs || !node->fs->umount) return false;
+	bool res = node->fs->umount(node);
+	// restore previous fs
+	if (res) {
+		node->fs = node->orig_fs;
+	}
+	return res;
+}
+

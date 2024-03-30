@@ -17,5 +17,8 @@ target remote localhost:1234
 #b dash_execute
 #b fb_enable
 #b fb_putc
-b elf_load_file
-c
+#b arch_processSignal
+#add-symbol-file userland/initrd/suka  0x40000000
+#b ringBuffPut
+#b ringBuffWrite
+b sys_setuid

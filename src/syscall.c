@@ -9,6 +9,7 @@
 #include <debug.h>
 #include <debug.h>
 #include <dev/socket.h>
+#include <dev/clock.h>
 // Pthreads structure that passed to newlib thread_entry
 typedef struct _pthread_str {
 	int entry;
@@ -23,8 +24,9 @@ struct utsname {
     char *machine;
 };
 
+extern char *ringBuff;
 static char *system_hostname = NULL;
-
+extern queue_t *priority[6];
 static void sys_default() {}
 static void sys_exit(int exitCode);
 static void sys_kill(int pid,int code);
@@ -35,12 +37,12 @@ static int sys_read(int fd,int offset,int size,void *buff);
 static int sys_write(int fd,int offset,int size,void *buff);
 // This 3 syscalls need to be changed.
 // TODO: Reformate this syscalls into clock_* syscalls.
-static void *sys_alloc(int size);
-static void sys_free(void *ptr);
+static void sys_signal(int sig,int handler);
+static void sys_sigexit();
 static void sys_print(char *msg);
 // End of deprecated system calls. Need reform. Never use it.
 static int sys_exec(char *path,int argc,char **argv);
-static void sys_reboot(int reason);
+static int sys_reboot(int reason);
 static int sys_chdir(char *to);
 static void sys_pwd(char *buff,int len);
 static int sys_opendir(char *path);
@@ -83,20 +85,26 @@ static int sys_sync(int fd);
 static int sys_munmap(void *ptr,int size);
 static int sys_umount(char *mountpoint);
 static int sys_access(int fd);
-int syscall_table[58] = {
+static int sys_chmod(int fd,int mode);
+static int sys_stat(struct stat *);
+static int sys_unlink(char *path);
+static int sys_gettime(int clock,struct tm *time);
+static int sys_settime(int clock,struct tm *time);
+static int sys_syslog(int type,char *buf,int len);
+int syscall_table[61] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
     (int)sys_kill,
     (int)sys_getpid,
-    (int)sys_default,
-    (int)sys_default,
+    (int)sys_stat,
+    (int)sys_unlink,
     (int)sys_open,
     (int)sys_close,
     (int)sys_read,
     (int)sys_write,
-    (int)sys_alloc,
-    (int)sys_free,
+    (int)sys_signal,
+    (int)sys_sigexit,
     (int)sys_exec,
     (int)sys_reboot,
     (int)sys_default,
@@ -141,8 +149,13 @@ int syscall_table[58] = {
     (int)sys_munmap,
     (int)sys_umount,
     (int)sys_access,
+    (int)sys_chmod,
+    (int)sys_gettime,
+    (int)sys_settime,
+    (int)sys_syslog,
 };
-int syscall_num = 58;
+int syscall_num = 61;
+extern void push_prc(process_t *);
 static void sys_print(char *msg) {
     /*
     	WARRNING! Deprecated. Never use it.
@@ -158,16 +171,31 @@ void syscall_init() {
 }
 int syscall_get(int n) {
 	if (n > syscall_num) return 0;
-	//DEBUG("Get syscall %d from %s\r\n",n,thread_getThread(thread_getCurrent())->name);
+	DEBUG("Get syscall %d from %s\r\n",n,thread_getThread(thread_getCurrent())->name);
 	return syscall_table[n];
 }
 static void sys_exit(int exitCode) {
     DEBUG("sys_exit: %d\r\n",exitCode);
     thread_killThread(thread_getThread(thread_getCurrent()),exitCode);
 }
-static void sys_kill(int pid,int code) {
-    thread_killThread(thread_getThread(pid),code);
-    arch_reschedule();
+static void sys_kill(int pid,int sig) {
+	if (sig == 9 || sig == 0) {
+		thread_killThread(thread_getThread(pid),-9);
+		arch_reschedule();
+		return;
+	}
+	if (sig >= 32) {
+		kprintf("%s: doesn't supported signal: %d\r\n",__func__,sig);
+		return;
+	}
+	process_t *prc = thread_getThread(pid);
+	if (!prc) {
+		kprintf("%s: cannot find process %d!\r\n",__func__,pid);
+		return;
+	}
+	queue_t *que = (queue_t *)prc->signalQueue;
+	enqueue(que,(void *)sig);
+	arch_reschedule();
 }
 static int sys_getpid() {
     return thread_getCurrent();
@@ -223,6 +251,7 @@ static int sys_write(int _fd,int offset,int size,void *buff) {
     file_descriptor_t *fd = caller->fds[_fd];
     if (fd == NULL || fd->node == NULL) {
 	    kprintf("WARRNING: write: invalid FD passed\n");
+	    kprintf("Exit from sys_write!\r\n");
 	    return 0;
 	}
     if (fd->node->flags == 4) {
@@ -236,12 +265,30 @@ static int sys_write(int _fd,int offset,int size,void *buff) {
     fd->offset+=wr;
     return wr;
 }
-static void *sys_alloc(int size) {
-    // actually this syscall will be reformed into clock_gettime.
-    return NULL;
+static void sys_signal(int signal,int handler) {
+	if (signal >= 32) {
+		kprintf("Signal is out of bounds!\r\n");
+		return;
+	}
+	if (handler == 0) {
+		kprintf("Handler is out of bounds!\r\n");
+		return;
+	}
+	process_t *prc = thread_getThread(thread_getCurrent());
+	if (!prc) {
+		kprintf("Now such process!\r\n");
+		return;
+	}
+	prc->signal_handlers[signal] = handler;
+	//kprintf("%s: registred for %d to 0x%x\r\n",__func__,signal,handler);
 }
-static void sys_free(void *ptr) {
-    // deprecated. Will be reformed into gettimeofday.
+static void sys_sigexit() {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	//kprintf("%s: caller -> %s\r\n",__func__,caller->name);
+	arch_exitSignal(caller);
+	arch_reschedule();
+	// what?
+	PANIC("Serious kernel bug");
 }
 static int sys_exec(char *path,int argc,char **argv) {
     // Yeah it's can be stupid, but the buff kmalloc is overwriting our argv array
@@ -292,11 +339,15 @@ static int sys_exec(char *path,int argc,char **argv) {
     arch_reschedule();
     return prc->pid;
 }
-static void sys_reboot(int reason) {
+static int sys_reboot(int reason) {
+	if (thread_getThread(thread_getCurrent())->uid != 0) {
+		return 13;
+	}
 	if (reason == POWEROFF_MAGIC) {
 		arch_poweroff();
 	}
 	arch_reset();
+	return 0; // what?
 }
 static int sys_chdir(char *to) {
     process_t *prc = thread_getThread(thread_getCurrent());
@@ -567,10 +618,12 @@ static void sys_waitForStart(int pid) {
 }
 
 static void sys_usleep(int ms) {
+	arch_cli();
 	process_t *caller = thread_getThread(thread_getCurrent());
 	caller->wait_time = ms;
 	caller->state = STATUS_SLEEP;
 	caller->quota = PROCESS_QUOTA;
+	arch_sti();
 	arch_reschedule();
 }
 
@@ -671,10 +724,12 @@ static int sys_fork() {
 	//i Firstly we need to clone parents process_t structure
 	process_t *parent = thread_getThread(thread_getCurrent());
 	// Clone!
+ 	aspace_t *orig = arch_mmu_getAspace();
+	arch_mmu_switch(arch_mmu_getKernelSpace());
 	process_t *child =  thread_create(parent->name,arch_syscall_getCallerRet(),true);
 	child->state = STATUS_CREATING;
 	aspace_t *space = arch_mmu_newAspace();
-	arch_mmu_duplicate(arch_mmu_getAspace(),space);
+	arch_mmu_duplicate(orig,space);
 	// Arch specific code for fork
     arch_forkProcess(parent,child);
 	child->aspace = space;
@@ -693,6 +748,7 @@ static int sys_fork() {
 	child->parent = parent;
 	parent->child = child;
 	child->state = STATUS_RUNNING; // yeah
+	arch_mmu_switch(orig);
 	return child->pid;
 }
 
@@ -704,13 +760,9 @@ static int sys_uname(struct utsname *name) {
     arch_mmu_switch(caller->aspace);
     name->sysname = kmalloc(6);
     strcpy(name->sysname,"Helin");
-    name->release = kmalloc(4);
-    strcpy(name->release,"0.2");
-    name->version = kmalloc(4);
-    strcpy(name->version,"0.1");
-    char *arch = arch_getName();
-    name->machine = kmalloc(sizeof(arch) + 1);
-    strcpy(name->machine,arch);
+    name->release = strdup(OS_RELEASE);
+    name->version = strdup(OS_VERSION);
+    name->machine = strdup(arch_getName());
     return 0;
 }
 static int sys_sethostname(char *name,int len) {
@@ -752,6 +804,7 @@ static int sys_munmap(void *ptr,int size) {
     return -1;
 }
 static int sys_umount(char *mountpoint) {
+	// TODO: Add mount table.
     return -1;
 }
 
@@ -759,4 +812,63 @@ static int sys_access(int _fd) {
 	// Check if the process can access the file pointed by fd
 	return 0;
 }
+static int sys_chmod(int fd,int mode) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	file_descriptor_t *desc = caller->fds[fd];
+	if (!desc) {
+		return 2; // errno ENON
+	}
+	vfs_node_t *node = desc->node;
+	// We need some security thinks, but later.
+	node->mask = mode;
+	return 0;
+}
+static int sys_stat(struct stat *) {
+	return -1;
+}
+static int sys_unlink(char *path) {
+	char *path_copy = strdup(path);
+	vfs_node_t *node = vfs_find(path_copy);
+	if (!node) {
+		kfree(path_copy);
+		return 2;
+	}
+	if (!node->fs || !node->fs->rm) {
+		return 22;
+	}
+	if (!node->fs->rm(node)) {
+		return 22;
+	}
+	return 0;
+}
 
+static int sys_gettime(int clock,struct tm *time) {
+	if (clock != 0) {
+		return 22;
+	}
+#ifdef HWCLOCK
+	hw_clock_get(time);
+#endif
+	return 0;
+}
+
+static int sys_settime(int clock,struct tm *time) {
+	if (clock != 0) {
+		return 22;
+	}
+	// settime requires root as process uid
+	process_t *caller = thread_getThread(thread_getCurrent());
+	if (caller->uid != 0) {
+		return 13;
+	}
+#ifdef HWCLOCK
+	hw_clock_set(time);
+#endif
+	return 0;
+}
+
+static int sys_syslog(int type,char *buff,int len) {
+	kprintf("%s: kernel ring ptr: 0x%x\r\n",__func__,0xaa);
+	//output_write(ringBuff);
+	return 0;
+}

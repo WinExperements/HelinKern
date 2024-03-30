@@ -20,6 +20,7 @@
 #include <arch/x86/smp.h>
 #include <arch/mmu.h>
 #include <arch/x86/mmu.h>
+#include <dev/x86/serialdev.h>
 /* Define some defines that needed for kernel allocator */
 int KERN_HEAP_BEGIN=0x02000000; //32 mb
 int KERN_HEAP_END=0x40000000; // 1 gb
@@ -270,6 +271,7 @@ void arch_post_init() {
 		kprintf("FPU isn't enabled with MSDOS compatibility mode\n");
 	}
     acpiPostInit();
+    serialdev_init();
 	kprintf("HelinOS X86 part is successfully ended in arch_post_init\r\n");
 }
 bool arch_relocSymbols(module_t *mod,void *ehdr) {
@@ -553,4 +555,43 @@ void arch_forkProcess(process_t *parent,process_t *child) {
 
 char *arch_getName() {
     return "x86";
+}
+
+void userModeEntry() {
+    return; // nothing here
+}
+
+void arch_switchToUserMode() {
+	// We can use x86_jumpToUser
+    int esp;
+    asm volatile("mov %%esp, %0" : "=r"(esp));
+    x86_jumpToUser((int)userModeEntry,esp);
+}
+
+/* Oh.....the fucking signals..... */
+/* first ever long name of function */
+void arch_processSignal(process_t *nextTask,int address,...) {
+    // Extract the signal number
+    va_list list;
+    va_start(list,address);
+    int num = va_arg(list,int);
+    va_end(list);
+    x86_task_t *task = (x86_task_t *)nextTask->arch_info;
+    if (task->signalReturn == NULL) {
+	    task->signalReturn = kmalloc(sizeof(registers_t));
+            memcpy(task->signalReturn,task->userTaskRegisters,sizeof(registers_t));
+	} else {
+		memcpy(task->signalReturn,task->userTaskRegisters,sizeof(registers_t));
+	}
+    task->userTaskRegisters->eip = address;
+    task->userTaskRegisters->eax = num; // to be handled by newlib or other libc.
+}
+void arch_exitSignal(process_t *prc) {
+	x86_task_t *task = (x86_task_t *)prc->arch_info;
+	if (task->signalReturn == NULL) {
+		kprintf("W??\r\n");
+		return;
+	}
+	memcpy(task->userTaskRegisters,task->signalReturn,sizeof(registers_t));
+	x86_switch(task->userTaskRegisters);
 }

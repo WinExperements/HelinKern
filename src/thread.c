@@ -16,8 +16,66 @@ queue_t *task_list;
 static int freePid;
 static process_t *idle;
 extern uint32_t cursor_x,cursor_y;
-static queue_t *priority[MAX_PRIORITY];
-static void push_prc(process_t *prc);
+// FILO queue code(need to be moved into specific library directory)
+typedef struct {
+    size_t head;
+    size_t tail;
+    size_t size;
+    void** data;
+} filo_t;
+
+void* filo_read(filo_t *queue) {
+    if (queue->tail == queue->head) {
+        return NULL;
+    }
+    void* handle = queue->data[queue->tail];
+    queue->data[queue->tail] = NULL;
+    queue->tail = (queue->tail + 1) % queue->size;
+    return handle;
+}
+
+int filo_write(filo_t *queue, void* handle) {
+    if (((queue->head + 1) % queue->size) == queue->tail) {
+        return -1;
+    }
+    queue->data[queue->head] = handle;
+    queue->head = (queue->head + 1) % queue->size;
+    return 0;
+}
+filo_t *filo_new(int max) {
+	filo_t *ret = kmalloc(sizeof(filo_t));
+	memset(ret,0,sizeof(filo_t));
+	ret->size = max;
+	ret->data = kmalloc(sizeof(void *) * max);
+	return ret;
+}
+int filo_remove(filo_t *queue, void* handle) {
+    size_t current_index = queue->tail;
+    while (current_index != queue->head) {
+        if (queue->data[current_index] == handle) {
+            // Found the element to delete
+            queue->data[current_index] = NULL;
+            // Shift elements to the right of the deleted element
+            while (current_index != queue->head) {
+                size_t next_index = (current_index + 1) % queue->size;
+                queue->data[current_index] = queue->data[next_index];
+                current_index = next_index;
+            }
+            // Update head pointer
+            if (queue->head != 0) {
+                queue->head--;
+            } else {
+                queue->head = queue->size - 1;
+            }
+            return 0; // Element deleted successfully
+        }
+        current_index = (current_index + 1) % queue->size;
+    }
+    return -1; // Element not found in the queue
+}
+
+filo_t *priority[MAX_PRIORITY]; // 6000 processes of total
+void push_prc(process_t *prc);
 static process_t *pop_prc();
 static void idle_main() {
     arch_sti();
@@ -26,13 +84,13 @@ static void idle_main() {
 void thread_init() {
     // The interrupt handler for timer must be called from ARCH IRQ handler, see porting section in README
     task_list = queue_new();
-    // Create the priority queue
+    // Create the priority FILO queue
     for (int i = 0; i < MAX_PRIORITY; i++) {
-	    priority[i] = queue_new();
+	    priority[i] = filo_new(1000);
     }
     idle = thread_create("idle",(int)idle_main,false);
     dequeue(task_list);
-    idle->state = 0;
+    idle->state = -1;
     runningTask = idle;
 }
 /* Допоможіть :( */
@@ -42,8 +100,10 @@ void *thread_schedule(void *stack) {
      process_t *nextTask = NULL;
     if (runningTask != NULL) {
         /*if (runningTask->quota < PROCESS_QUOTA) {
-            runningTask->quota++;
-            return stack;
+		if (!runningTask->died) {
+            		runningTask->quota++;
+            		return stack;
+		}
         }*/
 	    nextTask = pop_prc();
         if (nextTask == NULL) {
@@ -54,14 +114,19 @@ void *thread_schedule(void *stack) {
 	        return stack;
         }
     }
-    if (nextTask->state == STATUS_CREATING) {
+    if (nextTask->state == STATUS_CREATING || nextTask->state == -1 || nextTask->state == STATUS_WAITPID) {
+	    //kprintf("Finding next usable process\r\n");
 	    while(nextTask) {
 		    nextTask = pop_prc();
 		    if (nextTask->state == STATUS_RUNNING) break;
+		    if (nextTask->state != -1 || nextTask->state != STATUS_WAITPID) {
+			    push_prc(nextTask);
+		    }
 	    }
     }
     nextTask = (nextTask && nextTask->state > 3) ? idle : nextTask;
     if (!nextTask) {
+	//kprintf("nextTask = NULL! Switch to idle\r\n");
         nextTask = idle;
     }
     nextTask->quota = 0;
@@ -81,10 +146,12 @@ void *thread_schedule(void *stack) {
     }
     push_prc(nextTask);
     if (nextTask->state == STATUS_SLEEP) {
+	    //kprintf("Found sleeping task :)\r\n");
 	    if (nextTask->wait_time <= 0) {
 		    nextTask->state = STATUS_RUNNING;
 		}
-	    nextTask->wait_time--;
+	    nextTask->wait_time-=10;
+	    //kprintf("minus 10 millisecond %d\r\n",nextTask->wait_time);
 	    // Switch to idle
 	    nextTask = idle;
 	}
@@ -93,8 +160,31 @@ void *thread_schedule(void *stack) {
     arch_fpu_save(runningTask->fpu_state);
     arch_fpu_restore(nextTask->fpu_state);
     arch_mmu_switch(nextTask->aspace);
+    queue_t *prcSignals = nextTask->signalQueue;
+    if (prcSignals->size > 0) {
+	    int num = (int)dequeue(prcSignals);
+	    if (num >= 32) {
+		    kprintf("Process %s got unknown signal to process!\r\n",nextTask->name);
+	    } else {
+	    	//kprintf("HERE! The process %s got signal. Signal ID: %d, processing address: 0x%x\r\n",nextTask->name,num,nextTask->signal_handlers[num]);
+		// TODO: Check if process is user or kernel space type.
+		if (nextTask->signal_handlers[num] == 0) {
+			//kprintf("%s: process signal handler doesn't set\r\n");
+            		goto actualSwitch;
+		}
+		int to = nextTask->signal_handlers[num];
+		if (nextTask->userProcess) {
+            		arch_processSignal(nextTask,to,num);
+        	}
+    }
+}
+actualSwitch:
+    /*if (strcmp(nextTask->name,"suka")) {
+        kprintf("signal software scheduling %d as PID, %s\r\n",nextTask->pid,runningTask->name);
+    }*/
     nextTask->switches++;
     arch_switchContext(nextTask);
+    // If we here, then the x86 switch code works -_-
     return stack;
 }
 process_t *thread_create(char *name,int entryPoint,bool isUser) {
@@ -113,10 +203,14 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     th->parent = runningTask;
     th->child = NULL;
     th->died = false;
+    th->userProcess = isUser;
     th->fds = kmalloc(200);
+    // Signals handling.
+    th->signalQueue = queue_new();
     memset(th->fds,0,200);
     th->uid = runningTask == NULL ? 0 : runningTask->uid;
     th->gid = runningTask == NULL ? 0 : runningTask->gid;
+    //th->userProcess = isUser;
     arch_prepareProcess(th);
     enqueue(task_list,th);
     push_prc(th);
@@ -180,7 +274,7 @@ void thread_killThread(process_t *prc,int code) {
     }
     // Remove the process from the lists
     prc->died = true;
-    queue_remove(priority[prc->priority],prc);
+    filo_remove(priority[prc->priority],prc);
     queue_remove(task_list, prc);
     // Switch to idle address space
     arch_mmu_switch(idle->aspace);
@@ -189,6 +283,8 @@ void thread_killThread(process_t *prc,int code) {
     arch_destroyContext(prc->stack);
     arch_mmu_switch(prc->aspace);
     arch_destroyArchStack(prc->arch_info);
+    // Remove all pending signals :)
+    while(dequeue((queue_t *)prc->signalQueue) != NULL);
     arch_mmu_switch(idle->aspace);
     if (prc->aspace != idle->aspace && prc->type != TYPE_THREAD) {
         // Check if either the parent or all children have died
@@ -238,7 +334,9 @@ void thread_killThread(process_t *prc,int code) {
         parent->died_child = prc->pid;
         push_prc(parent);
     }
-    runningTask->quota = PROCESS_QUOTA;
+    if (runningTask != NULL) {
+	    runningTask->quota = PROCESS_QUOTA+1;
+    }
     DEBUG("Died task %s switches by scheduler: %d\n",prc->name,prc->switches);
     arch_sti();
     arch_reschedule();
@@ -246,7 +344,7 @@ void thread_killThread(process_t *prc,int code) {
 void thread_waitPid(process_t *prc) {
     DEBUG("Waitpid for %d\r\n",prc->pid);
     prc->state = STATUS_WAITPID;
-    queue_remove(priority[prc->priority],prc);
+    filo_remove(priority[prc->priority],prc);
 }
 int thread_getNextPID() {
     return freePid;
@@ -279,17 +377,12 @@ int thread_openFor(process_t *caller,vfs_node_t *node) {
     return id;
 }
 
-static void push_prc(process_t *prc) {
-	enqueue(priority[prc->priority],prc);
+void push_prc(process_t *prc) {
+	filo_write(priority[prc->priority],prc);
 }
 
 process_t *pop_prc() {
-	for (int i = 0; i < MAX_PRIORITY; i++) {
-		if (priority[i]->size > 0) {
-			return dequeue(priority[i]);
-		}
-	}
-	return NULL; // No process
+	return filo_read(priority[1]);
 }
 process_t *thread_cloneThread(process_t *parent) {
 	return NULL; // TODO

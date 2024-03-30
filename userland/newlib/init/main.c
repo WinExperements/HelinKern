@@ -21,7 +21,7 @@
 
 // OS-specific defines here.
 #ifdef LINUX
-#define CONF_PATH "/home/user/init.rc"
+#define CONF_PATH "/init.rc"
 #elif HELIN
 #define CONF_PATH "/initrd/init.rc"
 #else

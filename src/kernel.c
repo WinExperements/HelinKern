@@ -30,10 +30,14 @@
 #ifdef X86
 #include <pci/pci.h>
 #endif
+#ifdef HWCLOCK
+#include <dev/clock.h>
+#endif
 static int fb_addr;
 extern int *syscall_table;
 int AHCI_BASE;
 extern bool disableOutput;
+extern char *ringBuff;
 bool dontUseAta;
 void *memset(void *dest,char val,int count) {
   char *temp = (char *)dest;
@@ -82,6 +86,7 @@ void kernel_main(const char *args) {
     fb_enableCursor();
     // Bootstrap end
     kheap_init();
+    ringBuff = (char *)kmalloc(RING_BUFF_SIZE);
     kprintf("%s: begin of parsing kernel arguments!\n",__func__);
     char *begin = strtok(args," ");
     while(begin != NULL) {
@@ -119,6 +124,13 @@ void kernel_main(const char *args) {
     #endif
     tty_init();
     socket_init();
+#ifdef HWCLOCK
+    kprintf("initializing hardware clock\r\n");
+    hw_clock_init();
+    struct tm curtime;
+    hw_clock_get(&curtime);
+    kprintf("Current time, reported by hardware clock: %d:%d %d/%d/%d\r\n",curtime.tm_hour,curtime.tm_min,curtime.tm_mday,curtime.tm_mon,curtime.tm_year);
+#endif
     // register some sockets
     unix_register();
     arch_post_init();
@@ -140,7 +152,6 @@ void kernel_main(const char *args) {
         PANIC("Failed to mount initrd");
     }
 #if 1
-    //kprintf("52 syscall points to 0x%x\n",syscall_get(52));
     int (*exec)(char *,int,char **) = ((int (*)(char *,int,char **))syscall_get(13));
     int pid = exec("/initrd/init",0,NULL); // Ядро передасть параметри за замовчуванням.
     if (pid < 0) {

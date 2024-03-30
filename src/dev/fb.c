@@ -47,7 +47,8 @@ void fb_enable() {
     // Must disable UART output and enable this FB output
     if (width == 0) return;
     // Don't clear the framebuffer, because i want to see the butifull black screen or device manufactorer logo(Hello Android!)
-    cursor_x = cursor_y = 0;
+    // Прапор України обов'язково
+    cursor_x = cursor_y = 10;
     bcolor = WHITE;
     fcolor = BLACK; // UNIX!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     if (charBuff != NULL) {

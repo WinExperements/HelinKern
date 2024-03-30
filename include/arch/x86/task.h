@@ -10,6 +10,9 @@ typedef struct x86_task {
     int argc,argv;
     int forkESP;
     int userESP_top;
+    registers_t *userTaskRegisters;
+    // Signals!
+    registers_t *signalReturn; // used by sys_sigexit
 } x86_task_t;
 int read_eip();
 #endif

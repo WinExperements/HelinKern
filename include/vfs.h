@@ -15,7 +15,7 @@ typedef struct vfs_node {
     struct vfs_node *prev;
     struct vfs_node *first_child;
     struct vfs_node *next_child;
-    struct vfs_fs *fs;
+    struct vfs_fs *fs,*orig_fs;
     void *device;
     void *priv_data;
 } vfs_node_t;
@@ -38,7 +38,7 @@ typedef struct vfs_fs {
     void (*writeBlock)(struct vfs_node *node,int blockN,int how,void *buff);
     int (*ioctl)(struct vfs_node *node,int request,va_list args);
     void *(*mmap)(struct vfs_node *node,int addr,int size,int offset,int flags);
-    void (*rm)(struct vfs_node *node);
+    bool (*rm)(struct vfs_node *node);
     bool (*isReady)(struct vfs_node *node);
     bool (*umount)(struct vfs_node *node);
     int (*stat)(struct stat *stat);
@@ -71,6 +71,7 @@ int vfs_ioctl(vfs_node_t *node,int request,...);
 void vfs_node_path(vfs_node_t *node,char *path,int size);
 void rootfs_insertModuleData(vfs_node_t *node,int size,char *addr);
 void *vfs_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
-void vfs_rm(struct vfs_node *node);
+bool vfs_rm(struct vfs_node *node);
 bool vfs_isReady(struct vfs_node *node);
+bool vfs_umount(struct vfs_node *node);
 #endif

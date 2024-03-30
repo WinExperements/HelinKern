@@ -9,6 +9,8 @@
 #include <arch.h>
 #include <arch/mmu.h>
 #include <mm/alloc.h>
+// POSIX x86 module extension :) 18/03/2024
+#include <arch/x86/task.h>
 extern void copy_page_physical(int,int);
 gdt_entry_t gdt_entries[6];
 gdt_ptr_t   gdt_ptr;
@@ -240,6 +242,7 @@ void *x86_irq_handler(registers_t *regs) {
             }
             kprintf("Page fault!!! When trying to %s %x - IP:0x%x\n", rw ? "write to" : "read from", addr, regs->eip);
             kprintf("The page was %s\n", present ? "present" : "not present");
+	    kprintf("Fault in address space of process %s, 0x%x\r\n",thread_getThread(thread_getCurrent())->name,arch_mmu_getAspace());
         }
         //arch_poweroff();
         if (regs->cs == 0x1b) {
@@ -254,6 +257,16 @@ void *x86_irq_handler(registers_t *regs) {
     if (int_no == IRQ0) {
       // Timer interrupt redirection. See README.
       // Save current process stack
+	// user scheduling code!
+	if (runningTask != NULL && runningTask->userProcess) {
+		x86_task_t *archInfo = (x86_task_t *)runningTask->arch_info;
+		archInfo->userTaskRegisters = regs;
+		//kprintf("Registers updated\r\n");
+		runningTask->arch_info = archInfo; // for any case
+	} /*else {
+		kprintf("runningTask = 0x%x, userProcess -> %d\r\n",runningTask,runningTask == NULL ? 0 : runningTask->userProcess);
+	}*/
+	      //PANIC("Check here");
       interrupt_sendEOI();
       return clock_handler(regs);
     } /*else {

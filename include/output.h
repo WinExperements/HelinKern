@@ -1,6 +1,7 @@
 #ifndef OUTPUT_H
 #define OUTPUT_H
 #include <typedefs.h>
+#define RING_BUFF_SIZE (1 << CONF_RING_SIZE)
 void output_uart_init();
 void output_second_init();
 bool output_secondary_avail();

@@ -10,6 +10,16 @@
 
 // HelinOS specific stuff.
 #define FLAG_ECHO 0000001
+#ifdef LINUX
+#define SH_PATH "/bin/sh"
+#else
+#define SH_PATH "/initrd/sh"
+#endif
+
+char *users[] = {"root","user"};
+char *passwords[] = {"toor","yes"}; // when libc add support for the shadow password storing, then i delete this.
+int uids[] = {0,1000};
+
 int ttyFlags = 0;
 void disableEcho() {
 	int stfd = fileno(stdout);
@@ -21,6 +31,13 @@ void enableEcho() {
 	int stfd = fileno(stdout);
 	ttyFlags = ttyFlags | FLAG_ECHO;
 	ioctl(stfd,2,&ttyFlags);
+}
+
+void runShell() {
+	char *sh_path = SH_PATH;
+	char *sh_argv[] = {SH_PATH,NULL};
+	execv(sh_path,sh_argv);
+	exit(1);
 }
 
 int main() {
@@ -36,19 +53,12 @@ int main() {
 		scanf("%s",password);
 		enableEcho();
 		printf("\r\n");
-		if (!strcmp(login,"root")) {
-			if (!strcmp(password,"toor")) {
-				// Yes, it's VERY stupid to leave it here.
-				//int child = fork();
-				//if (child == 0) {
-					char *sh_path = "/initrd/sh";
-					char *sh_argv[] = {"/initrd/sh",NULL};
-					execv(sh_path,sh_argv);
-					exit(1);
-				//} else {
-					//waitpid(child,NULL,0);
-
-				//}
+		for (int i = 0; i < 2; i++) {
+			if (!strcmp(login,users[i])) {
+				if (!strcmp(password,passwords[i])) {
+					setuid(uids[i]);
+					runShell();
+				}
 			}
 		}
 	}

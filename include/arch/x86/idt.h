@@ -36,6 +36,10 @@ typedef struct registers
   uint32_t useresp;
   uint32_t ss;
 } __attribute__((packed))  registers_t;
+typedef struct brdM {
+    int eip;
+    int ebx,esi,edi,ebp,edx,ecx,eax;
+} __attribute__((packed)) ktask_regs_t;
 typedef void (*isr_t)(registers_t *);
 void isr_handler();
 int irq_handler(registers_t *regs);

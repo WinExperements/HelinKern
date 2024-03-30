@@ -24,11 +24,15 @@
 #include <sys/reboot.h>
 #include <sys/utsname.h>
 #include <arpa/inet.h>
+#include <signal.h>
+#include <sys/syscall.h> // syscall table, for better code style.
 // Structure from src/thread.c from kernel source
 typedef struct _pthread_str {
         int entry;
         void *arg;
 } pthread_str;
+
+static int globalMask = 0;
 
 int helin_syscall(int num,int p1,int p2,int p3,int p4,int p5) {
     // use asm macro for it
@@ -69,23 +73,33 @@ int fork() {
     return helin_syscall(49,0,0,0,0,0);
 }
 int fstat(int file, struct stat *st) {
-    return -1;
+    errno = helin_syscall(SYS_stat,(int)st,0,0,0,0);
+    if (errno > 0) {
+	return -1;
+    }
+    return 0;
 }
 int getpid(){
     return helin_syscall(4,0,0,0,0,0);
 }
 int getuid() {
-	return 0; // HelinKern does have sys_getuid, but i don't remember actuall syscall number for it :(
+	return helin_syscall(SYS_getuid,0,0,0,0,0); // HelinKern does have sys_getuid, but i don't remember actuall syscall number for it :(
 	// FIXME: Call actual sys_getuid from kernel
 }
 int isatty(int file){
     return false;
 }
 int kill(int pid, int sig){
-    helin_syscall(3,pid,0,0,0,0);
+    helin_syscall(3,pid,sig,0,0,0);
     return 0;
 }
-int link(char *old, char *new){}
+int link(char *old, char *new){
+	errno = helin_syscall(SYS_link,(int)old,(int)new,0,0,0);
+	if (errno > 0) {
+		return -1;
+	}
+	return 0;
+}
 int lseek(int file, int ptr, int dir){
     return helin_syscall(27,file,dir,ptr,0,0);
 }
@@ -100,7 +114,13 @@ caddr_t sbrk(int incr){
 }
 int stat(const char *file, struct stat *st){}
 clock_t times(struct tms *buf){}
-int unlink(char *name){}
+int unlink(char *name){
+	errno = helin_syscall(SYS_unlink,(int)name,0,0,0,0);
+	if (errno > 0) {
+		return -1;
+	}
+	return 0;
+}
 int wait(int *status){}
 int write(int file, char *ptr, int len){
     int how = helin_syscall(10,file,0,len,(int)ptr,0);
@@ -169,7 +189,7 @@ int setgid(int uid) {
     helin_syscall(33,uid,0,0,0,0);
 }
 int setuid(int uid) {
-    helin_syscall(26,0,0,0,0,0);
+    helin_syscall(SYS_setuid,uid,0,0,0,0);
 }
 char *getcwd (char *__buf, size_t __size) {
     return (char *)helin_syscall(16,(int)__buf,__size,0,0,0);
@@ -268,10 +288,6 @@ int access(const char *pathname,int mode) {
 	return 0;
 }
 
-int clock_gettime (clockid_t clock_id, struct timespec *tp) {
-	if (tp == NULL) return 1;
-	return 0;
-}
 
 void pthread_cleanup_push(void (*routine)(void *),
                                  void *arg) {}
@@ -289,10 +305,22 @@ int lstat(const char *pathname, struct stat *statbuf) {
 }
 
 mode_t umask(mode_t mask) {
+	globalMask = mask;
 	return 0;
 }
 
 int chmod(const char *pathname, mode_t mode) {
+	// SYS_chmod require at least the file descriptor, so first open
+	int fd = open(pathname,O_RDWR);
+	if (fd < 0) {
+		errno = ENOENT;
+		return -1;
+	}
+	printf("Calling SYS_chmod\r\n");
+	errno = helin_syscall(SYS_chmod,fd,mode,0,0,0);
+	if (errno > 0) {
+		return -1;
+	}
 	return 0;
 }
 
@@ -392,6 +420,11 @@ int daemon(int nochdir, int noclose) {
 }
 
 int fchmod(int fd, mode_t mode) {
+	printf("Calling the SYS_chmod\r\n");
+	errno = helin_syscall(SYS_chmod,fd,mode,0,0,0);
+	if (errno > 0) {
+		return -1;
+	}
 	return 0;
 }
 int alphasort(const struct dirent **a, const struct dirent **b) {return 0;}
@@ -521,11 +554,7 @@ pid_t vfork() {
 	/*
 	 * By documentation we need to do fork then if fork return isn't zero call waitpid, so we do it
 	*/
-	int pid = fork();
-	if (pid != 0) {
-		waitpid(pid,NULL,0);
-	}
-	return pid;
+	return fork();
 }
 
 int umount(char *target) {
@@ -534,9 +563,11 @@ int umount(char *target) {
 
 int reboot(int reason) {
 	if (reason == RB_POWER_OFF) {
-		return helin_syscall(14,0xfffc04,0,0,0,0);
+		errno = helin_syscall(14,0xfffc04,0,0,0,0);
+		return -1;
 	} else if (reason == RB_AUTOBOOT) {
-		return helin_syscall(14,0,0,0,0,0);
+		errno = helin_syscall(14,0,0,0,0,0);
+		return -1;
 	} else {
 		errno = -ENOSYS;
 		return -1;
@@ -575,4 +606,25 @@ int execl(const char *path, const char *arg, ...) {
 
     // Call execve with the constructed argument array
     return execve(path, argv, NULL);
+}
+typedef void (*sighandler_t)(int);
+sighandler_t signal(int signum,sighandler_t handler) {
+	// Because i erased this build, rewrite!
+	helin_syscall(11,signum,(int)handler,0,0,0);
+}
+// Timer functions.
+int clock_gettime(clockid_t clock_id, struct timespec *tp) {
+	struct tm time;
+	errno = helin_syscall(SYS_gettime,clock_id,(int)&time,0,0,0);
+	if (errno > 0) {
+		return -1;
+	}
+	// convert this to unix timestamp
+	tp->tv_sec = mktime(&time);
+	tp->tv_nsec = tp->tv_sec * 1000000000;
+	return 0;
+}
+
+int syscall(int num,int p1,int p2,int p3,int p4,int p5) {
+	return helin_syscall(num,p1,p2,p3,p4,p5);
 }

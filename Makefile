@@ -1,6 +1,6 @@
 ARCH=x86
-OBJECTS = src/arch/x86/boot.o src/arch/x86/arch.o src/kernel.o src/arch/x86/output.o src/arch/x86/io.o src/arch/x86/gdt.o src/arch/x86/x86asm.o src/dev/fb.o src/output.o font.o src/arch/x86/mmu.o src/mm/alloc.o src/isr.o src/thread.o src/lib/clist.o src/syscall.o src/dev/keyboard.o src/elf.o src/lib/string.o src/vfs.o src/rootfs.o src/dev.o src/kshell.o src/symbols.o src/module.o src/arch/x86/acpi.o src/arch/x86/smp.o src/dev/ps2mouse.o src/fs/cpio.o src/dev/tty.o src/dev/input.o src/dev/socket.o src/socket/unix.o src/lib/fifosize.o src/fs/partTab.o
-CCOPTIONS =-std=gnu99 -m32 -ffreestanding -nostdlib -march=i386 -mtune=i486 -g -DX86 -fno-stack-protector -Werror -Wno-discarded-qualifiers -Wno-int-to-pointer-cast
+OBJECTS = src/arch/x86/boot.o src/arch/x86/arch.o src/kernel.o src/arch/x86/output.o src/arch/x86/io.o src/arch/x86/gdt.o src/arch/x86/x86asm.o src/dev/fb.o src/output.o font.o src/arch/x86/mmu.o src/mm/alloc.o src/isr.o src/thread.o src/lib/clist.o src/syscall.o src/dev/keyboard.o src/elf.o src/lib/string.o src/vfs.o src/rootfs.o src/dev.o src/kshell.o src/symbols.o src/module.o src/arch/x86/acpi.o src/arch/x86/smp.o src/dev/ps2mouse.o src/fs/cpio.o src/dev/tty.o src/dev/input.o src/dev/socket.o src/socket/unix.o src/lib/fifosize.o src/fs/partTab.o src/dev/x86/serialdev.o src/arch/x86/dev/rtc.o
+CCOPTIONS =-std=gnu99 -m32 -ffreestanding -nostdlib -march=i386 -mtune=i486 -g -DX86 -fno-stack-protector -Werror -Wno-discarded-qualifiers -Wno-int-to-pointer-cast -DHWCLOCK -DCONF_RING_SIZE=17
 CCPATH = 
 %.o: %.c
 	@echo [CC] 		$<
@@ -37,5 +37,5 @@ makeiso:
 run:
 	qemu-system-i386 -cdrom m.iso
 debug:
-	qemu-system-i386 -cdrom m.iso -hda ../Стільниця/experements/disk.img -boot d -s -S -m 1G &
+	qemu-system-i386 -cdrom m.iso -boot d -s -S -m 1G &
 	gdb -tui kernel.bin -x  debug.gdb
