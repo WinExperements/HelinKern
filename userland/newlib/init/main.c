@@ -17,6 +17,7 @@
 #include <sys/utsname.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <sys/syscall.h>
 // Use uname() for the system identification.
 
 // OS-specific defines here.
@@ -186,6 +187,23 @@ void parseCommand(int argc,char **argv) {
 				start = start->next;
 			}
 			start->next = service;
+		}
+	} else if (!strcmp(argv[0],"insmod")) {
+		if (argc < 2) {
+			fprintf(stderr,"init: insmod require the module path!\r\n");
+			return;
+		}
+		if (syscall(SYS_insmod,(int)argv[1],0,0,0,0) < 0) {
+			fprintf(stderr,"init: insmod fail.\r\n");
+			return;
+		}
+	} else if (!strcmp(argv[0],"mount")) {
+		if (argc < 4) {
+			printf("init: mount: not enought arguments\r\n");
+			return;
+		}
+		if (mount(argv[1],argv[2],argv[3],0,NULL) < 0) {
+			perror("mount operation fail");
 		}
 	}
 }

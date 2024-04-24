@@ -9,6 +9,11 @@
 #include <fs/parttab.h>
 static int global_part_id = 0;
 static char gl_ch = 'a';
+/*
+ * Master Boot recocord and GUID Partition table driver
+ * for HelinOS. Example of Partition Manager interface driver.
+ * Written by WinExperements.
+*/
 // define our module name in .modname section that needed for our module loader!
 //__attribute__((section(".modname"))) char *name = "mbr";
 
@@ -79,9 +84,15 @@ static void mbr_registerDevice(vfs_node_t *harddrive,int lba_start) {
 static void parseGPT(vfs_node_t *hard) {
 	// Yes, we now support GPT partition table
     GPTHeader *header = kmalloc(sizeof(GPTHeader));
+    /*
+     * Some hard disk drivers can fail for reading the real size of GPT partiton table
+     * due to the bug of some functions. So we create an alternative method to do this.
+    */
     vfs_read(hard,512,sizeof(GPTHeader),header);
     if (header->signature != GPT_SIGNATURE) {
         kprintf("Invalid GPT header signature\n");
+	kfree(header);
+	return;
     }
     int start = header->partitionEntryLBA * 512;
     int size = sizeof(GPTPartitionEntry) * header->numberOfPartitionEntries;
@@ -99,6 +110,8 @@ static void parseGPT(vfs_node_t *hard) {
         kprintf(" LBA: 0x%x\n",array[i].startingLBA);*/
         mbr_registerDevice(hard,array[i].startingLBA);
     }
+    // Free header taken memory
+    kfree(header);
 }
 
 static void mbr_parseMbr(vfs_node_t *harddrive,uint32_t extPartSector,mbr_t mbr) {
@@ -106,6 +119,10 @@ static void mbr_parseMbr(vfs_node_t *harddrive,uint32_t extPartSector,mbr_t mbr)
         kprintf("Detected partitons: ");
         for (int i = 0; i < 4; i++) {
             if (mbr.partitions[i].sector_count != 0) { //active partiton
+		    if (mbr.partitions[i].type == 0xEE) {
+			parseGPT(harddrive);
+			continue;
+		    }
                     int off = extPartSector;
                     mbr.partitions[i].lba_first_sector += off;
                     //kprintf("MBR: Partiton %d start: %d, size(in sectors): %d, offset: %d\n",i,mbr.partitions[i].lba_first_sector,mbr.partitions[i].sector_count,off);
@@ -115,9 +132,7 @@ static void mbr_parseMbr(vfs_node_t *harddrive,uint32_t extPartSector,mbr_t mbr)
                         vfs_readBlock(harddrive,(mbr.partitions[i].lba_first_sector),512,sec_mbr);
                         mbr_parseMbr(harddrive,mbr.partitions[i].lba_first_sector,*sec_mbr);
                         kfree(sec_mbr);
-                    } else if (mbr.partitions[i].type == 0xEE) {
-			    parseGPT(harddrive);
-		    }
+                    }
             } else {
 		    if (mbr.partitions[i].type == 0xEE) {
 			    kprintf("mbr: GPT partition table detected\n");
@@ -133,9 +148,19 @@ static void mbr_parseMbr(vfs_node_t *harddrive,uint32_t extPartSector,mbr_t mbr)
 
 bool mbr_parttab_scan(vfs_node_t *hard) {
 	// Read the mbr from harddrive
+	kprintf("Just experement....");
+	mbr_t *test = kmalloc(512);
+	vfs_read(hard,0,512,test);
+	if (test->signature[0] != 0x55 && test->signature[1] != 0xAA) {
+		kprintf("Even after that, signature invalid. Got: 0x%x and 0x%x\r\n",test->signature[0],
+											test->signature[1]);
+	} else {
+		kprintf("Mbr pointer points to valid MBR structure\r\n");
+	}
+	kfree(test);
 	memset(&m_mbr,0,512);
 	m_mbr.signature[0] = 0xAB;
-	vfs_readBlock(hard,0,512,&m_mbr);
+	vfs_read(hard,0,512,&m_mbr);
 	mbr_parseMbr(hard,0,m_mbr);
 	return true;
 }

@@ -49,7 +49,11 @@ bool executeCommand(int argc,char **argv) {
     // Try to find the file in argv[0]
     char execPath[100];
     // Format the string with given exec pathes.
-    snprintf(execPath,100,"/initrd/%s",argv[0]);
+    if (argv[0][0] == '/') {
+	    strncpy(execPath,argv[0],100);
+    } else {
+    	snprintf(execPath,100,"/initrd/%s",argv[0]);
+    }
     // Sanity check.
     int fileFd = open(execPath,O_RDONLY);
     if (fileFd < 0) {
@@ -121,11 +125,11 @@ void parse(int argc,char **argv) {
 	    printf("Supported built-in commands: ls,cd,pwd,help,poweroff,reboot,mount. All other commands will be tried to be runned from /initrd/<command name>\r\n");
     } else if (!strcmp(argv[0],"poweroff")) {
 	    if (reboot(RB_POWER_OFF) < 0) {
-		perror("Operation failed: ");
+		perror("Operation failed");
 	    }
     } else if (!strcmp(argv[0],"reboot")) {
 	    if (reboot(RB_AUTOBOOT) < 0) {
-		perror("Operation failed: ");
+		perror("Operation failed");
 	    }
     } else if (!strcmp(argv[0],"mount")) {
 	    if (argc < 3) {
@@ -144,6 +148,14 @@ void parse(int argc,char **argv) {
 	    printf("Number of implemented in kernel syscalls: %d\r\n",NUM_SYSCALLS);
     } else if (!strcmp(argv[0],"id")) {
 	printf("%d\r\n",getuid());
+    } else if (!strcmp(argv[0],"insmod")) {
+	    if (argc < 2) {
+		    printf("insmod <mod path>\r\n");
+		    return;
+	    }
+	    if (syscall(SYS_insmod,(int)argv[1],0,0,0,0) < 0) {
+		    perror("insmod fail");
+	    }
     } else {
 	if (!executeCommand(argc,argv)) {
         	printf("Unknown command: %s\n",argv[0]);

@@ -169,7 +169,6 @@ static void *syscall_handler(void *_regs) {
     registers_t *regs = (registers_t *)_regs;
     if (regs->eax > (uint32_t)syscall_num) return _regs;
     int location = syscall_get(regs->eax);
-    arch_cli();
     // Call the handler
     syscall_regs = regs;
     int ret;
@@ -186,7 +185,6 @@ static void *syscall_handler(void *_regs) {
     pop %%ebx; \
     " : "=a" (ret) : "r" (regs->esi), "r" (regs->edi), "r" (regs->ebx), "r"(regs->ecx),"r"(regs->edx),"r"(location));
     regs->eax = ret;
-    arch_sti();
     return (void *)regs;
 }
 void arch_syscall_init() {
@@ -224,55 +222,19 @@ void arch_destroyArchStack(void *stack) {
     kfree(stack);
 }
 void arch_post_init() {
-    /*if (dontFB) {
-	vga_change();
-    }*/
-    kprintf("%s: begin of post init\n",__func__);
-    kprintf("X86 official port post init process begin. Not all X86 platforms are supported. Build date of this support module: %s\r\n",__DATE__);
-    symbols_init(info);
-    // Copy all modules into rootfs
-    vfs_node_t *node = vfs_find("/bin");
-    if (!node) return;
-    for (uint32_t i = 0; i < info->mods_count; i++) {
-        multiboot_module_t *mod = (multiboot_module_t *)info->mods_addr+i;
-        if (mod->cmdline != 0) {
-            vfs_node_t *in = vfs_creat(node,(char *)mod->cmdline,0);
-            rootfs_insertModuleData(in,mod->mod_end-mod->mod_start,(char *)mod->mod_start);
-	    // check extension then install it as module
-	    int name_size = strlen((char *)mod->cmdline)-4;
-	    if (strcmp((char *)mod->cmdline+name_size,".mod")) {
-			DEBUG("Loading module %s\r\n",mod->cmdline);
-			module_t *m = load_module((void *)mod->mod_start);
-			if (m) {
-				m->init(m);
-			} else {
-				DEBUG_N("Failed\r\n");
-			}
-		}
-	    // Map all modules into memory :)
-	    int module_size = mod->mod_end-mod->mod_start;
-	    arch_mmu_map(NULL,(int)mod->mod_start,module_size,7);
-        }
-    }
+	symbols_init(info);
 	apic_init();
 	smp_init();
 	smp_post_init();
-	if (!acpiIsOn()) {
-		kprintf("WARRNING: No ACPI available, the system can't be shutted down\r\n");
-        
-	}
-	unsigned int cr0;
-
-        // Read the CR0 register
-        asm("mov %%cr0, %0" : "=r"(cr0));
-        if ((cr0 & 0x2)) {
-                kprintf("WARRNING: MSDOS compatibility of FPU is enabled!\n");
-        }  else {
-		kprintf("FPU isn't enabled with MSDOS compatibility mode\n");
-	}
-    acpiPostInit();
-    serialdev_init();
-	kprintf("HelinOS X86 part is successfully ended in arch_post_init\r\n");
+    	acpiPostInit();
+    	serialdev_init();
+	// Create initrd
+	vfs_node_t *initrd = vfs_creat(vfs_getRoot(),"initrdram",0);
+	multiboot_module_t *initrdData = (multiboot_module_t *)info->mods_addr;
+	int size = initrdData->mod_end - initrdData->mod_start;
+	rootfs_insertModuleData(initrd,size,(char *)initrdData->mod_start);
+	// After data insertion process, map the data itself.
+	arch_mmu_map(NULL,(int)initrdData->mod_start,size,7);
 }
 bool arch_relocSymbols(module_t *mod,void *ehdr) {
 	Elf32_Ehdr *e = (Elf32_Ehdr *)ehdr;
@@ -356,60 +318,8 @@ void arch_detect() {
     char vendor[13];
     cpuid(0,&largestStandardFunc,(uint32_t *)(vendor + 0),(uint32_t *)(vendor + 8),(uint32_t *)(vendor + 4));
     vendor[12] = 0;
-    kprintf("X86 CPU Detect\r\n");
-    kprintf("CPU Vendor: %s\r\n",vendor);
-     if (largestStandardFunc >= 0x01)
-    {
-        cpuid(0x01, &eax, &ebx, &ecx, &edx);
-
-        kprintf("Features:");
-
-        if (edx & EDX_PSE)      kprintf(" PSE");
-        if (edx & EDX_PAE)      kprintf(" PAE");
-        if (edx & EDX_APIC)     kprintf(" APIC");
-        if (edx & EDX_MTRR)     kprintf(" MTRR");
-
-        kprintf("\r\n");
-
-        kprintf("Instructions:");
-
-        if (edx & EDX_TSC)      kprintf(" TSC");
-        if (edx & EDX_MSR)      kprintf(" MSR");
-        if (edx & EDX_SSE)      kprintf(" SSE");
-        if (edx & EDX_SSE2)     kprintf(" SSE2");
-        if (ecx & ECX_SSE3)     kprintf(" SSE3");
-        if (ecx & ECX_SSSE3)    kprintf(" SSSE3");
-        if (ecx & ECX_SSE41)    kprintf(" SSE41");
-        if (ecx & ECX_SSE42)    kprintf(" SSE42");
-        if (ecx & ECX_AVX)      kprintf(" AVX");
-        if (ecx & ECX_F16C)     kprintf(" F16C");
-        if (ecx & ECX_RDRAND)   kprintf(" RDRAND");
-
-        kprintf("\r\n");
-    }
-
-    // Extended Function 0x00 - Largest Extended Function
-
     uint32_t largestExtendedFunc;
     cpuid(0x80000000, &largestExtendedFunc, &ebx, &ecx, &edx);
-
-    // Extended Function 0x01 - Extended Feature Bits
-
-    if (largestExtendedFunc >= 0x80000001)
-    {
-        cpuid(0x80000001, &eax, &ebx, &ecx, &edx);
-
-        if (edx & EDX_64_BIT)
-        {
-            kprintf("Detected 64-bit CPU!\r\n");
-            #ifndef AMD64_SUPPORT
-            kprintf("Kernel booted in 32-bit mode, only 4GB is usable\r\n");
-            #endif
-        }
-    }
-
-    // Extended Function 0x02-0x04 - Processor Name / Brand String
-
     if (largestExtendedFunc >= 0x80000004)
     {
         char name[48];
@@ -463,7 +373,6 @@ static void thread_main(int entryPoint,int esp,bool isUser) {
     x86_jumpToUser(entryPoint,(int)stack);
 }
 void arch_putArgs(process_t *prc,int argc,char **argv) {
-    DEBUG("%s: put %s arguments with pointer to 0x%x\r\n",__func__,argc,argv);
     if (prc == NULL || argv == 0) return;
     x86_task_t *s = (x86_task_t *)prc->arch_info;
     s->argc = argc;

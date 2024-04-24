@@ -64,6 +64,14 @@ enum syscall_table {
 	SYS_gettime,
 	SYS_settime,
 	SYS_syslog,
+	SYS_chroot,
+	SYS_fchdir,
+	SYS_fchown,
+	SYS_chown,
+	SYS_rm,
+	SYS_getpgid,
+	SYS_nice,
+	SYS_symlink,
 	NUM_SYSCALLS,
 };
 

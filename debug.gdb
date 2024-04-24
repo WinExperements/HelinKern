@@ -18,7 +18,6 @@ target remote localhost:1234
 #b fb_enable
 #b fb_putc
 #b arch_processSignal
-#add-symbol-file userland/initrd/suka  0x40000000
-#b ringBuffPut
-#b ringBuffWrite
-b sys_setuid
+#add-symbol-file userland/initrd/mbr.mod 0x20289e6
+#add-symbol-file userland/initrd/atapi.mod 0x202c615
+b ahci_vdev_readBlock

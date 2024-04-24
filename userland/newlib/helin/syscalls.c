@@ -26,6 +26,8 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include <sys/syscall.h> // syscall table, for better code style.
+#include <sys/resource.h>
+#define PATH_MAX 40
 // Structure from src/thread.c from kernel source
 typedef struct _pthread_str {
         int entry;
@@ -285,7 +287,7 @@ int tcsetattr(int fd,struct termios* tio) {
 }
 
 int access(const char *pathname,int mode) {
-	return 0;
+	return helin_syscall(SYS_access,(int)pathname,mode,0,0,0);
 }
 
 
@@ -301,7 +303,7 @@ int fcntl(int fd, int cmd, ...) {
 }
 
 int lstat(const char *pathname, struct stat *statbuf) {
-	return 0;
+	return helin_syscall(SYS_stat,2,(int)pathname,(int)statbuf,0,0);
 }
 
 mode_t umask(mode_t mask) {
@@ -316,7 +318,6 @@ int chmod(const char *pathname, mode_t mode) {
 		errno = ENOENT;
 		return -1;
 	}
-	printf("Calling SYS_chmod\r\n");
 	errno = helin_syscall(SYS_chmod,fd,mode,0,0,0);
 	if (errno > 0) {
 		return -1;
@@ -333,11 +334,11 @@ int utime(const char *filename, const struct utimbuf *times) {
 }
 
 int chown(const char *pathname, uid_t owner, gid_t group) {
-	return 0;
+	return helin_syscall(SYS_chown,2,(int)pathname,owner,group,0);
 }
 
 int rmdir(const char *pathname) {
-	return 0;
+	return helin_syscall(SYS_rm,2,(int)pathname,0,0,0);
 }
 
 
@@ -415,12 +416,26 @@ const char *basename(const char *path) {
     // Return the portion of the path after the last slash
     return lastSlash + 1;
 }
+// written in nano
 int daemon(int nochdir, int noclose) {
+	if (nochdir == 0) {
+		chdir("/");
+	}
+	if (noclose == 0) {
+		// redirect the all input-output to /dev/null(BSD function)
+		int nulldev = open("/dev/null",O_RDWR);
+		if (nulldev < 0) {
+			errno = 13;
+			return -1;
+		}
+		dup2(0,nulldev);
+		dup2(1,nulldev);
+		dup2(2,nulldev);
+	}
 	return 0;
 }
 
 int fchmod(int fd, mode_t mode) {
-	printf("Calling the SYS_chmod\r\n");
 	errno = helin_syscall(SYS_chmod,fd,mode,0,0,0);
 	if (errno > 0) {
 		return -1;
@@ -496,6 +511,10 @@ int execlp(const char *file, const char *arg, ...) {
 
 int munmap(void* addr, size_t len) {
 	// Насправді, ядро на даний момент не підтримує функцію "arch_mmu_unmap", тому ми повернемо позитивний результат нічого не роблючи
+	errno = helin_syscall(SYS_munmap,(int)addr,len,0,0,0);
+	if (errno > 0) {
+		return -1;
+	}
 	return 0;
 }
 
@@ -627,4 +646,368 @@ int clock_gettime(clockid_t clock_id, struct timespec *tp) {
 
 int syscall(int num,int p1,int p2,int p3,int p4,int p5) {
 	return helin_syscall(num,p1,p2,p3,p4,p5);
+}
+
+int killpg(int grID,int sig) {
+	errno = 13;
+	return -1;
+}
+int getrlimit(int resource, struct rlimit *rlp) {
+	errno = 13;
+	return -1;
+}
+int setrlimit(int resource, const struct rlimit *rlp) {
+	errno = -13;
+	return -1;
+}
+
+int chroot(const char *to) {
+	errno =  helin_syscall(SYS_chroot,(int)to,0,0,0,0);
+	if (errno > 0) {
+		return -1;
+	}
+	return 0;
+}
+
+int confstr(int name,char *buff,size_t len) {
+	if (name == 0) {
+		// All utilities can be found at /initrd/(currently,alpha build)
+		strncpy(buff,"/initrd",len);
+		return 0;
+	}
+	errno = 38;
+	return -1;
+}
+
+char *crypt(const char *key,const char *salt) {
+	// Crypto things doesn't supported currently at kernel
+	errno = 38;
+	return NULL;
+}
+
+char *ctermid(char *s) {
+	if (s == NULL) {
+		return "/dev/tty";
+	} else {
+		strcpy(s,"/dev/tty");
+	}
+	return s;
+}
+
+char *getlogin() {
+	// parse /etc/passwd.
+	int passwdFd = open("/etc/passwd",O_RDONLY);
+	if (passwdFd < 0) {
+		return "noname";
+	}
+	int id = getuid();
+	if (id == 0) {
+		return "root";
+	} else if (id == 1000) {
+		return "user";
+	}
+	return NULL;
+}
+int getlogin_r(char *buff,size_t len) {
+	strncpy(buff,getlogin(),len); // genius :)
+	return 0;
+}
+
+char *cuserid(char *s) {
+	if (s == NULL) {
+		return getlogin();
+	} else {
+		strcpy(s,getlogin());
+	}
+	return s;
+}
+
+int dup3(int oldfd,int newfd,int flags) {
+	return dup2(oldfd,newfd); // Linux standard, we need to implement currently only POSIX.
+}
+
+int eaccess(char *path,int mode) {
+	return access(path,mode);
+}
+
+void encrypt(char *block,int flags) {}
+char *getusershell(void) {
+	return "/initrd/sh";
+}
+void endusershell() {}
+void setusershell() {}
+int euidaccess(const char *path,int mode) {
+	return access(path,mode);
+}
+
+void execle(const char *path,const char *arg,...) {
+	errno = 38;
+}
+void execlpe(const char *path,const char *arg,...) {
+	errno = 38;
+}
+// Not defined in POSIX
+void execvpe(const char *__file, char * const __argv[], char * const __envp[]) {
+	errno = 38;
+}
+int faccessat(int __dirfd, const char *__path, int __mode, int __flags) {
+	errno = 38;
+	return -1;
+}
+
+int fchdir(int fd) {
+	errno = helin_syscall(SYS_fchdir,fd,0,0,0,0);
+	if (errno > 0) {
+		return -1;
+	}
+	return 0;
+}
+int fchown(int fd,int owner,int group) {
+	errno = helin_syscall(SYS_fchown,fd,owner,group,0,0);
+	if (errno > 0) {
+		return -1;
+	}
+	return 0;
+}
+
+int fchownat(int _dirfd,char *path,int mode,int group,int flags) {
+	// We need to use stat(2)
+	errno = 38;
+	return -1;
+}
+void fexecve(int __fd, char * const __argv[], char * const __envp[]) {
+	/* Never seen this function before */
+}
+
+long fpathconf(int fd,int name) {
+	errno = 38; // sorry
+	return -1;
+}
+long pathconf(const char *path,int name) {
+	errno = 38;
+	return -1;
+}
+int fsync(int fd) {
+	errno = helin_syscall(SYS_sync,fd,0,0,0,0);
+	return -1;
+}
+int fdatasync(int fd) {
+	return fsync(fd);
+}
+char *get_current_dir_name() {
+	char path[PATH_MAX];
+	getcwd(path,PATH_MAX);
+	return path;
+}
+int getdomainname(char *name,size_t len) {
+	strncpy(name,"localhost",len);
+	return 0;
+}
+int getentropy(void *ptr,size_t len) {
+	errno = 38;
+	return -1;
+}
+
+int getgroups(int gidsetsize, gid_t grouplist[]) {
+	// this require to process /etc/group
+	errno = 38;
+	return -1;
+}
+long gethostid() {
+	return 0;
+}
+int sethostid(int id) {
+	errno = 13;
+	return -1;
+}
+char *getpass(char *prompt) {
+	char *password = malloc(200);
+	if (password == NULL) return NULL;
+	printf(prompt);
+	int flags = 0;
+	ioctl(0,1,&flags);
+	flags = flags &~ ECHO;
+	ioctl(0,2,&flags);
+	scanf("%s",password);
+	flags = flags | ECHO;
+	ioctl(0,2,&flags);
+	return password;
+}
+int getpgrp() {
+	return getgid();
+}
+int getpgid(int pid) {
+	return helin_syscall(SYS_getpgid,0,0,0,0,0);
+}
+
+int getppid() {
+	return helin_syscall(SYS_getppid,0,0,0,0,0);
+}
+int getsid() {
+	return 0;
+}
+char *getwd(char *s) {
+	return getcwd(s,PATH_MAX);
+}
+int issetugid(void) {
+	return 0;
+}
+int lchown(const char *__path, uid_t __owner, gid_t __group) {
+	// syscall :((
+	int fd = open(__path,O_RDWR);
+	if (fd < 0) {
+		return -1;
+	}
+	errno = helin_syscall(SYS_chown,fd,__owner,__group,0,0);
+	if (errno > 0) {
+		return -1;
+	}
+	close(fd);
+	return 0;
+}
+int linkat(int __dirfd1, const char *__path1, int __dirfd2, const char *__path2, int __flags) {
+	errno = 38;
+	return -1;
+}
+int nice(int priority) {
+	errno = helin_syscall(SYS_nice,priority,0,0,0,0);
+	return -1;
+}
+int lockf(int __fd, int __cmd, off_t __len) {
+	errno = 38;
+	return -1;
+}
+int pause() {
+	errno = 38;
+	return -1;
+}
+int pthread_atfork(void (*p1)(void), void (*p2)(void), void (*p3)(void)) {
+	errno = 38;
+	return -1;
+}
+int pipe2(int pipefd[2],int flags) {
+	errno = 38;
+	return -1;
+}
+ssize_t pread(int fd, void *buf, size_t count,
+                     off_t offset) {
+	// get current offset of file
+	int cur = lseek(fd,0,SEEK_CUR);
+	if (cur < 0) return -1;
+	if (lseek(fd,offset,SEEK_SET) < 0) return -1;
+	if (read(fd,buf,count) < 0) return -1;
+	if (lseek(fd,cur,SEEK_SET) < 0) return -1;
+	return 0;
+}
+ssize_t pwrite(int fd, const void *buf, size_t count,
+                     off_t offset) {
+	int cur = lseek(fd,0,SEEK_CUR);
+	if (cur < 0) return -1;
+	if (lseek(fd,offset,SEEK_SET) < 0) return -1;
+	if (write(fd,buf,count) < 0) return -1;
+	if (lseek(fd,cur,SEEK_SET) < 0) return -1;
+	return -1;
+}
+int setegid(int to) {
+	return setgid(to);
+}
+int seteuid(int to) {
+	return setuid(to);
+}
+int setgroups(int ngroups, const gid_t *grouplist ) {
+	errno = 38;
+	return -1;
+}
+int setpgid(int pid,int to) {
+	return setgid(to);
+}
+void setpgrp() {}
+int setregid(gid_t __rgid, gid_t __egid) {
+	errno = 38;
+	return -1;
+}
+int setreuid(uid_t __ruid, uid_t __euid) {
+	errno = 38;
+	return -1;
+}
+pid_t tcgetpgrp(int fd) {
+	errno = 38;
+	return -1;
+}
+int tcsetpgrp(int fd, pid_t pgrp) {
+	errno = 38;
+	return -1;
+}
+char *ttyname(int fd) {
+	return "tty";
+}
+int ttyname_r(int p1, char *p2, size_t p3) {
+	errno = 38;
+	return -1;
+}
+int vhangup() {
+	errno = 38;
+	return -1;
+}
+int _close(int fd) {
+	return close(fd);
+}
+pid_t _fork() {
+	return fork();
+}
+int _getpid() {
+	return getpid();
+}
+int _isatty(int fd) {
+	return isatty(fd);
+}
+int _link(int p1,int p2) {
+	return link(p1,p2);
+}
+int _lseek(int __fildes, _off_t __offset, int __whence) {
+	return lseek(__fildes,__offset,__whence);
+}
+int _read(int fd,char *buff,size_t nbyte) {
+	return read(fd,buff,nbyte);
+}
+void *_sbrk(int how) {
+	return sbrk(how);
+}
+int _unlink(const char *path) {
+	return unlink(path);
+}
+int _write(int __fd, const void *__buf, size_t __nbyte ) {
+	return write(__fd,__buf,__nbyte);
+}
+int _execve(const char *__path, char * const __argv[], char * const __envp[]) {
+	return execve(__path,__argv,__envp);
+}
+int getdtablesize() {
+	return 200;
+}
+int ualarm(useconds_t __useconds, useconds_t __interval) {
+	errno = 38;
+	return -1;
+}
+int setdtablesize(int p1) {
+	errno = 38; // currently not possible due to STATIC define of FD.
+	return -1;
+}
+int symlinkat(const char *p1, int p2, const char *p3) {
+	errno = 38;
+	return -1;
+}
+int	unlinkat(int p1, const char *p2, int p3) {
+	errno = 38;
+	return -1;
+}
+void sync() {
+	helin_syscall(SYS_sync,0,0,0,0,0);
+}
+int symlink(const char *__name1, const char *__name2) {
+	errno = helin_syscall(SYS_symlink,(int)__name1,(int)__name2,0,0,0);
+	if (errno > 0) {
+		return -1;
+	}
+	return 0;
 }

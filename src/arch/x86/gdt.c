@@ -224,10 +224,9 @@ void interrupt_sendEOI() {
 
 void *x86_irq_handler(registers_t *regs) {
     // Tell the controller that the interrupt ended
-    if (regs->int_no == IRQ7 || regs->int_no == IRQ15) {
+    /*if (regs->int_no == IRQ7 || regs->int_no == IRQ15) {
         kprintf("X86: Spurious IRQ: 0x%x!\n",regs->int_no);
-        return regs;
-    }
+    }*/
     int int_no = regs->int_no;
     if (int_no < IRQ0) {
         arch_cli();

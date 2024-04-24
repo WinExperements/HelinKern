@@ -203,9 +203,9 @@ static void printCursor(int x,int y) {
 }
 /* Called when the FB need to be mapped to the memory, usually at startup and when creating new process */
 void fb_map() {
-    if (mapped) return;
+    //if (mapped) return;
     if (addr != NULL) {
-        GFX_MEMORY = 0x01400000;
+        GFX_MEMORY = /*0x02800000*/addr;
         // Map the FB
         uint32_t p_address = (uint32_t)addr;
 	    uint32_t v_address = (uint32_t)GFX_MEMORY;
@@ -217,9 +217,9 @@ void fb_map() {
 	    }
 	    addr = GFX_MEMORY;
 	    mapped = true;
-	    cursor_x = cursor_y = 0; // why not?
+	    if (!mapped) cursor_x = cursor_y = 0; // why not?
     }
-    DEBUG("FB mapped: from 0x%x to 0x%x\r\n",addr,(addr)+(pitch*width));
+    kprintf("FB mapped: from 0x%x to 0x%x\r\n",addr,(addr)+(pitch*width));
 }
 void fb_clear(int color) {
     if (color == 0xffffff) {

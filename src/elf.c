@@ -8,6 +8,7 @@
 #include <module.h>
 #include <debug.h>
 #include <dev.h>
+#include <dev/fb.h>
 static vfs_node_t *keyboard = NULL;
 bool elf_check_file(Elf32_Ehdr *hdr) {
     if (!hdr) {
@@ -102,8 +103,14 @@ bool elf_load_file(void *addr,process_t *caller) {
     size_t elf_base = (size_t)addr;
     uint32_t memEnd = elf_get_end_in_memory(addr);
     // Switch to the new process memory map
-    if (caller == NULL) prc->aspace = arch_mmu_newAspace();
+    if (caller == NULL) {
+	    // clone kernel address space
+	    arch_mmu_duplicate(arch_mmu_getKernelSpace(),prc->aspace);
+	}
     arch_mmu_switch(prc->aspace);
+    if (caller != NULL) {
+	    fb_map();
+	}
 	alloc_initProcess(prc,memEnd - USER_OFFSET);
     for (pe = 0; pe < header->e_phnum; pe++) {
         Elf32_Phdr *p_entry = (void *)(header->e_phoff + elf_base + pe * header->e_phentsize);

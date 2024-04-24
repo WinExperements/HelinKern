@@ -110,6 +110,15 @@ void *thread_schedule(void *stack) {
             // Oh! Is this means that the init process just died?
 	        // We just send the warrning message and switch to idle
 	        kprintf("Warrning: no processes left to run, maybe your init just died, please reboot device\r\n");
+		kprintf("Kernel: EMERGENCY STATE! Pushing ALL processes!\r\n");
+		arch_mmu_switch(arch_mmu_getKernelSpace());
+		queue_for(element,task_list) {
+			process_t *prc = element->value;
+			if (prc->state == STATUS_RUNNING) {
+				push_prc(prc);
+				kprintf("Pushed %s\r\n",prc->name);
+			}
+		}
 	        push_prc(idle);
 	        return stack;
         }

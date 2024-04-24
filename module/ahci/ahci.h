@@ -1,6 +1,6 @@
 #ifndef AHCI_H
 #define AHCI_H
 
-void ahci_main();
+void ahci_init();
 
 #endif

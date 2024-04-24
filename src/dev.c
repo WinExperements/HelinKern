@@ -63,7 +63,7 @@ void dev_add(dev_t *dev) {
         }
         de->next = dev;
     }
-    if (dev->type == DEVFS_TYPE_BLOCK) {
+    if (dev->type & DEVFS_TYPE_BLOCK) {
 	    // Trigger parttab
 	    partTab_trigger(fil);
     }
@@ -171,4 +171,7 @@ static bool devfs_mount(vfs_node_t *dev,vfs_node_t *mptr,void *unused) {
     }
     mptr->fs = fs;
     return true;
+}
+dev_t *dev_getRoot() {
+	return device;
 }

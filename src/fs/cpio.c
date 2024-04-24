@@ -52,6 +52,10 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
     root->priv_data = p;
     int dev_size = dev->size;
     me->workDir = mountpoint;
+    if (dev->size == 0) {
+	kprintf("cpio: device size is zero! Device: %s\r\n",dev->name);
+	return false;
+    }
     for (; offset < dev_size; offset +=sizeof(struct cpio_hdr)+(hdr.namesize+1)/2*2 + (size+1)/2*2) {
         int data_offset = offset;
         vfs_read(dev,data_offset,sizeof(struct cpio_hdr),&hdr);

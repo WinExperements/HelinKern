@@ -10,6 +10,7 @@
 #include <debug.h>
 #include <dev/socket.h>
 #include <dev/clock.h>
+#include <dev.h>
 // Pthreads structure that passed to newlib thread_entry
 typedef struct _pthread_str {
 	int entry;
@@ -91,7 +92,16 @@ static int sys_unlink(char *path);
 static int sys_gettime(int clock,struct tm *time);
 static int sys_settime(int clock,struct tm *time);
 static int sys_syslog(int type,char *buf,int len);
-int syscall_table[61] = {
+static int sys_chroot(char *to);
+static int sys_fchdir(int fd);
+static int sys_fchown(int fd,int owner,int group);
+static int sys_chown(int mode,char *path,int owner,int group);
+static int sys_rm(int mode,char *path);
+static int sys_getpgid(int pid);
+static int sys_nice(int priority);
+static int sys_symlink(char *target,char *path);
+static void *kmalloc_user(process_t *prc,int size);
+int syscall_table[69] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -153,9 +163,27 @@ int syscall_table[61] = {
     (int)sys_gettime,
     (int)sys_settime,
     (int)sys_syslog,
+    (int)sys_chroot,
+    (int)sys_fchdir,
+    (int)sys_fchown,
+    (int)sys_chown,
+    (int)sys_rm,
+    (int)sys_getpgid,
+    (int)sys_nice,
+    (int)sys_symlink,
 };
-int syscall_num = 61;
+int syscall_num = 69;
 extern void push_prc(process_t *);
+static void *kmalloc_user(process_t *prc,int size) {
+	return sbrk(prc,size);
+}
+static char *strdup_user(process_t *prc,char *str) {
+	int len = strlen(str);
+	char *new = sbrk(prc,len+1);
+	strcpy(new,str);
+	new[len] = 0;
+	return new;
+}
 static void sys_print(char *msg) {
     /*
     	WARRNING! Deprecated. Never use it.
@@ -312,26 +340,45 @@ static int sys_exec(char *path,int argc,char **argv) {
     vfs_read(file,0,len,file_buff);
     if (caller != NULL )caller->aspace = arch_mmu_newAspace();
     elf_load_file(file_buff,caller);
+    arch_mmu_switch(arch_mmu_getKernelSpace());
     process_t *prc = (caller != NULL ? caller : thread_getThread(thread_getNextPID()-1));
     // Change name to actual file name
     thread_changeName(prc,file->name);
     kfree(file_buff);
     kfree(buff);
+    kprintf("%s: begin of user process argument copy...",__func__);
     if (caller != NULL )arch_mmu_switch(original);
     vfs_close(file);
     char **new_argv = NULL;
     if (argc == 0 || argv == 0) {
         // Передамо звичайні параметри(ім'я файлу і т.д)
-        new_argv = kmalloc(2);
-        new_argv[0] = strdup(path);
+	arch_mmu_switch(prc->aspace);
+        new_argv = sbrk(prc,2);
+        new_argv[0] = strdup_user(prc,path);
+	arch_mmu_switch(arch_mmu_getKernelSpace());
         argc = 1;
     } else {
         // We need to copy arguments from caller to prevent #PG when process is exitng!
-        new_argv = kmalloc(sizeof(char *) * (argc + 1));
-        for (int i = 0; i < argc; i++) {
-            new_argv[i] = strdup(argv[i]);
-        }
+	// 14/04/2024: We need to switch to process address space to prevent #PG when process is trying to access it's own arguments.
+	// Also required if current platform supports mapping only active page directory(x86,x86_64 for example)
+	// We need to somehow access argv from ANOTHER address space.
+	// Need to be optimized.
+	char **krnArgv = kmalloc(sizeof(char *) * (argc + 1));
+	for (int i = 0; i < argc; i++) {
+		krnArgv[i] = strdup(argv[i]);
+	}
+	arch_mmu_switch(prc->aspace);
+	new_argv = sbrk(prc,sizeof(char *) * (argc + 1));
+	for (int i = 0; i < argc; i++) {
+		new_argv[i] = strdup_user(prc,krnArgv[i]);
+	}
+	arch_mmu_switch( arch_mmu_getKernelSpace());
+	for (int i = 0; i < argc; i++) {
+		kfree(krnArgv[i]);
+	}
+	kfree(krnArgv);
     }
+    kprintf("done\r\n");
     arch_putArgs(prc,argc,new_argv);
     if (caller != NULL )arch_mmu_destroyAspace(original,false);
     DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize());
@@ -344,6 +391,16 @@ static int sys_reboot(int reason) {
 		return 13;
 	}
 	if (reason == POWEROFF_MAGIC) {
+		// Poweroff all POWER devices
+		for (dev_t *dev = dev_getRoot(); dev != NULL; dev = dev->next) {
+			if ((dev->type & DEVFS_TYPE_POWER) == DEVFS_TYPE_POWER) {
+				if (dev->poweroff != NULL) {
+					kprintf("Powering off device %s...",dev->name);
+					kprintf(dev->poweroff(dev->devNode) ? "done" : "fail");
+					kprintf("\r\n");
+				}
+			}
+		}
 		arch_poweroff();
 	}
 	arch_reset();
@@ -378,11 +435,11 @@ static void *sys_readdir(int fd,int p) {
     return vfs_readdir(_fd->node,p);
 }
 static int sys_mount(char *dev,char *mount_point,char *fs) {
-    //kprintf("%s: %s %s %s\n",__func__,dev,mount_point,fs);
     char *dev_copy = strdup(dev);
     char *mountptr = strdup(mount_point);
     char *f = strdup(fs);
     vfs_node_t *de = vfs_find(dev_copy);
+    process_t *prc = thread_getThread(thread_getCurrent());
     if (!de) {
         kfree(dev_copy);
         kfree(mountptr);
@@ -397,21 +454,23 @@ static int sys_mount(char *dev,char *mount_point,char *fs) {
         return -2;
     }
     aspace_t *aspace = arch_mmu_getAspace();
-    arch_cli();
-    arch_mmu_switch(arch_mmu_getKernelSpace());
+    prc->aspace = arch_mmu_getKernelSpace();
+    arch_mmu_switch(prc->aspace);
    // kprintf("DEBUG! %s: fol: %x, de: %x, mountptr: 0x%x\n",__func__,fol,de,mountptr);
    // kprintf("Calling vfs_mount\n");
     if (!vfs_mount(fol,de,mountptr)) {
-	    arch_sti();
+	    kprintf("Return of vfs_mount with error -3\r\n");
 	    kfree(dev_copy);
 	    kfree(mountptr);
 	    kfree(f);
+	    arch_mmu_switch(aspace);
+	    prc->aspace = aspace;
 	    return -3;
     }
-    arch_sti();
     kfree(dev_copy);
     kfree(mountptr);
     kfree(f);
+    prc->aspace = aspace;
     arch_mmu_switch(aspace);
     return 0;
 }
@@ -511,22 +570,22 @@ static int sys_insmod(char *path) {
     // Load
     module_t *mod = load_module(m);
     if (!mod) {
+	kfree(m);
         arch_mmu_switch(aspace);
-        kfree(m);
         clock_setShedulerEnabled(true);
         return -2;
     }
     kprintf("Module %s load address(used for GDB): 0x%x\n",mod->name,mod->load_address);
     // call the module entry point
     if (mod->init) {
-	kprintf("sys_insmod: calling entry point of module\n");
+	//kprintf("sys_insmod: calling entry point of module\n");
         mod->init(mod);
     }
     kfree(m);
     clock_setShedulerEnabled(true);
     arch_sti();
     arch_mmu_switch(aspace);
-    kprintf("syscall: exit from sys_insmod\n");
+    //kprintf("syscall: exit from sys_insmod\n");
     return 0;
 }
 static void sys_rmmod(char *name) {
@@ -554,7 +613,9 @@ static int sys_getgid() {
 static void *sys_sbrk(int increment) {
     process_t *prc = thread_getThread(thread_getCurrent());
     if (!prc) return (void *)-1;
-    return sbrk(prc,increment);
+    void *ptr = sbrk(prc,increment);
+    DEBUG("Ptr -> 0x%x\r\n",ptr);
+    return ptr;
 }
 static int sys_dup(int oldfd,int newfd) {
 	process_t *prc = thread_getThread(thread_getCurrent());
@@ -758,11 +819,11 @@ static int sys_uname(struct utsname *name) {
     }
     process_t *caller = thread_getThread(thread_getCurrent());
     arch_mmu_switch(caller->aspace);
-    name->sysname = kmalloc(6);
+    name->sysname = kmalloc_user(caller,6);
     strcpy(name->sysname,"Helin");
-    name->release = strdup(OS_RELEASE);
-    name->version = strdup(OS_VERSION);
-    name->machine = strdup(arch_getName());
+    name->release = strdup_user(caller,OS_RELEASE);
+    name->version = strdup_user(caller,OS_VERSION);
+    name->machine = strdup_user(caller,arch_getName());
     return 0;
 }
 static int sys_sethostname(char *name,int len) {
@@ -871,4 +932,48 @@ static int sys_syslog(int type,char *buff,int len) {
 	kprintf("%s: kernel ring ptr: 0x%x\r\n",__func__,0xaa);
 	//output_write(ringBuff);
 	return 0;
+}
+
+int sys_chroot(char *path) {
+	return 38;
+}
+
+int sys_fchdir(int _fd) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	file_descriptor_t *fd = caller->fds[_fd];
+	if (fd == NULL) {
+		return 2;
+	}
+	caller->workDir = fd->node;
+	return 0;
+}
+int sys_fchown(int fd,int owner,int group) {
+	return 38;
+}
+int sys_chown(int mode,char *path,int owner,int group) {
+	return 38;
+}
+int sys_rm(int mode,char *path) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	// yes
+	vfs_node_t *obj = vfs_find(path);
+	if (obj == NULL) {
+		return 2;
+	}
+	if (obj->fs == NULL || obj->fs->rm == NULL) {
+		return 5;
+	}
+	obj->fs->rm(obj);
+	return 0;
+}
+int sys_getpgid(int pid) {
+	return 0;
+}
+int sys_nice(int prio) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	caller->priority = prio;
+	return 0;
+}
+int sys_symlink(char *target,char *path) {
+	return 38;
 }

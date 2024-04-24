@@ -35,7 +35,6 @@
 #endif
 static int fb_addr;
 extern int *syscall_table;
-int AHCI_BASE;
 extern bool disableOutput;
 extern char *ringBuff;
 bool dontUseAta;
@@ -121,6 +120,11 @@ void kernel_main(const char *args) {
     keyboard_init();
     fbdev_init();
     ps2mouse_init();
+    //kprintf("**** DELL AND REAL HARDWARE BUG ****\r\n");
+    mbr_init();
+    pci_init();
+    ahci_init();
+    ext2_main();
     #endif
     tty_init();
     socket_init();
@@ -138,7 +142,7 @@ void kernel_main(const char *args) {
     arch_detect();
     kprintf("Monolitic kernel: Booting up some drives drivers....\n");
     // Directly try to mount initrd and run init if it fails then panic like Linux kernel or spawn kshell
-    vfs_node_t *initrd = vfs_find("/bin/initrd.cpio");
+    vfs_node_t *initrd = vfs_find("/initrdram");
     if (!initrd) {
         PANIC("Cannot find initrd. Pass it as module with initrd.cpio argument");
     }
@@ -152,6 +156,9 @@ void kernel_main(const char *args) {
         PANIC("Failed to mount initrd");
     }
 #if 1
+    kprintf("Installing some modules\r\n");
+    /*int (*insmod)(char *) = ((int (*)(char *))syscall_get(30));
+    insmod("/initrd/pci.mod");*/
     int (*exec)(char *,int,char **) = ((int (*)(char *,int,char **))syscall_get(13));
     int pid = exec("/initrd/init",0,NULL); // Ядро передасть параметри за замовчуванням.
     if (pid < 0) {

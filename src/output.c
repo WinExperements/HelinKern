@@ -4,18 +4,8 @@
 char *ringBuff = NULL;
 int ringBuffPtr;
 bool disableOutput = true; // can be changed from somewhere in kernel
-void ringBuffPut(char c) {
-	return;
-}
-void ringBuffWrite(char *c) {
-	while(*c) {
-		ringBuffPut(*c);
-		c++;
-	}
-}
 void output_writeInt(int u) {
     	if (u == 0) {
-	  ringBuffPut('0');
           output_write("0");
           return;
         }
@@ -34,7 +24,6 @@ void output_writeInt(int u) {
         while(i >= 0) {
                 c2[i--] = c[j++];
         }
-	ringBuffWrite(c2);
 	output_write(c2);
 }
 void output_printHex(int num) {
@@ -46,37 +35,30 @@ void output_printHex(int num) {
 		if (tmp == 0 && noZeroes != 0) continue;
 		if (tmp >= 0xA) {
 			noZeroes = 0;
-			ringBuffPut(tmp-0xA+'a');
 			putc(tmp-0xA+'a');
 		} else {
 			noZeroes = 0;
-			ringBuffPut(tmp+'0');
 			putc(tmp+'0');
 		}
 	}
 	tmp = num & 0xF;
 	if (tmp >= 0xA) {
-		ringBuffPut(tmp-0xA+'a');
 		putc(tmp-0xA+'a');
 	} else {
-		ringBuffPut(tmp+'0');
 		putc(tmp+'0');
 	}
 }
 void kprintf(char *format,...) {
-	if (disableOutput) return;
+	//if (disableOutput) return;
     va_list arg;
 	va_start(arg,format);
 	while (*format != '\0') {
 		if (*format == '%') {
 			if (*(format +1) == '%') {
-				ringBuffWrite("%");
 				output_write("%");
 			} else if (*(format + 1) == 's') {
-				ringBuffWrite(va_arg(arg,char*));
 				output_write(va_arg(arg,char*));
 			} else if (*(format + 1) == 'c') {
-				ringBuffPut(va_arg(arg,int));
 				putc(va_arg(arg,int));
 			} else if (*(format + 1) == 'd') {
 				output_writeInt(va_arg(arg,int));

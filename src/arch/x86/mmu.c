@@ -50,7 +50,7 @@ void arch_mmu_init() {
 	    PANIC("Initrd is overwriting our page tables!");
 	}
     int i = 0;
-    int end_index = PAGE_INDEX_4M(RESERVED_AREA);
+    int end_index = PAGE_INDEX_4M(RESERVED_AREA)+4;
     if (end_index == 0) end_index = 4;
     for (i = 0; i < end_index; ++i)
     {
@@ -277,6 +277,7 @@ bool arch_mmu_duplicate(aspace_t *parent, aspace_t *child) {
 						                        //uint32_t child_phys = alloc_getPage();
 									            //copy_page_physical(physicalFrame,child_phys);
 						                        //kprintf("%s: copy address 0x%x, 0x%x\n",__func__,virtual,physicalFrame);
+
 						                        /* Copy-On-Write! */
 						                        CHANGE_PD(child);
 						                        arch_mmu_mapPage(NULL,virtual,physicalFrame,PG_PRESENT | PG_USER | PG_OWNED);

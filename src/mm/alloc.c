@@ -88,7 +88,7 @@ void *ksbrk_page(int n) {
 			PANIC("ksbrk_page: No free space left");
 			return (void *)-1;
 		}
-		arch_mmu_mapPage(NULL,(int)m_kheap,p_addr,7);
+		arch_mmu_mapPage(NULL,(int)m_kheap,p_addr,3);
 		m_kheap+= PAGESIZE_4K;
 	}
 	chunk->size = PAGESIZE_4K * n;

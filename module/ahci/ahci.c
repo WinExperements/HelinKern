@@ -7,7 +7,9 @@
 #include <arch.h>
 #include <dev.h>
 #include <mm/alloc.h>
-
+#include <lib/string.h>
+#include <atapi/atapi.h>
+#include <fs/parttab.h>
 #define HBA_PxIS_TFES   (1 << 30)
 #define ATA_CMD_READ_DMA_EX 0x25
 #define ATA_CMD_WRITE_DMA_EX    0x35
@@ -226,13 +228,15 @@ struct sata_info {
 	void *ctba[32];
 	HBA_PORT *port;
 	HBA_MEM *abar;
+	int type; // SATAPI,SATA
+	int sector_size;
     int devID;
 };
 
 struct glob {
     HBA_MEM *regs;
     int pi;
-    HBA_MEM *ports[32];
+    HBA_PORT *ports[32];
 };
 
 #define SATA_SIG_ATA    0x00000101  // SATA drive
@@ -298,27 +302,40 @@ enum {
 #define SCTL_PORT_IPM_NORES		0x00000000	// no power restrictions
 #define SCTL_PORT_IPM_NOPART	0x00000100	// no transitions to partial
 #define SCTL_PORT_IPM_NOSLUM	0x00000200	// no transitions to slumber
-
-
+#define htonl(l)  ( (((l) & 0xFF) << 24) | (((l) & 0xFF00) << 8) | (((l) & 0xFF0000) >> 8) | (((l) & 0xFF000000) >> 24))
 static HBA_MEM *ctrl_data;
 static PciBar *bar;
 static int controllerID;
 
 static int find_cmdslot(HBA_PORT *port,HBA_MEM *abar);
-static uint8_t read_sata(struct sata_info *pdata, uint32_t startl, uint32_t starth, uint32_t count,char *buf);
+// Read or write to SATA device.
+static uint8_t rw_sata(struct sata_info *pdata, uint64_t lba, uint32_t count,char *buf,bool waitForComplete,bool write);
 static void ahci_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf);
 static void ahci_vdev_writeBlock(vfs_node_t *node,int blockNo,int how,void *buf);
-static int ahci_vdev_write(vfs_node_t *node,int blockNo,int how, void *buf);
+static int ahci_vdev_write(vfs_node_t *node,uint64_t blockNo,uint64_t how, void *buf);
 void registerDev(struct sata_info *inf);
 void* align_addr(void* address,int al);
 void *ahci_handler(void *regs);
-char datBuff[512] __attribute__((aligned(1024)));
-
-extern int AHCI_BASE;
+char datBuff[16384] __attribute__((aligned(1024)));
+bool identifyDisk(HBA_PORT *port,HBA_MEM *abar,int type);
+int AHCI_BASE;
 static struct glob *gl_dat;
 static void reset_controller();
 static void reset_port(HBA_PORT *port);
-
+// Sends non-data command to target port using device type
+//	     Send the non-data command to device				if device isn't ATAPI this parameter can
+//	     									be NULL.
+//	     										   Buffer is used for non read
+//	     										   commands(use read_sata instead)
+static void sendCommand(int cmd,HBA_PORT *port,HBA_MEM *mem,int type,uint8_t *atapiPacket,void *buffer,int buffSize);
+int ahciVendor;
+int ahci_vdev_ioctl(vfs_node_t *node,int request,va_list arg);
+static char satapi_char = '0';
+static char sata_char = '0';
+static void ahci_mapPort(HBA_PORT *port);
+static bool ahci_vdev_poweroff(vfs_node_t *node);
+static bool ahci_vdev_poweron(vfs_node_t *node);
+static bool setupAtapi(HBA_PORT *port,HBA_MEM *abar);
 static void PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
 {
     unsigned int id = PCI_MAKE_ID(bus, dev, func);
@@ -335,7 +352,6 @@ static void PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
     info.subclass = PciRead8(id, PCI_CONFIG_SUBCLASS);
     info.classCode = PciRead8(id, PCI_CONFIG_CLASS_CODE);
     if (((info.classCode << 8) | info.subclass) == PCI_STORAGE_SATA) {
-            kprintf("found\r\n");
         int addr = PciRead32(id,PCI_CONFIG_BAR5);
 	    PciWrite16(id,PCI_CONFIG_COMMAND,PciRead16(id,PCI_CONFIG_COMMAND) | 0x0002 | 0x0004);
 	    ctrl_data = (HBA_MEM *)(addr & ~0xf);
@@ -346,22 +362,10 @@ static void PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
             arch_mmu_mapPage(NULL,addr+align,addr+align,7);
         }
         ctrl_id = id;
-    uint8_t interLine = PciRead8(id,0x3c);
-    kprintf("INTER LINE: 0x%x\n",interLine);
+    uint8_t interLine = PciRead8(id,PCI_CONFIG_INTERRUPT_LINE);
     interrupt_add(interLine,ahci_handler);
-	/*kprintf("AHCI controller PCI dump: \n");
-	PciBar *ba = kmalloc(sizeof(PciBar));
-	memset(ba,0,sizeof(PciBar));
-	for (int i = 0; i < 5; i++) {
-		PciGetBar(ba,id,i);
-		kprintf("BAR%d dump: \n",i);
-		kprintf("Address 0x%x\n",ba->u.address);
-		kprintf("Size: 0x%x\n",ba->size);
-		kprintf("Flags: 0x%x\n",ba->flags);
-	}*/
-      kprintf("Controller vendor ID: 0x%x\n",PciRead16(id,PCI_CONFIG_VENDOR_ID));
-      kprintf("WW: 0x%x\n",PciRead16(id,0x92));
       controllerID = id;
+      ahciVendor = info.vendorId;
     }
 }
 
@@ -424,29 +428,22 @@ void* align_address(void* address, size_t alignment) {
 
 // Our hell begins here
 static void rebase_port(HBA_PORT *port, int portno,struct sata_info *info) {
-    kprintf("AHCI base reported by kernel: 0x%x\n",AHCI_BASE);
     // Reset controller and it's ports
-    kprintf("Controller reseted, tfd: 0x%x\n",port->tfd);
-    kprintf("stop command processor, tfd: 0x%x\n",port->tfd);
-    kprintf("Reseting port\n");
-    port->cmd |= HBA_PxCMD_CR;
-    while(port->cmd & HBA_PxCMD_CR);
+    stop_cmd(port);
     port->serr =1;//For each implemented port, clear the PxSERR register, by writing 1 to each mplemented location
     port->is=0;//
     port->ie = 0;
-    kprintf("WW: 0x%x\n",PciRead16(info->devID,0x92));
     port->clb = AHCI_BASE + (portno<<10);
 	port->clbu = 0;
 	memset((void*)(port->clb), 0, 1024);
 
-    info->clb = port->clb;
+    info->clb = (void *)port->clb;
 	// FIS offset: 32K+256*portno
 	// FIS entry size = 256 bytes per port
 	port->fb = AHCI_BASE + (32<<10) + (portno<<8);
 	port->fbu = 0;
 	memset((void*)(port->fb), 0, 256);
-    info->fb = port->fb;
-    kprintf("cmdheader pre setup, tfd: 0x%x\n",port->tfd);
+    info->fb = (void *)port->fb;
 	// Command table offset: 40K + 8K*portno
 	// Command table size = 256*32 = 8K per port
 	HBA_CMD_HEADER *cmdheader = (HBA_CMD_HEADER*)(port->clb);
@@ -459,21 +456,25 @@ static void rebase_port(HBA_PORT *port, int portno,struct sata_info *info) {
 		cmdheader[i].ctbau = 0;
 		memset((void*)cmdheader[i].ctba, 0, 256);
 	}
-    kprintf("Waiting for the bit15 to be cleared\n");
-    while (port->cmd & HBA_PxCMD_CR);
-    reset_port(port);
-    kprintf("Cleared by controller, continue, tfd: 0x%x\n",port->tfd);
-    //start_cmd(port);
+    start_cmd(port);
     port->is = 0;   
     port->ie = 0xffffffff;
-    kprintf("AHCI: TFD(after rebase done): 0x%x\n",port->tfd);
 }
 
-void ahci_main() {
-    arch_cli();
-    memset(datBuff,0,512);file:///home/servadmin/HelinKern/kernel.bin
-    kprintf("BUFF: 0x%x\n",datBuff);
-    kprintf("Finding AHCI controller in PCI base...");
+void ahci_init() {
+    clock_setShedulerEnabled(false);
+    arch_sti();
+    int pages = 4095;
+    AHCI_BASE = alloc_getPage();
+    for (int i = 0; i < pages; i++) {
+	alloc_getPage();
+    }
+    // arch_mmu_mapPage can allocate new PT, so we need to make 2 different loops.
+    for (int i = 0; i < pages; i++) {
+	int addr = AHCI_BASE + (i * 4096);
+	arch_mmu_mapPage(NULL,addr,addr,3);
+    }
+    memset(datBuff,0,512);
     void *a = arch_mmu_getAspace();
     arch_mmu_switch(arch_mmu_getKernelSpace());
     // Scan each BUS to find the SATA controller
@@ -492,7 +493,6 @@ void ahci_main() {
         }
     }
     if (ctrl_id == 0) {
-        kprintf("not found\r\n");
         return;
     }
     int pi = ctrl_data->pi;
@@ -515,56 +515,85 @@ void ahci_main() {
         } else {
             kprintf("Oh! The firmware is automatically switch the drive into OS mode, i like this!\r\n");
         }
-        // reset controller
-        reset_controller();
-        if (!(ctrl_data->ghc & 0x80000000)) {
-            kprintf("Switching AHCI to AHCI mode\n");
-        }
-        interrupt_add(0x2b,ahci_handler);
+	for (i = 0; i < 5; i++) {
+		ctrl_data->ghc |= 0x80000000;
+		asm volatile("hlt"); // wait for any interrupt
+		if (ctrl_data->ghc & 0x80000000) {
+			break;
+		}
+	}
+	if (i == 5) {
+		kprintf("AHCI: ERROR: Failed to switch AHCI controller into operating state!\r\n");
+		return;
+	}
+	for (i = 0; i < 5; i++) {
+		ctrl_data->ghc |= 0x80000000;
+		asm volatile("hlt");
+		if (ctrl_data->ghc & 0x80000000) {
+			break;
+		}
+	}
+	if (i == 5) {
+		kprintf("AHCI: ERROR: Failed to switch AHCI controller into operating state(STAGE 2)\r\n");
+		return;
+	}
+	uint8_t interPin = PciRead8(ctrl_id,PCI_CONFIG_INTERRUPT_PIN);
+	kprintf("AHCI: Detected PCI interrupt PIN: 0x%x\r\n",interPin);
+        interrupt_add(interPin,ahci_handler);
+	clock_setShedulerEnabled(true);
     while(i < 32) {
 	if (pi & 1) {
         HBA_PORT* port = (HBA_PORT*)&ctrl_data->ports[i];
 		int type = check_type(port);
 		if (type == AHCI_DEV_SATA) {
-			kprintf("Found hard drive on port %d\r\n",i);
-			kprintf("Port CLB: 0x%x, CLBU: 0x%x\r\n",port->clb,port->clbu);
 			sata = kmalloc(sizeof(struct sata_info));
 			memset(sata,0,sizeof(struct sata_info));
-			kprintf("Rebasing port\n");
 			sata->abar = ctrl_data;
-            sata->devID = controllerID;
+            		sata->devID = controllerID;
 			rebase_port(port,i,sata);
-            sata->port = port;
-            // ahaha, map the memory for port
-            int begin = (int)port;
-            for (int i = 0; i < 2; i++) {
-                int mem = begin + (i * 4096);
-                arch_mmu_mapPage(NULL,mem,mem,7);
-            }
+            		sata->port = port;
+            		// ahaha, map the memory for port
+            		ahci_mapPort(port);
+			if (!identifyDisk(port,ctrl_data,AHCI_DEV_SATA)) {
+				continue;
+			}
+			gl_dat->pi = pi;
+			gl_dat->ports[i] = port;
+			sata->type = type;
+			// IDK why.
+			registerDev(sata);
 		} else if (type == AHCI_DEV_SATAPI) {
            		 kprintf("Found CDROM drive on port %d\r\n",i);
+			 sata = kmalloc(sizeof(struct sata_info));
+			 memset(sata,0,sizeof(struct sata_info));
+			 sata->abar = ctrl_data;
+			 sata->devID = controllerID;
+			 rebase_port(port,i,sata);
+			 sata->port = port;
+			 ahci_mapPort(port);
+			 int lba = 0;
+			 int sectors = 1;
+			 void *al = kmalloc(1024);
+			 void *buff = kmalloc(2048);
+			 uint8_t read_cmd[] = {
+				 0xA8,
+				 (lba >> 0x18) & 0xFF, (lba >> 0x10) & 0xFF, (lba >> 0x08) & 0xFF,
+	                                 (lba >> 0x00) & 0xFF,
+	                                 (sectors >> 0x18) & 0xFF, (sectors >> 0x10) & 0xFF, (sectors >> 0x08) & 0xFF,
+	                                 (sectors >> 0x00) & 0xFF,
+	                        	 0, 0};
+			//sendCommand(ATA_CMD_PACKET,port,ctrl_data,AHCI_DEV_SATAPI,read_cmd,buff,2048);
+			kfree(buff);
+		        kfree(al);
+			gl_dat->pi = pi;
+			gl_dat->ports[i] = port;
+			sata->type = type;
+			//registerDev(sata);
         	} else {
             		pi >>= 1;
 			i++;
 			continue;
         	}
-	if (type == AHCI_DEV_SATA) {
-		/*kprintf("Reading first sector(test)\n");
-		char *buff = kmalloc(512);
-        buff[0] = 's';
-        buff[1] = 'a';
-        //void *sec_b = align_address(buff,2);
-		int ret = read_sata(sata,0,0,1,buff);
-        for (int i = 0; i < 512; i++) {
-            kprintf("0x%x ",buff[i]);
-        }
-        kprintf("\n");
-		kfree(buff);
-		kprintf("Is read successfull: %d\n",ret);*/
-        gl_dat->pi = pi;
-        gl_dat->ports[i] = port;
-        registerDev(sata);
-	}
 	}
 	pi >>= 1;
 	i++;
@@ -590,22 +619,67 @@ void* align_addr(void* address,int al) {
     uintptr_t aligned_addr = (addr + al) & ~al;
     return (void*)aligned_addr;
 }
+bool identifyDisk(HBA_PORT *port,HBA_MEM *abar,int type) {
+	// clean any interrupts before seting up new command.
+	port->is = (uint32_t)-1;
+	int spin; // port hung detection.
+	int cmdslot = find_cmdslot(port,abar);
+	if (cmdslot == -1) {
+		// very strange.
+		return false;
+	}
+	HBA_CMD_HEADER *cmd = (HBA_CMD_HEADER *)port->clb;
+	cmd+=cmdslot;
+	cmd->cfl =  sizeof(FIS_REG_H2D)/sizeof(uint32_t);
+	//if (type == AHCI_DEV_SATAPI) cmd->a = 1;
+	cmd->p = 1;
+	cmd->prdtl = 1;
+	HBA_CMD_TBL *cmdtbl = (HBA_CMD_TBL *)(cmd->ctba);
+	memset(cmdtbl, 0, sizeof(HBA_CMD_TBL) +
+ 		(cmd->prdtl-1)*sizeof(HBA_PRDT_ENTRY));
+	cmdtbl->prdt_entry[0].dba = (uint32_t)datBuff;
+	cmdtbl->prdt_entry[0].dbc = sizeof(ata_identify_t);
+	cmdtbl->prdt_entry[0].i = 0;
+	FIS_REG_H2D *cmdfis = (FIS_REG_H2D*)(&cmdtbl->cfis);
+	//memset(cmdfis,0,sizeof(FIS_REG_H2D));
+	cmdfis->fis_type = FIS_TYPE_REG_H2D;
+	cmdfis->command = type == AHCI_DEV_SATA ? ATA_CMD_IDENTIFY : ATA_CMD_IDENTIFY_PACKET;
+	cmdfis->device = 0;
+	cmdfis->c = 1;
+	while ((port->tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ)) && spin < 1000000)
+	{
+		spin++;
+	}
+	if (spin == 1000000)
+	{
+		kprintf("Port is hung, tfd: 0x%x, serr: 0x%x, ssst: 0x%x, cmd: 0x%x\n",port->tfd,port->serr,port->ssts,port->cmd);
+		return false;
+	}
+	port->ci = 1<<cmdslot;
+	// Wait for the command to be processed.
+	while(1) {
+		if ((port->ci & (1<<cmdslot)) == 0) {
+			break;
+		}
+		if (port->is & HBA_PxIS_TFES) {
+			kprintf("AHCI: Identify command cause device task fault.\r\n");
+			port->is = (uint32_t)-1;
+			return false;
+		}
+	}
+	ata_identify_t *ident = (ata_identify_t *)datBuff;
+	ata_convertIdentify(ident);
+	kprintf("Device name: %s, size %d MB\r\n",ident->model,type == AHCI_DEV_SATA ? (ident->sectors_48 * 512) / 1024 / 1024 : 0);
+	return true;
+}
 
-static uint8_t read_sata(struct sata_info *pdata, uint32_t startl, uint32_t starth, uint32_t count,char *bufa) {
+static uint8_t rw_sata(struct sata_info *pdata, uint64_t lba, uint32_t count,char *bufa,bool waitForEnd,bool write) {
 	HBA_PORT *port = pdata->port;
-    // The address must be aligned up to 1KiB!
-    int realAddr = (int)bufa;
-    char *buf = NULL;
-    bool useAligned = false;
-    if ((realAddr % 1024) != 0) {
-        //kprintf("AHCI: Using prebuild aligned buffer!\n");
-        buf = datBuff;
-        useAligned = true;
-    } else {
-        buf = bufa;
-    }
-    port->is = (uint32_t) -1;		// Clear pending interrupt bits
-    //kprintf("AHCI: [DEBUG]: Pre FIS: TFD: 0x%x\n",port->tfd);
+    	/* After probe and errors, the buffer must be one kilobyte aligned. */
+	void *buf = bufa; // We support reading of 16KB per one call.
+    	port->is = (uint32_t) -1;		// Clear pending interrupt bits
+	port->serr = port->serr;
+    	//kprintf("AHCI: [DEBUG]: Pre FIS: TFD: 0x%x\n",port->tfd);
 	int spin = 0; // Spin lock timeout counter
 	int slot = find_cmdslot(port,pdata->abar);
 	if (slot == -1)
@@ -614,9 +688,8 @@ static uint8_t read_sata(struct sata_info *pdata, uint32_t startl, uint32_t star
 	HBA_CMD_HEADER *cmdheader = (HBA_CMD_HEADER*)port->clb;
 	cmdheader += slot;
 	cmdheader->cfl = sizeof(FIS_REG_H2D)/sizeof(uint32_t);	// Command FIS size
-	cmdheader->w = 0;		// Read from device
-    cmdheader->c = 1;               // Read from device
-        cmdheader->p = 1;               // Read from devic
+	cmdheader->w = write;		// Read from device
+    	cmdheader->c = 0;               // Read from device
 	cmdheader->prdtl = (uint16_t)((count-1)>>4) + 1;	// PRDT entries count
  
 	HBA_CMD_TBL *cmdtbl = (HBA_CMD_TBL*)(cmdheader->ctba);
@@ -624,7 +697,7 @@ static uint8_t read_sata(struct sata_info *pdata, uint32_t startl, uint32_t star
  		(cmdheader->prdtl-1)*sizeof(HBA_PRDT_ENTRY));
  
 	// 8K bytes (16 sectors) per PRDT
-    int i = 0;
+    	int i = 0;
 	for (i=0; i<cmdheader->prdtl-1; i++)
 	{
 		cmdtbl->prdt_entry[i].dba = (uint32_t) buf;
@@ -637,22 +710,21 @@ static uint8_t read_sata(struct sata_info *pdata, uint32_t startl, uint32_t star
 	cmdtbl->prdt_entry[i].dba = (uint32_t) buf;
 	cmdtbl->prdt_entry[i].dbc = (count<<9)-1;	// 512 bytes per sector
 	cmdtbl->prdt_entry[i].i = 0;
- 
 	// Setup command
 	FIS_REG_H2D *cmdfis = (FIS_REG_H2D*)(&cmdtbl->cfis);
  
 	cmdfis->fis_type = FIS_TYPE_REG_H2D;
 	cmdfis->c = 1;	// Command
-	cmdfis->command = ATA_CMD_READ_DMA_EX;
+	cmdfis->command = write ? ATA_CMD_WRITE_DMA_EXT : ATA_CMD_READ_DMA_EX;
  
-	cmdfis->lba0 = (uint8_t)startl;
-	cmdfis->lba1 = (uint8_t)(startl>>8);
-	cmdfis->lba2 = (uint8_t)(startl>>16);
+	cmdfis->lba0 = (uint8_t)lba & 0xff;
+	cmdfis->lba1 = (uint8_t)(lba >> 8) & 0xff;
+	cmdfis->lba2 = (uint8_t)(lba >> 16) & 0xff;
 	cmdfis->device = 1<<6;	// LBA mode
  
-	cmdfis->lba3 = (uint8_t)(startl>>24);
-	cmdfis->lba4 = (uint8_t)starth;
-	cmdfis->lba5 = (uint8_t)(starth>>8);
+	cmdfis->lba3 = (uint8_t)(lba >> 24) & 0xff;
+	cmdfis->lba4 = (uint8_t)(lba >> 32) & 0xff;
+	cmdfis->lba5 = (uint8_t)(lba >> 40) & 0xff;
  
 	cmdfis->countl = count & 0xFF;
 	cmdfis->counth = (count >> 8) & 0xFF;
@@ -669,7 +741,10 @@ static uint8_t read_sata(struct sata_info *pdata, uint32_t startl, uint32_t star
 	}
  
 	port->ci = 1<<slot;	// Issue command
- 
+	if (!waitForEnd) {
+		// we don't actually care(EXPEREMENT)
+		return true;
+	}
 	// Wait for completion
 	while (1)
 	{
@@ -680,100 +755,139 @@ static uint8_t read_sata(struct sata_info *pdata, uint32_t startl, uint32_t star
 		if (port->is & HBA_PxIS_TFES)	// Task file error
 		{
 			kprintf("Read disk error\n");
+			port->serr = port->serr;
 			return false;
 		}
 	}
- 
 	// Check again
 	if (port->is & HBA_PxIS_TFES)
 	{
 		kprintf("Read disk error\n");
+		port->serr = port->serr;
 		return false;
 	}
-    if (useAligned) {
-        memcpy(bufa,datBuff,512);
-    }
-   // kprintf("Port isn't hung, tfd: 0x%x, serr: 0x%x, ssst: 0x%x, cmd: 0x%x\n",port->tfd,port->serr,port->ssts,port->cmd);
 	return true;
 }
 
-void blockNoToLBA(uint32_t blockNo, uint32_t blockSize, uint32_t* startl, uint32_t* starth) {
-    // Calculate the LBA (Logical Block Address) based on block number and block size
-    uint32_t lba = blockNo * (blockSize / 512);
-
-    // Break down LBA into startl and starth
-    *startl = lba & 0xFFFFFFFF;
-    *starth = (lba >> 32) & 0xFFFFFFFF;
-}
-
 static void ahci_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf) {
-    void *old = arch_mmu_getAspace();
-    arch_mmu_switch(arch_mmu_getKernelSpace());
     // Convert blockNo to the startl and starth
-    int blocks = how / 512;
-    if (blocks == 0) {
-        blocks = 1;
-    }
-    int startl,starth;
-    struct sata_info *inf = (struct sata_info *)node->device;
-    blockNoToLBA(blockNo,512,&startl,&starth);
-    // get physical address of buffer
-    char *bufReal = (char *)buf;
-    read_sata(inf,startl,0,blocks,bufReal);
-    arch_mmu_switch(old);
+	// Yes.
+	if (blockNo < 0) return;
+	for (int i = 0; i < 1; i++) {
+    		int blocks = how / 512;
+    		if (blocks == 0) {
+        		blocks = 1;
+    		}
+    		struct sata_info *inf = (struct sata_info *)node->device;
+    		if (inf->type == AHCI_DEV_SATAPI) return;
+    		// get physical address of buffer
+    		/* We need to allocate two separate buffers
+     		* 1. Aligned buffer, to take the real data buffer damage. (The data will rewrite kmalloc chunk)
+     		* 2. Actual read data.
+     		* 		2.1. This data is begin used to copy using memcpy.
+     		* NOTE: By some unclear for me currently reasons, we cannot use the `datBuff` buffer.
+     		* the AHCI controller just doesn't want to send the data to it, as result on real
+     		* HW nor the MBR module nor the system debugging ioctl`s doesn't work.
+     		*/
+    		rw_sata(inf,blockNo,blocks,datBuff,true,false);
+    		memcpy(buf,datBuff,how);
+	}
 }
 
 static int ahci_vdev_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buffer) {
-    int start_block = (offset / 512);
-    int end_block = (offset + how -1 ) / 512;
-	int b_offset = 0;
-	if (offset % 512 || how < 512) {
-		unsigned int pr_size = (512 - (offset % 512));
-		if (pr_size > how) pr_size = how;
-		char *tmp = kmalloc(512);
-		ahci_vdev_readBlock(node,start_block,512,tmp);
-		memcpy(buffer, (void *)((uintptr_t)tmp + ((uintptr_t)offset % 512)), pr_size);
-		kfree(tmp);
-		b_offset += pr_size;
-		start_block++;
+    struct sata_info *inf = (struct sata_info *)node->device;
+    if (inf->type == AHCI_DEV_SATAPI) return 0;
+    process_t *prc = thread_getThread(thread_getCurrent());
+    void *orig = prc->aspace;
+    prc->aspace = arch_mmu_getKernelSpace();
+    arch_mmu_switch(prc->aspace);
+    int remain = how % 512;
+    int realSize = how - remain;
+    int blocks = realSize / 512;
+    //kprintf("%s: remain %d, blocks: %d\r\n",__func__,remain,blocks);
+    if (blocks == 0) {
+	    ahci_vdev_readBlock(node,offset/512,512,datBuff);
+	    arch_mmu_switch(orig);
+	    memcpy(buffer,datBuff,how);
+	    arch_mmu_switch(prc->aspace);
+	    return how;
 	}
-	if ((offset + how)  % 512 && start_block <= end_block) {
-		int prr_size = (offset + how) % 512;
-		char *tmp = kmalloc(512);
-        ahci_vdev_readBlock(node,end_block,512,tmp);
-        memcpy((void *)((uintptr_t)buffer + how - prr_size), tmp, prr_size);
-		kfree(tmp);
-		end_block--;
+    int need = how;
+    int start = offset / 512;
+    if (blocks > 32) {
+	    for (int i = 0; i < blocks; i+=32) {
+		    // If the block count is more that 32, read in loop.
+		    ahci_vdev_readBlock(node,(offset+i)/512,16384,datBuff);
+		    arch_mmu_switch(orig);
+		    memcpy(buffer,datBuff,16384);
+		    buffer += 16384;
+		    arch_mmu_switch(prc->aspace);
 	}
-	while(start_block <= end_block) {
-		ahci_vdev_readBlock(node,start_block,512,(void *)buffer + b_offset);
-		b_offset+=512;
-		start_block++;
-	}
-	return how;
+   } else {
+	   ahci_vdev_readBlock(node,start,realSize,datBuff);
+	   arch_mmu_switch(orig);
+	   memcpy(buffer,datBuff,realSize);
+	   buffer += blocks * 512;
+	   arch_mmu_switch(prc->aspace);
+   }
+    if (remain > 0) {
+	    // Read remain
+	    //kprintf("Remain: %d bytes\r\n",remain);
+	    ahci_vdev_readBlock(node,blocks+1,512,datBuff);
+	    arch_mmu_switch(orig);
+	    memcpy(buffer,datBuff,remain);
+	    arch_mmu_switch(prc->aspace);
+  }
+    prc->aspace = orig;
+    arch_mmu_switch(orig);
+    return how;
 }
 
 void registerDev(struct sata_info *inf) {
     dev_t *dev = kmalloc(sizeof(dev_t));
     memset(dev,0,sizeof(dev));
-    dev->name = "sata0";
+    // check if device is SATAPI or SATA
+    if (inf->type == AHCI_DEV_SATAPI) {
+		dev->name = strdup("satapi ");
+    } else {
+		dev->name = strdup("sata ");
+    }
+    int len = strlen(dev->name);
+    if (inf->type == AHCI_DEV_SATAPI) {
+		dev->name[len-1] = satapi_char++;
+    } else {
+		dev->name[len-1] = sata_char++;
+    }
     dev->readBlock = ahci_vdev_readBlock;
     dev->read = ahci_vdev_read;
     dev->writeBlock = ahci_vdev_writeBlock;
     dev->write = ahci_vdev_write;
+    dev->ioctl = ahci_vdev_ioctl;
+    if (inf->type == AHCI_DEV_SATA) {
+	    // Only SATA devices currently have power capatiable.
+	    dev->poweroff = ahci_vdev_poweroff;
+	    dev->poweron = ahci_vdev_poweron;
+	    dev->type = DEVFS_TYPE_POWER;
+    } else {
+	dev->type = 0;
+    }
     dev->buffer_sizeMax = 512;
     dev->device = inf;
-    dev->type = DEVFS_TYPE_BLOCK;
+    dev->type |= DEVFS_TYPE_BLOCK;
     dev->next = NULL;
     dev_add(dev);
 }
 
 void *ahci_handler(void *regs) {
+    // Switch to kernel address space
+    void *aspace = arch_mmu_getAspace();
+    arch_mmu_switch(arch_mmu_getKernelSpace());
     int inter_pending = ctrl_data->is & ctrl_data->pi;
     if (inter_pending == 0) {
         return regs;
     }
     // check ports
+    kprintf("AHCI: IRQ received from Controller!\r\n");
     for (int i = 0; i < 32; i++) {
         HBA_PORT *port = gl_dat->ports[i];
         if (port == NULL) continue;
@@ -783,9 +897,21 @@ void *ahci_handler(void *regs) {
         }
     }
     ctrl_data->is = inter_pending;
+    arch_mmu_switch(aspace);
     return regs;
 }
-
+int
+fls(unsigned mask)
+{
+	if (mask == 0)
+		return 0;
+	int pos = 1;
+	while (mask != 1) {
+		mask >>= 1;
+		pos++;
+	}
+	return pos;
+}
 static void reset_controller() {
     // reset HBA controller begin
     int savedCaps = ctrl_data->cap & (CAP_SMPS | CAP_SSS | CAP_SPM | CAP_EMS | CAP_SXS);
@@ -797,6 +923,18 @@ static void reset_controller() {
     ctrl_data->ghc |= GHC_AE;
     ctrl_data->cap |= savedCaps;
     ctrl_data->pi = savedPi;
+    if (ahciVendor == 0x8086) {
+	    kprintf("AHCI: Intel Controller detected, enabling ports\r\n");
+	    int portCount = max(fls(ctrl_data->pi),1+(int)((ctrl_data->cap >> CAP_NP_SHIFT) & CAP_NP_MASK));
+	    if (portCount > 8) {
+		    kprintf("AHCI: Too many ports detected: %d\r\n",portCount);
+		    portCount = 8;
+	    }
+	    uint16_t pcs = PciRead16(ctrl_id,0x92);
+	    kprintf("CPS: 0x%x\r\n",pcs);
+	    pcs |= (0xff >> (8 - portCount));
+	    PciWrite16(ctrl_id,0x92,pcs);
+	}
     kprintf("AHCI: %s: controller reseted\n",__func__);
 }
 
@@ -826,7 +964,175 @@ static void reset_port(HBA_PORT *port) {
 static void ahci_vdev_writeBlock(vfs_node_t *node,int blockNo,int how,void *buf) {
     kprintf("AHCI: %s: nope, i didn't do that for you\n",__func__);
 }
-static int ahci_vdev_write(vfs_node_t *node,int blockNo,int how, void *buf) {
+static int ahci_vdev_write(vfs_node_t *node, uint64_t blockNo,uint64_t how, void *buf) {
     kprintf("AHCI: %s: didn't supported currently\n",__func__);
     return how;
+}
+static void sendCommand(int cmd,HBA_PORT *port,HBA_MEM *mem,int type,uint8_t *atapiPacket,void *buffer,int buffSize) {
+	// This function send non data commands to the port.
+	port->is = -1;
+	int cmdslot = find_cmdslot(port,mem);
+	if (cmdslot == -1) {
+		return;
+	}
+	HBA_CMD_HEADER *cmdhdr = (HBA_CMD_HEADER *)port->clb;
+	cmdhdr+=cmdslot;
+	cmdhdr->cfl =  sizeof(FIS_REG_H2D)/sizeof(uint32_t);
+        cmdhdr->p = 1;
+        cmdhdr->prdtl = 1;
+	bool copyAlign = false;
+	if ((int)buffer % 1024 != 0) {
+		copyAlign = true;
+	}
+	HBA_CMD_TBL *cmdtbl = (HBA_CMD_TBL *)(cmdhdr->ctba);
+	memset(cmdtbl, 0, sizeof(HBA_CMD_TBL) +
+                (cmdhdr->prdtl-1)*sizeof(HBA_PRDT_ENTRY));
+	if (buffer!= NULL) {
+
+		cmdtbl->prdt_entry[0].dba = copyAlign ? (uint32_t)datBuff : (uint32_t)buffer;
+		cmdtbl->prdt_entry[0].dbc = buffSize;
+		cmdtbl->prdt_entry[0].i = 0;
+	}
+	FIS_REG_H2D *cmdfis = (FIS_REG_H2D*)(&cmdtbl->cfis);
+	cmdfis->fis_type = FIS_TYPE_REG_H2D;
+	if (type == AHCI_DEV_SATA) {
+		cmdfis->command = cmd;
+	} else if (type == AHCI_DEV_SATAPI) {
+		// Setup ATAPI command.
+		cmdfis->command = ATA_CMD_PACKET;
+		// Access command table.
+		memset(cmdtbl->acmd,0,15);
+		if (cmd == 0x1b) {
+			cmdtbl->acmd[0] = 0x1b;
+			int oper = 0;
+			oper |= (1<<1);
+			cmdtbl->acmd[1] = (0<<1);
+			cmdtbl->acmd[4] = oper;
+		} else if (cmd == 0x25) {
+			cmdtbl->acmd[0] = 0x25;
+		} else {
+			memcpy(cmdtbl->acmd,atapiPacket,11);
+		}
+		cmdhdr->a = 1;
+	}
+	cmdfis->c = 1;
+	int spin;
+	while ((port->tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ)) && spin < 1000000) {
+		spin++;
+	}
+	if (spin == 1000000) {
+		kprintf("ahci_%s: port hung.\r\n",__func__);
+		return;
+	}
+	port->ci = 1<<cmdslot;
+	//kprintf("ahci_%s: waiting for command: 0x%x to complete at slot: %d\r\n",__func__,cmd,cmdslot);
+	while(1) {
+		// Wait until command finished.
+		if ((port->ci & (1<<cmdslot)) == 0) {
+                        break;
+                }
+                if (port->is & HBA_PxIS_TFES) {
+                        kprintf("ahci_%s: command 0x%x cause device task fault\r\n",__func__,cmd);
+                        port->is = (uint32_t)-1;
+                        return;
+                }
+	}
+	if (copyAlign) {
+		memcpy(buffer,datBuff,buffSize);
+	}
+}
+int ahci_vdev_ioctl(vfs_node_t *node,int request,va_list args) {
+	process_t *prc = thread_getThread(thread_getCurrent());
+	struct sata_info *info = (struct sata_info *)node->device;
+	void *aspace = arch_mmu_getAspace();
+	va_list args_orig = args; // Yes.
+	arch_mmu_switch(arch_mmu_getKernelSpace());
+	prc->aspace = arch_mmu_getKernelSpace();
+	arch_sti();
+	//kprintf("AHCI: Received ioctl: 0x%x\r\n",request);
+	switch(request) {
+		case 0x10:
+			sendCommand(0xE0,info->port,info->abar,info->type,NULL,NULL,0);
+		break;
+		case 0x20:
+			sendCommand(0xE1,info->port,info->abar,info->type,NULL,NULL,0);
+			break;
+		case 0x30: {
+				// Allocate 500M of space. Nano editor spacing.
+				// try to trigger parttab
+				kprintf("Reading 500 MB of hard drive starting from sector 0\r\n");
+				int size = 500 * 1024 * 1024;
+				char *buff = kmalloc(size);
+				int blocks = size / 512;
+				int loop = blocks / 32;
+				int start = 0;
+				for (int i = 0; i < loop; i++) {
+					ahci_vdev_readBlock(node,start/512,16384,buff+start);
+					start+=16384;
+				}
+				kprintf("completed task\r\n");
+				for (int i = 0; i < 512; i++) {kprintf("0x%x ",buff[i]);}
+				kprintf("\r\n");
+				kfree(buff);
+				// Are we done? At this point no requirements to switch up to kernel space.
+				kprintf("IRQ Line? 0x%x\r\n",PciRead8(ctrl_id,0x3c));
+			}
+			break;
+		case 0x31: {
+			// 0x31: execute non-data ATA/ATAPI command.
+			arch_mmu_switch(aspace);
+			int cmd = va_arg(args,int);
+			kprintf("AHCI: Begin execution of ATA/ATAPI command: 0x%x %d\r\n",cmd);
+			arch_mmu_switch(arch_mmu_getKernelSpace());
+			if (info->type == AHCI_DEV_SATAPI) {
+				sendCommand(cmd,info->port,info->abar,info->type,NULL,NULL,0);
+			} else {
+				sendCommand(cmd,info->port,info->abar,info->type,NULL,NULL,0);
+			}
+		} break;
+		case 0x32: {
+				   // trigger the mbr module
+				   partTab_trigger(node);
+				} break;
+	}
+end:
+	prc->aspace = aspace;
+	arch_mmu_switch(aspace);
+	return 0;
+}
+static void ahci_mapPort(HBA_PORT *port) {
+	int begin = (int)port;
+        for (int i = 0; i < 2; i++) {
+               int mem = begin + (i * 4096);
+                arch_mmu_mapPage(NULL,mem,mem,7);
+        }
+}
+static bool ahci_vdev_poweroff(vfs_node_t *node) {
+	// Currently only kernel code has access to power managment functions.
+	// But for any case switch to kernel address space.
+	process_t *prc = thread_getThread(thread_getCurrent());
+	void *aspace = prc->aspace;
+	void *krnSpace = arch_mmu_getKernelSpace();
+	arch_mmu_switch(krnSpace);
+	// Now we can call sendCommand
+	struct sata_info *info = node->device;
+	sendCommand(0xE0,info->port,info->abar,info->type,NULL,NULL,0);
+	//kprintf("executed,switch....");
+	arch_mmu_switch(aspace);
+	//kprintf("ok");
+	return true;
+}
+static bool ahci_vdev_poweron(vfs_node_t *node) {
+	// like ahci_vdev_poweroff.
+	process_t *prc = thread_getThread(thread_getCurrent());
+	void *aspace = prc->aspace;
+	void *krnSpace = arch_mmu_getKernelSpace();
+	prc->aspace = krnSpace;
+	arch_sti();
+	arch_mmu_switch(krnSpace);
+	struct sata_info *info = node->device;
+	sendCommand(0xE1,info->port,info->abar,info->type,NULL,NULL,0);
+	prc->aspace = aspace;
+	arch_mmu_switch(aspace);
+	return true;
 }
