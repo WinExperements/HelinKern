@@ -48,7 +48,7 @@ void dev_add(dev_t *dev) {
     //create the file inode
     vfs_node_t *fil = kmalloc(sizeof(vfs_node_t));
     memset(fil,0,sizeof(vfs_node_t));
-    strcpy(fil->name,dev->name); // memory safery
+    fil->name = strdup(dev->name);
     fil->size = dev->buffer_sizeMax;
     fil->fs = fs;
     fil->device = dev->device;

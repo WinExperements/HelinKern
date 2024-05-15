@@ -43,3 +43,6 @@ make run # Run via QEMU
 
 # Userland
 See [this file](scripts/README.md)
+
+# Current goals
+- Implement all POSIX functions defined in the specifications. While many functions are just defines, they will be implemented as soon as possible.

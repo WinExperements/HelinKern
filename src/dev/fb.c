@@ -31,6 +31,12 @@ static void syncFB(); // draw all characters from charBuff
 static int fb_ioctl(struct vfs_node *node,int request,va_list args);
 static int GFX_MEMORY = 0;
 extern bool disableOutput;
+/* ==== PSF v1 Support to FBDEV driver ===== */
+typedef struct {
+	uint16_t magic;
+	uint8_t mode;
+	uint8_t glp_size;
+} Psf1;
 void fb_init(fbinfo_t *fb) {
     if (!fb) return;
     psf_init();
@@ -69,10 +75,6 @@ void fb_putchar(
     PSF_font *font = (PSF_font*)&_binary_font_psf_start;
     /* we need to know how many bytes encode one row */
     int bytesperline=(font->width+7)/8;
-    /* unicode translation */
-    if(unicode != NULL) {
-        c = unicode[c];
-    }
     /* get the glyph for the character. If there's no
        glyph for a given character, we'll display the first glyph. */
     unsigned char *glyph =
@@ -117,6 +119,12 @@ static void psf_init()
     /* cast the address to PSF header struct */
     PSF_font *font = (PSF_font*)&_binary_font_psf_start;
     /* is there a unicode table? */
+    if (font->bytesperglyph == 0) {
+	    kprintf("PSF1? \r\n");
+	    Psf1 *psf1 = (Psf1 *)&_binary_font_psf_start;
+	    kprintf("0x%x, mode -> 0x%x\r\n",psf1->magic,psf1->mode);
+	    PANIC("A");
+	}
     if (font->flags) {
         unicode = NULL;
         return; 

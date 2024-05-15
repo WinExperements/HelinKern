@@ -87,7 +87,7 @@ static int sys_munmap(void *ptr,int size);
 static int sys_umount(char *mountpoint);
 static int sys_access(int fd);
 static int sys_chmod(int fd,int mode);
-static int sys_stat(struct stat *);
+static int sys_stat(int fd,struct stat *);
 static int sys_unlink(char *path);
 static int sys_gettime(int clock,struct tm *time);
 static int sys_settime(int clock,struct tm *time);
@@ -402,6 +402,7 @@ static int sys_reboot(int reason) {
 			}
 		}
 		arch_poweroff();
+		while(1) {}
 	}
 	arch_reset();
 	return 0; // what?
@@ -884,8 +885,17 @@ static int sys_chmod(int fd,int mode) {
 	node->mask = mode;
 	return 0;
 }
-static int sys_stat(struct stat *) {
-	return -1;
+static int sys_stat(int fd,struct stat *stat) {
+	process_t *prc = thread_getThread(thread_getCurrent());
+	// Find the file descriptor.
+	file_descriptor_t *dsc = prc->fds[fd];
+	if (fd >= prc->next_fd) return -1;
+	if (dsc == NULL) return -1 /* TODO: Return actual errno */;
+	/* Return some peace of information that currently available */
+	if (stat == NULL) return -1;
+	// VFS must process that piece of request?
+	if (dsc->node->fs->stat == NULL) return 38; // not implemented
+	return dsc->node->fs->stat(dsc->node,stat);
 }
 static int sys_unlink(char *path) {
 	char *path_copy = strdup(path);
@@ -954,7 +964,6 @@ int sys_chown(int mode,char *path,int owner,int group) {
 	return 38;
 }
 int sys_rm(int mode,char *path) {
-	process_t *caller = thread_getThread(thread_getCurrent());
 	// yes
 	vfs_node_t *obj = vfs_find(path);
 	if (obj == NULL) {

@@ -101,7 +101,7 @@ elif [ "$1" = "build-newlib" ]; then
 	cd ../../../../../build
 	export PATH="$toA/../gcc-i686/bin:$PATH"
 	../src/configure --target=i686-helin --prefix=/usr
-	make -j$(nproc)
+	make
 	echo If build failed, please remove latest symbols in $toA/newlib/build/i686-helin/newlib/libc/sys/helin/Makefile, then enter bash $0 retry-newlib
 elif [ $1 = "retry-newlib" ]; then
 	toA=$(pwd)
@@ -134,7 +134,7 @@ elif [ $1 = "build-gcc" ]; then
 	cd autoconf-2.64
 	mkdir build
 	cd build
-	../configure --prefix=$instT/bin
+	bash ../configure --prefix=$instT/bin
 	pwd
 	make
 	make install

@@ -37,5 +37,5 @@ makeiso:
 run:
 	qemu-system-i386 -M q35 -cdrom m.iso
 debug:
-	qemu-system-i386 -M q35 -cdrom m.iso -boot d -s -S -m 1G -hda '/home/justuser/VirtualBox VMs/dragonflybsd/dragonflybsd.vdi' -boot d  &
+	qemu-system-i386 -M q35 -cdrom m.iso -s -S -boot d  &
 	gdb -tui kernel.bin -x  debug.gdb

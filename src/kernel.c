@@ -78,7 +78,9 @@ void kernel_main(const char *args) {
     // Hi!
     fb_disableCursor();
     int mem = arch_getMemSize();
-    alloc_init(arch_getKernelEnd(),mem);
+    kprintf("Initializing memory\r\n");
+   alloc_init(arch_getKernelEnd(),mem);
+    kprintf("Initializing MMU\r\n");
     arch_mmu_init();
     alloc_mapItself();
     fb_map();

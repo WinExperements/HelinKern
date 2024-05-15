@@ -5,6 +5,7 @@
 #include<lib/string.h>
 #include <lib/clist.h>
 #include <mm/alloc.h>
+#include <../userland/ksymbols.h>
 Elf32_Shdr *symtab;
 Elf32_Shdr *strtab;
 clist_definition_t *module_symbols;
@@ -13,6 +14,7 @@ typedef struct sym {
         int value;
         void *addressOfEntry;
 } sym_t;
+static bool useInternal = false;
 bool symbols_nameFindDispatcher(clist_head_t *,va_list args);
 void symbols_forEachDispatcher(clist_head_t *,va_list args);
 Elf32_Shdr *symbols_findSection(multiboot_info_t *inf,char *name) {
@@ -34,6 +36,12 @@ Elf32_Shdr *symbols_findSection(multiboot_info_t *inf,char *name) {
         return NULL;
 }
 void symbols_init(multiboot_info_t *inf) {
+	if (inf->flags == 0x454c494e) {
+		// HelinBoot!
+		kprintf("%s: helinboot boot protocol detected!\r\n",__func__);
+		useInternal = true;
+		goto initStructures;
+	}
 	symtab = symbols_findSection(inf,".symtab");
 	strtab = symbols_findSection(inf,".strtab");
 	if (symtab == NULL || strtab == NULL) {
@@ -42,6 +50,7 @@ void symbols_init(multiboot_info_t *inf) {
 	} else if (symtab->sh_type != SHT_SYMTAB || strtab->sh_type != SHT_STRTAB) {
 		kprintf("Not valid symtab/strtab!\n");
 	}
+initStructures:
         // initialize map for kernel drivers
         module_symbols = kmalloc(sizeof(clist_definition_t));
         module_symbols->head = NULL;
@@ -49,7 +58,15 @@ void symbols_init(multiboot_info_t *inf) {
 }
 char *symbols_findName(int value) {
 	uint32_t symbol_value = 0;
-    char *name = 0;
+    	char *name = 0;
+	if (useInternal) {
+		for (int i = 0; i < KERN_SYM_COUNT; i++) {
+			if (kernel_syms[i].val == value) {
+				return kernel_syms[i].name;
+			}
+		}
+		return NULL;
+	}
 	char *strtab_addr = (char *)strtab->sh_addr;
         Elf32_Sym *symbols = (Elf32_Sym *)symtab->sh_addr;
         for (Elf32_Word i = 0; i < symtab->sh_size / sizeof(Elf32_Sym); i++) {
@@ -63,6 +80,14 @@ char *symbols_findName(int value) {
 	return name;
 }
 int symbols_findValue(char *f_name) {
+	if (useInternal) {
+		for (int i = 0; i < KERN_SYM_COUNT; i++) {
+			if (strcmp(kernel_syms[i].name,f_name)) {
+				return kernel_syms[i].val;
+			}
+		}
+		return NULL;
+	}
 	char *strtab_addr = (char *)strtab->sh_addr;
         Elf32_Sym *symbols = (Elf32_Sym *)symtab->sh_addr;
         for (Elf32_Word i = 0; i < symtab->sh_size / sizeof(Elf32_Sym); i++) {
@@ -81,6 +106,12 @@ int symbols_findValue(char *f_name) {
 	return 0;
 }
 void symbols_print() {
+	if (useInternal) {
+		for (int i = 0; i < KERN_SYM_COUNT; i++) {
+			kprintf("%s\r\n",kernel_syms[i].name);
+		}
+		return;
+	}
 	char *strtab_addr = (char *)strtab->sh_addr;
         Elf32_Sym *symbols = (Elf32_Sym *)symtab->sh_addr;
         for (Elf32_Word i = 0; i < symtab->sh_size / sizeof(Elf32_Sym); i++) {

@@ -20,6 +20,14 @@ static int numAllocs = 0; // debug only!
 static int lastAlloc = 0;
 static int usedPhysMem = 0;
 void alloc_init(int kernel_end,int high_mem) {
+    if (high_mem == 0) {
+      kprintf("Headless platform detected, %s not possible\r\n",__func__);
+      return;
+    }
+    output_write(__func__);
+    output_write(" kernel ");
+    output_printHex(high_mem);
+    output_write("\r\n");
     // Place map at the end of kernel address
     phys_map = (uint8_t *)kernel_end;
     // Clean the map
@@ -173,7 +181,7 @@ static void sbrk_page(process_t* process, int page_count)
     {
         for (int i = 0; i < page_count; ++i)
         {
-            if ((process->brk_next_unallocated_page_begin + PAGESIZE_4K) > (MEMORY_END - PAGESIZE_4K))
+            if ((uint32_t)(process->brk_next_unallocated_page_begin + PAGESIZE_4K) > (uint32_t)(MEMORY_END - PAGESIZE_4K))
             {
                 kprintf("%s: warrning!! process->brk_next_unallocated_page_begin -> 0x%x, memory end + pg -> 0x%x!\r\n",__func__,process->brk_next_unallocated_page_begin + PAGESIZE_4K,MEMORY_END - PAGESIZE_4K);
                 return;

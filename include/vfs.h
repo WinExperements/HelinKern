@@ -41,7 +41,7 @@ typedef struct vfs_fs {
     bool (*rm)(struct vfs_node *node);
     bool (*isReady)(struct vfs_node *node);
     bool (*umount)(struct vfs_node *node);
-    int (*stat)(struct stat *stat);
+    int (*stat)(struct vfs_node *node,struct stat *stat);
     struct vfs_fs *next;
 } vfs_fs_t;
 typedef struct file_descriptor {

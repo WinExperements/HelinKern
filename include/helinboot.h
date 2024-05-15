@@ -6,7 +6,7 @@
 
 #define HELINBOOT_KERNINFO_MAGIC 0xFACB
 #define HELINBOOT_MMAP_MAGIC 0xABCFA
-
+#define HELINBOOT_MAGIC 0x48454c494e
 typedef struct memMap {
 	int magic; // just for test
 	uint64_t begin;
@@ -33,6 +33,7 @@ typedef struct x64KrnInf {
 	int memoryMapCount;
 	ModuleInfo* mod;
 	int moduleCount;
+	char *cmdline;
 } kernelInfo;
 
 #endif

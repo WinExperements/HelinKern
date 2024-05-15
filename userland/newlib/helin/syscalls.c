@@ -27,6 +27,8 @@
 #include <signal.h>
 #include <sys/syscall.h> // syscall table, for better code style.
 #include <sys/resource.h>
+/* I finally managed to open the POSIX specifications */ 
+#include <spawn.h>
 #define PATH_MAX 40
 // Structure from src/thread.c from kernel source
 typedef struct _pthread_str {
@@ -1010,4 +1012,14 @@ int symlink(const char *__name1, const char *__name2) {
 		return -1;
 	}
 	return 0;
+}
+int posix_spawn(pid_t *restrict pid, const char *restrict path,
+          const posix_spawn_file_actions_t *spawnActions,
+          const posix_spawnattr_t *restrict attributes, char *const *argv,
+          char *const *envp) {
+  int ret = execve(path,argv,envp);
+  if (ret > 0) {
+    *pid = ret;
+  }
+  return ret;
 }

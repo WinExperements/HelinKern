@@ -21,6 +21,8 @@
 #include <arch/mmu.h>
 #include <arch/x86/mmu.h>
 #include <dev/x86/serialdev.h>
+// The firmware can boot the kernel using HelinBoot Protocol.
+#include <helinboot.h>
 /* Define some defines that needed for kernel allocator */
 int KERN_HEAP_BEGIN=0x02000000; //32 mb
 int KERN_HEAP_END=0x40000000; // 1 gb
@@ -39,6 +41,7 @@ static multiboot_info_t *info;
 void x86_switchContext(void *);
 extern int syscall_num;
 static int stack_addr = 0;
+extern char kernel_start[];
 extern char kernel_end[];
 extern void x86_switchToNew(int esp);
 extern void vga_change();
@@ -53,19 +56,23 @@ static registers_t *syscall_regs; // required by arch_syscall_getCallerRet
 extern bool showByte;
 extern void dump_registers(const registers_t *);
 extern bool disableOutput;
+static kernelInfo *helinboot;
 void arch_entry_point(void *arg) {
 	// arg is our multiboot structure description
 	// Basically, we need just to extract the arguments from the sctructure then pass it to the global entry point
 	info = (multiboot_info_t *)arg;
+    helinboot = NULL;
     // Check if we booted from multiboot, otwise just reset the system
-    if (!(info->flags >> 6 & 0x1)) {
-    	// Init serial, and print that we loaded by wrong bootloader
-    	
-        arch_reset();
-        return;
-    }
-
-    kernel_main((char *)info->cmdline);
+    if (info->flags == 0x454c494e) {
+		output_uart_init();
+		dontFB = dontVGA = true;
+		kprintf("helinboot, magic: 0x%x!\r\n",HELINBOOT_MAGIC);
+		helinboot = (kernelInfo *)info;
+	} else if (!(info->flags >> 6 & 0x1)) {
+		kprintf("Nor grub nor helinboot?\r\n");
+		PANIC("Cannot process anything other");
+	}
+     kernel_main(helinboot != NULL ? helinboot->cmdline : (char *)info->cmdline);
 }
 void arch_reset() {
     arch_cli();
@@ -95,7 +102,7 @@ void arch_init() {
     outb(0x43,0x00 | 0x06 | 0x30 | 0x00);
     outb(0x40,divisor);
     outb(0x40,divisor >> 8);
-    initAcpi(info);
+    //initAcpi(info);
     if (dontFB && !dontVGA) vga_change();
     //apic_init();
     //smp_init();
@@ -112,7 +119,16 @@ void arch_cli() {
 }
 bool arch_getFBInfo(fbinfo_t *fb_info) {
     if (!fb_info) return false;
-    if (dontFB) return false;
+    kprintf("Skipped some work of arch_getFBInfo\r\n");
+    if (helinboot != NULL) {
+	    // Okay, our custom boot protocol, that i developed when tryed to boot headless version of kernel on ARM EFI device(real HW)
+	    if (helinboot->framebufferAddress == 0) return false;
+	    fb_info->addr = (void *)helinboot->framebufferAddress;
+	    fb_info->width = (uint32_t)helinboot->framebufferWidth;
+	    fb_info->height = (uint32_t)helinboot->framebufferHeight;
+	    fb_info->pitch = (uint32_t)helinboot->framebufferPitch;
+	    return true;
+    }
     fb_info->addr = (void *)(uint32_t)info->framebuffer_addr;
     fb_info->width = info->framebuffer_width;
     fb_info->height = info->framebuffer_height;
@@ -121,6 +137,20 @@ bool arch_getFBInfo(fbinfo_t *fb_info) {
 }
 int arch_getMemSize() {
     uint32_t size = 0;
+    // Check whatever the HelinBoot protocol is used or no.
+    if (helinboot != NULL) {
+	    // Okay, used.
+	    for (int i = 0; i < helinboot->memoryMapCount; i++) {
+		    MemoryMapEntry ent = helinboot->mmap_start[i];
+		    if (ent.magic != HELINBOOT_MMAP_MAGIC) {
+			    PANIC("Corrupted HelinBoot descirptors.");
+		    }
+		    if (ent.type == 7 && ent.size > size) {
+			    size = ent.size;
+		    }
+	   }
+	   return size / 1024;
+    	}
 	for (unsigned long i = 0; i < info->mmap_length; i+=sizeof(multiboot_memory_map_t)) {
 		multiboot_memory_map_t *en = (multiboot_memory_map_t *)(info->mmap_addr+i);
 		if (en->type == 1 && en->len_low > size) {
@@ -194,11 +224,20 @@ bool arch_elf_check_header(Elf32_Ehdr *hdr) {
     return hdr->e_machine == 3;
 }
 int arch_getModuleAddress() {
+    if (helinboot != NULL) {
+	    // Yes, X86 now support HelinBoot boot protocol.
+	    if (helinboot->moduleCount == 0) return 0;
+	    return (int)helinboot->mod[0].begin;
+    }
     if (info->mods_count == 0) return 0;
     multiboot_module_t *mod = (multiboot_module_t *)info->mods_addr;
     return mod->mod_start;
 }
 int arch_getKernelEnd() {
+    if (helinboot != NULL) {
+	    if (helinboot->moduleCount == 0) return (int)kernel_end;
+	    return (int)helinboot->mod[helinboot->moduleCount-1].end;
+    }
     if (info->mods_count == 0) return (int)kernel_end;
     multiboot_module_t *mod = (multiboot_module_t *)info->mods_addr+info->mods_count-1;
     return mod->mod_end;
@@ -222,6 +261,10 @@ void arch_destroyArchStack(void *stack) {
     kfree(stack);
 }
 void arch_post_init() {
+	// HelinBoot typically fit into one page.
+	if (helinboot != NULL) {
+		arch_mmu_mapPage(NULL,(int)helinboot,(int)helinboot,3);
+	}
 	symbols_init(info);
 	apic_init();
 	smp_init();
@@ -229,12 +272,29 @@ void arch_post_init() {
     	acpiPostInit();
     	serialdev_init();
 	// Create initrd
+	void *initrdAddr = NULL;
+	int initrdSize = 0;
+	if (helinboot != NULL) {
+		// Different boot protocol!
+		if (helinboot->moduleCount == 0) return;
+		ModuleInfo *mod = helinboot->mod;
+		initrdAddr = (void *)mod->begin;
+		initrdSize = mod->size;
+		// Reserve the memory where the structures are located.
+		//alloc_reserve((int)helinboot,(int)helinboot+4096);
+	} else {
+		multiboot_module_t *initrdData = (multiboot_module_t *)info->mods_addr;
+        	int size = initrdData->mod_end - initrdData->mod_start;
+		initrdAddr = (void *)initrdData->mod_start;
+		initrdSize = size;
+	}
 	vfs_node_t *initrd = vfs_creat(vfs_getRoot(),"initrdram",0);
-	multiboot_module_t *initrdData = (multiboot_module_t *)info->mods_addr;
-	int size = initrdData->mod_end - initrdData->mod_start;
-	rootfs_insertModuleData(initrd,size,(char *)initrdData->mod_start);
+	rootfs_insertModuleData(initrd,initrdSize,(char *)initrdAddr);
 	// After data insertion process, map the data itself.
-	arch_mmu_map(NULL,(int)initrdData->mod_start,size,7);
+	arch_mmu_map(NULL,(int)initrdAddr,initrdSize,7);
+	if (helinboot == NULL) {
+		kprintf("Multiboot located at 0x%x, mmap: 0x%x, module: 0x%x, kernel start: 0x%x, initrd 0x%x, kernel_end: 0x%x\r\n",info,info->mmap_addr,info->mods_addr,(int)kernel_start,initrdAddr,kernel_end);
+	}
 }
 bool arch_relocSymbols(module_t *mod,void *ehdr) {
 	Elf32_Ehdr *e = (Elf32_Ehdr *)ehdr;
