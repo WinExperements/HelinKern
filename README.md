@@ -31,6 +31,9 @@ Then change cross-compiler path in Makefile(you can leave it empty, so it can be
 
 Then do there commands:
 ```console
+# This commands will generate the X86 image.
+gcc scripts/sym_exp.c -o scripts/smexp -lelf # Before doing this command install libelf headers.
+cd scripts && ./smexp && cd ..
 make # Build project
 make makeiso # Make ISO
 make run # Run via QEMU
@@ -46,3 +49,7 @@ See [this file](scripts/README.md)
 
 # Current goals
 - Implement all POSIX functions defined in the specifications. While many functions are just defines, they will be implemented as soon as possible.
+# Supported architectures:
+- [x86](https://en.wikipedia.org/wiki/X86)(main project architecture)
+- [RISC-V](https://en.wikipedia.org/wiki/RISC-V)(planned, interrupts implemented, MMU and context switch is required)
+- x86_64(require proper switch to long mode before starting actual port)

@@ -6,10 +6,24 @@
 #include <libelf.h>
 #include <gelf.h>
 #include <sys/stat.h>
+void generateEmpty() {
+  FILE *out = fopen("../userland/ksymbols.h","w");
+	if (!out) {
+		perror("failed to open output file");
+    return;
+	}
+	fprintf(out,"#pragma once\r\ntypedef struct ksm {char *name; int val;} kernel_sym_t;\r\n");
+  fprintf(out,"#define KERN_SYM_COUNT 1\r\n");
+	fprintf(out,"kernel_sym_t kernel_syms[KERN_SYM_COUNT] = {\r\n");
+  fprintf(out,"   {\"\",0}\r\n};");
+  fclose(out);
+  printf("Successfully generated first time empty ksymbols.h\r\n");
+}
 int main() {
 	int knfd = open("../kernel.bin",O_RDONLY);
 	if (knfd < 0) {
-		perror("Failed to open kernel image");
+		perror("Failed to open kernel image, fallback to creating empty ksymbols.h for the first time build");
+    generateEmpty();
 		return 1;
 	}
 	if (elf_version(EV_CURRENT) == EV_NONE) {
@@ -32,6 +46,7 @@ int main() {
 	FILE *out = fopen("ksymbols.h","w");
 	if (!out) {
 		perror("failed to open output file");
+    return 1;
 	}
 	fprintf(out,"#pragma once\r\ntypedef struct ksm {char *name; int val;} kernel_sym_t;\r\n");
 	while((scn = elf_nextscn(elf,scn)) != NULL) {
@@ -60,7 +75,7 @@ int main() {
 				GElf_Sym sym;
 				gelf_getsym(data,i,&sym);
 				const char *name = elf_strptr(elf,shdr.sh_link,sym.st_name);
-				fprintf(out,"	{\"%s\",0x%x},\r\n",name,(unsigned long)sym.st_value);
+				fprintf(out,"	{\"%s\",0x%lx},\r\n",name,(unsigned long)sym.st_value);
 				//printf("Sym: %s, val: 0x%x\r\n",name,(unsigned long)sym.st_value);
 			}
 		}
