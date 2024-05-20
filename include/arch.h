@@ -53,7 +53,7 @@ void arch_detect();
 /* Arch specific platform information code, used for debugging */
 void arch_sysinfo();
 /* Put user space process arguments for target architecture */
-void arch_putArgs(process_t *prc,int argc,char **argv);
+void arch_putArgs(process_t *prc,int argc,char **argv,char **environ);
 /* trace panic addresses */
 void arch_trace();
 /* Prepare arch specific information for process, or newly created stack, whatever required for target architecture, can be empty body function */

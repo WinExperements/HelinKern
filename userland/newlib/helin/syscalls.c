@@ -37,7 +37,7 @@ typedef struct _pthread_str {
 } pthread_str;
 
 static int globalMask = 0;
-
+// TODO: Need to be rewritten as arch-specific code.
 int helin_syscall(int num,int p1,int p2,int p3,int p4,int p5) {
     // use asm macro for it
     int ret = 0;
@@ -69,7 +69,7 @@ int execve(char *name, char **argv, char **env) {
         num_args++;
     }
 
-    int pid = helin_syscall(13, (int)name, num_args, (int)argv, 0, 0);
+    int pid = helin_syscall(13, (int)name, num_args, (int)argv, (int)env, 0);
     if (pid < 0) return -1;
     return 0;
 }
@@ -87,8 +87,7 @@ int getpid(){
     return helin_syscall(4,0,0,0,0,0);
 }
 int getuid() {
-	return helin_syscall(SYS_getuid,0,0,0,0,0); // HelinKern does have sys_getuid, but i don't remember actuall syscall number for it :(
-	// FIXME: Call actual sys_getuid from kernel
+	return helin_syscall(SYS_getuid,0,0,0,0,0);
 }
 int isatty(int file){
     return false;
@@ -116,7 +115,9 @@ int read(int file, char *ptr, int len){
 caddr_t sbrk(int incr){
     return (caddr_t)helin_syscall(35,incr,0,0,0,0);
 }
-int stat(const char *file, struct stat *st){}
+int stat(const char *file, struct stat *st){
+  return helin_syscall(SYS_stat,(int)file,(int)st,0,0,0);
+}
 clock_t times(struct tms *buf){}
 int unlink(char *name){
 	errno = helin_syscall(SYS_unlink,(int)name,0,0,0,0);
@@ -125,7 +126,9 @@ int unlink(char *name){
 	}
 	return 0;
 }
-int wait(int *status){}
+int wait(int *status){
+  return waitpid(-1,&status,0);
+}
 int write(int file, char *ptr, int len){
     int how = helin_syscall(10,file,0,len,(int)ptr,0);
     return how;
@@ -229,13 +232,14 @@ int dup2(int oldfd, int newfd) {
 }
 int execvp(const char *file, char *const argv[]) {
 	if (file == NULL || argv == NULL) return -1;
-	return execve(file,argv,NULL);
+	return execve(file,argv,environ);
 }
 int execv(const char *path, char *const argv[]) {
 	return execvp(path,argv);
 }
 int pipe(int pipefd[2]) {
-	return -1; // doesn't supported
+  // Use IPC manager API.
+  return helin_syscall(SYS_ipc,1,0x50,0,(int)pipefd,0);
 }
 void thread_entry(pthread_str *data) {
 	// stderr,stdout,stdin are automatically is openned for us
@@ -283,7 +287,7 @@ int tcgetattr(int fd,struct termios* tio) {
 	errno = ENOSYS;
 	return -ENOSYS;
 }
-int tcsetattr(int fd,struct termios* tio) {
+int     tcsetattr(int fd, int type, const struct termios *term) {
 	errno = -ENOSYS; // isn't implemented
 	return -ENOSYS;
 }
@@ -345,7 +349,8 @@ int rmdir(const char *pathname) {
 
 
 extern struct mntent *getmntent (FILE *__stream) {
-	return NULL;
+  // We need to have at least 
+	return 0;
 }
 int truncate(const char *path, off_t length) {
 	// We have this syscall but corrently just return postive
@@ -365,7 +370,7 @@ dev_t makedev(unsigned int maj, unsigned int min) {
 	return blank;
 }
 int getegid() {
-	return 0;
+	return getgid();
 }
 
 int sigaction(int signum, const struct sigaction *act,
@@ -395,8 +400,43 @@ int pclose(FILE *stream) {
 	return 0;
 }
 static struct passwd empty;
+static struct passwd *passwdRet;
 struct passwd *getpwuid(uid_t uid) {
-	return &empty;
+  // UNIX file structure :)
+  FILE *passwd = fopen("/etc/passwd","r");
+  if (!passwd) {
+    errno = ENOENT;
+    return errno;
+  }
+  // Parse passwd.
+  if (passwdRet == NULL) {
+    passwdRet = malloc(sizeof(struct passwd));
+    memset(passwdRet,0,sizeof(struct passwd));
+  }
+  char internalBuffer[100];
+  while(fgets(internalBuffer,100,passwd)) {
+    /*if (passwdRet->pw_name != NULL) {
+      // Free all element that previously filled.
+      free(passwdRet->pw_name);
+      free(passwdRet->pw_passwd);
+      free(passwdRet->pw_gecos);
+      free(passwdRet->pw_shell);
+    }*/
+    char *element = strtok(internalBuffer,":");
+    passwdRet->pw_name = element;
+    passwdRet->pw_passwd = strtok(NULL,":");
+    passwdRet->pw_uid = atoi(strtok(NULL,":"));
+    passwdRet->pw_gid = atoi(strtok(NULL,":"));
+    passwdRet->pw_gecos = strtok(NULL,":");
+    passwdRet->pw_dir = strtok(NULL,":");
+    passwdRet->pw_shell = strtok(NULL,":");
+    if (passwdRet->pw_uid == uid) {
+      fclose(passwd);
+      return passwdRet;
+    }
+  }
+  fclose(passwd);
+  return NULL;
 }
 
 FILE *popen(const char *command, const char *type) {
@@ -462,11 +502,14 @@ unsigned int minor(dev_t dev) {return 2;}
 ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {return 0;}
 //struct group g_empt;
 struct group *getgrnam(const char *name) {
-	if (name == NULL) return NULL;
+  FILE *groupFile = fopen("/etc/group","r");
+  if (!groupFile) {
+    return NULL;
+  }
 	return NULL;
 }
 struct passwd *getpwnam(const char *name) {
-	return &empty;
+	return NULL;
 }
 struct group *getgrgid(gid_t gid) {return NULL;}
 pid_t setsid(void) {
@@ -626,7 +669,7 @@ int execl(const char *path, const char *arg, ...) {
     argv[num_args] = NULL; // NULL-terminate the array
 
     // Call execve with the constructed argument array
-    return execve(path, argv, NULL);
+    return execve(path, argv, environ);
 }
 typedef void (*sighandler_t)(int);
 sighandler_t signal(int signum,sighandler_t handler) {
@@ -1023,3 +1066,4 @@ int posix_spawn(pid_t *restrict pid, const char *restrict path,
   }
   return ret;
 }
+

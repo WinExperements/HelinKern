@@ -5,7 +5,7 @@
 #include <vfs.h>
 
 #define CPIO_MAGIC 0070707
-
+#define C_ISDIR		0040000
 struct cpio_hdr {
     uint16_t magic;
     uint16_t dev;

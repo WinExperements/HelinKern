@@ -186,8 +186,8 @@ struct termios {
 #define TDISCARD_DEF _CTRL('o') /* ^O */
 
 // Functions
-int tcgetattr(int fd,struct termios* tio);
-int tcsetattr(int fd,struct termios* tio);
+int tcgetattr(int fd, struct termios* tio);
+int tcsetattr(int fd,int type,const struct termios* tio);
 
 
 #endif

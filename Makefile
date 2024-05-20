@@ -1,5 +1,5 @@
 ARCH=x86
-OBJECTS = src/arch/x86/boot.o src/arch/x86/arch.o src/kernel.o src/arch/x86/output.o src/arch/x86/io.o src/arch/x86/gdt.o src/arch/x86/x86asm.o src/dev/fb.o src/output.o font.o src/arch/x86/mmu.o src/mm/alloc.o src/isr.o src/thread.o src/lib/clist.o src/syscall.o src/dev/keyboard.o src/elf.o src/lib/string.o src/vfs.o src/rootfs.o src/dev.o src/kshell.o src/symbols.o src/module.o src/arch/x86/acpi.o src/arch/x86/smp.o src/dev/ps2mouse.o src/fs/cpio.o src/dev/tty.o src/dev/input.o src/dev/socket.o src/socket/unix.o src/lib/fifosize.o src/fs/partTab.o src/dev/x86/serialdev.o src/arch/x86/dev/rtc.o module/pci/pci.o module/pci/driver.o module/pci/registry.o module/mbr/main.o module/ahci/ahci.o module/atapi/utils.o module/ext2/main.o
+OBJECTS = src/arch/x86/boot.o src/arch/x86/arch.o src/kernel.o src/arch/x86/output.o src/arch/x86/io.o src/arch/x86/gdt.o src/arch/x86/x86asm.o src/dev/fb.o src/output.o font.o src/arch/x86/mmu.o src/mm/alloc.o src/isr.o src/thread.o src/lib/clist.o src/syscall.o src/dev/keyboard.o src/elf.o src/lib/string.o src/vfs.o src/rootfs.o src/dev.o src/kshell.o src/symbols.o src/module.o src/arch/x86/acpi.o src/arch/x86/smp.o src/dev/ps2mouse.o src/fs/cpio.o src/dev/tty.o src/dev/input.o src/dev/socket.o src/socket/unix.o src/lib/fifosize.o src/fs/partTab.o src/dev/x86/serialdev.o src/arch/x86/dev/rtc.o module/pci/pci.o module/pci/driver.o module/pci/registry.o module/mbr/main.o module/ahci/ahci.o module/atapi/utils.o module/ext2/main.o src/ipc/ipc_manager.o src/ipc/pipe.o
 CCOPTIONS =-std=gnu99 -m32 -ffreestanding -nostdlib -march=i386 -mtune=i486 -g -DX86 -fno-stack-protector -Werror -Wno-discarded-qualifiers -Wno-int-to-pointer-cast -DHWCLOCK -DCONF_RING_SIZE=17
 CCPATH = 
 %.o: %.c
@@ -23,7 +23,7 @@ all: $(OBJECTS) $(MODULE_OBJS)
 	@echo [LD] kernel.bin
 	@$(CCPATH)ld -melf_i386 -T src/arch/$(ARCH)/linker.ld -Map=kernel.map -o kernel.bin $(OBJECTS) $(MODULE_OBJS)
 clean:
-	rm -rf $(OBJECTS) kernel.map iso/kernel userland/initrd/*.mod userland/initrd/init userland/initrd/mount userland/initrd/windowserver userland/initrd/test userland/initrd/login userland/initrd/sh
+	rm -rf $(OBJECTS) kernel.map iso/kernel userland/initrd/*.mod userland/initrd/init userland/initrd/bin/mount userland/initrd/bin/windowserver userland/initrd/bin/test userland/initrd/bin/login userland/bin/initrd/sh
 	make -C module/atapi clean
 	make -C module/mbr clean
 	make -C module/fat32 clean

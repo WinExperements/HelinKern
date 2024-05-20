@@ -72,6 +72,7 @@ enum syscall_table {
 	SYS_getpgid,
 	SYS_nice,
 	SYS_symlink,
+  SYS_ipc,
 	NUM_SYSCALLS,
 };
 

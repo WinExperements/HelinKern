@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <syscall.h> // syscall sync for sys_stat and other VFS syscall specific things.
 #define VFS_DIRECTORY 0x02
+#define VFS_NONBLOCK  0x3
 typedef struct vfs_node {
     char *name;
     int mask;

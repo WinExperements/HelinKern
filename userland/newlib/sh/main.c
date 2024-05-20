@@ -1,4 +1,8 @@
 // Shell program that use newlib
+/*
+* Temple Shell program for HelinOS and other systems that hasn't have full POSIX support
+* to port more modern shell programs.
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,20 +15,26 @@
 #include <sys/mount.h>
 #include <sys/utsname.h>
 #include <sys/syscall.h>
+#include <pwd.h>
 char path[100];
 char oldpath[100];
 
 void parse(int argc,char **argv);
-
+extern char **environ;
 int main() {
     char line[100];
     bool exit = false;
     int argc = 0;
     char *argv[100];
+    int uid = getuid();
+    struct passwd *crUser = getpwuid(uid);
+    char hostname[100];
+    gethostname(hostname,100);
+    char *usrName = strdup(crUser->pw_name); // Somehow printf overwrites the pw_name
     while(!exit) {
         //putc('>',stdout);
         getcwd(path,100);
-        printf("[%s]> ",path);
+        printf("%s@%s:%s# ",usrName,hostname,path);
         fflush(stdout);
         fgets(line,100,stdin);
         line[strcspn(line,"\n")] = 0;
@@ -42,6 +52,7 @@ int main() {
             argc = 0;
         }
     }
+   // printf("argv[0]: %s, 0x%x",environ[0],environ[0]);
     return 0;
 }
 
@@ -49,17 +60,25 @@ bool executeCommand(int argc,char **argv) {
     // Try to find the file in argv[0]
     char execPath[100];
     // Format the string with given exec pathes.
+    char *foundedPath = NULL;
     if (argv[0][0] == '/') {
 	    strncpy(execPath,argv[0],100);
     } else {
-    	snprintf(execPath,100,"/initrd/%s",argv[0]);
+      // We need to find executable somewhere in the PATH environment variable.
+      char *where = strtok(getenv("PATH"),":");
+      while(where) {
+    	  snprintf(execPath,100,"/bin/%s",argv[0]);
+        int f = 0;
+        if ((f = open(execPath,O_RDONLY)) > 0) {
+          foundedPath = where;
+          break;
+        }
+        where = strtok(NULL,":");
+      }
     }
-    // Sanity check.
-    int fileFd = open(execPath,O_RDONLY);
-    if (fileFd < 0) {
-	    return 0;
-	}
-    close(fileFd);
+    if (foundedPath == NULL) {
+      return false;
+    }
     // Fork-exec model on UNIX systems.
     int child = fork();
     if (child == 0) {
@@ -156,9 +175,19 @@ void parse(int argc,char **argv) {
 	    if (syscall(SYS_insmod,(int)argv[1],0,0,0,0) < 0) {
 		    perror("insmod fail");
 	    }
+    } else if (!strcmp(argv[0],"env")) {
+      int a = 0;
+      while(environ[a]) {
+        printf("%s\r\n",environ[a]);
+        a++;
+      }
+    } else if (!strcmp(argv[0],"dmesg")) {
+      char buff[4096];
+      syscall(SYS_syslog,0,(int)buff,4096,0,0);
+      printf("%s\r\n",buff);
     } else {
-	if (!executeCommand(argc,argv)) {
+	      if (!executeCommand(argc,argv)) {
         	printf("Unknown command: %s\n",argv[0]);
-	}
+	      }
     }
 }

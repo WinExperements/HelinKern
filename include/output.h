@@ -7,6 +7,7 @@ void output_second_init();
 bool output_secondary_avail();
 void output_write(char *msg);
 void output_writeInt(int i);
+void output_putc(char c);
 void output_printHex(int n);
 void output_changeToFB();
 void kprintf(char *format,...);

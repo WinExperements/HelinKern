@@ -11,6 +11,8 @@
 #include <dev/socket.h>
 #include <dev/clock.h>
 #include <dev.h>
+#include <ipc/ipc_manager.h>
+#include <dev/fb.h>
 // Pthreads structure that passed to newlib thread_entry
 typedef struct _pthread_str {
 	int entry;
@@ -42,7 +44,7 @@ static void sys_signal(int sig,int handler);
 static void sys_sigexit();
 static void sys_print(char *msg);
 // End of deprecated system calls. Need reform. Never use it.
-static int sys_exec(char *path,int argc,char **argv);
+static int sys_exec(char *path,int argc,char **argv,char **environ);
 static int sys_reboot(int reason);
 static int sys_chdir(char *to);
 static void sys_pwd(char *buff,int len);
@@ -100,8 +102,9 @@ static int sys_rm(int mode,char *path);
 static int sys_getpgid(int pid);
 static int sys_nice(int priority);
 static int sys_symlink(char *target,char *path);
+static int sys_ipc(int cmd,int magicID,int ipcCmd,void *args);
 static void *kmalloc_user(process_t *prc,int size);
-int syscall_table[69] = {
+int syscall_table[70] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -171,9 +174,11 @@ int syscall_table[69] = {
     (int)sys_getpgid,
     (int)sys_nice,
     (int)sys_symlink,
+    (int)sys_ipc,
 };
-int syscall_num = 69;
-extern void push_prc(process_t *);
+int syscall_num = 70;
+extern char *ringBuff;
+extern int ringBuffSize;
 static void *kmalloc_user(process_t *prc,int size) {
 	return sbrk(prc,size);
 }
@@ -318,7 +323,26 @@ static void sys_sigexit() {
 	// what?
 	PANIC("Serious kernel bug");
 }
-static int sys_exec(char *path,int argc,char **argv) {
+/* Clone string array from one address space to another */
+static void cloneStrArray(char **fromAr,char ***toAr,void *fromAspace,process_t *toP,int ArrSize) {
+  if (fromAr == NULL || toAr == NULL || toP == NULL) return;
+  char **krnBuff = kmalloc(sizeof(char *) * (ArrSize + 1));
+  for (int i = 0; i < ArrSize; i++) {
+    if (fromAr[i] == NULL) continue;
+    krnBuff[i] = strdup(fromAr[i]);
+  }
+  arch_mmu_switch(toP->aspace);
+  *toAr = sbrk(toP,sizeof(char *) * (ArrSize + 1));
+  for (int i = 0; i < ArrSize; i++) {
+    *toAr[i] = strdup_user(toP,krnBuff[i]);
+  }
+  arch_mmu_switch(arch_mmu_getKernelSpace());
+  for (int i = 0; i < ArrSize; i++) {
+    kfree(krnBuff[i]);
+  }
+  kfree(krnBuff);
+}
+static int sys_exec(char *path,int argc,char **argv,char **environ) {
     // Yeah it's can be stupid, but the buff kmalloc is overwriting our argv array
     if (!path || !isAccessable(path)) return -1;
     int m = strlen(path);
@@ -334,6 +358,14 @@ static int sys_exec(char *path,int argc,char **argv) {
     arch_cli();
     clock_setShedulerEnabled(false);
     int len = file->size;
+    int environSize = 0;
+    aspace_t *realSpace = arch_mmu_getAspace();
+    while(environ[environSize]) {
+      if (arch_mmu_getPhysical(environ[environSize]) == 0) {
+        break; // corupted.
+      }
+      environSize++;
+    }
     aspace_t *original = (caller != NULL ? caller->aspace : NULL);
     arch_mmu_switch(arch_mmu_getKernelSpace());
     void *file_buff = kmalloc(len+1);
@@ -346,40 +378,30 @@ static int sys_exec(char *path,int argc,char **argv) {
     thread_changeName(prc,file->name);
     kfree(file_buff);
     kfree(buff);
-    kprintf("%s: begin of user process argument copy...",__func__);
     if (caller != NULL )arch_mmu_switch(original);
     vfs_close(file);
     char **new_argv = NULL;
+    char **newEnviron = NULL;
     if (argc == 0 || argv == 0) {
         // Передамо звичайні параметри(ім'я файлу і т.д)
-	arch_mmu_switch(prc->aspace);
-        new_argv = sbrk(prc,2);
-        new_argv[0] = strdup_user(prc,path);
-	arch_mmu_switch(arch_mmu_getKernelSpace());
-        argc = 1;
+  	    arch_mmu_switch(prc->aspace);
+            new_argv = sbrk(prc,2);
+            new_argv[0] = strdup_user(prc,path);
+	    arch_mmu_switch(arch_mmu_getKernelSpace());
+            argc = 1;
     } else {
         // We need to copy arguments from caller to prevent #PG when process is exitng!
-	// 14/04/2024: We need to switch to process address space to prevent #PG when process is trying to access it's own arguments.
-	// Also required if current platform supports mapping only active page directory(x86,x86_64 for example)
-	// We need to somehow access argv from ANOTHER address space.
-	// Need to be optimized.
-	char **krnArgv = kmalloc(sizeof(char *) * (argc + 1));
-	for (int i = 0; i < argc; i++) {
-		krnArgv[i] = strdup(argv[i]);
-	}
-	arch_mmu_switch(prc->aspace);
-	new_argv = sbrk(prc,sizeof(char *) * (argc + 1));
-	for (int i = 0; i < argc; i++) {
-		new_argv[i] = strdup_user(prc,krnArgv[i]);
-	}
-	arch_mmu_switch( arch_mmu_getKernelSpace());
-	for (int i = 0; i < argc; i++) {
-		kfree(krnArgv[i]);
-	}
-	kfree(krnArgv);
+	      // 14/04/2024: We need to switch to process address space to prevent #PG when process is trying to access it's own arguments.
+	    // Also required if current platform supports mapping only active page directory(x86,x86_64 for example)
+	    // We need to somehow access argv from ANOTHER address space.
+	    // Need to be optimized.
+	    cloneStrArray(argv,&new_argv,original,prc,argc);
     }
-    kprintf("done\r\n");
-    arch_putArgs(prc,argc,new_argv);
+    // Clone environ.
+    arch_mmu_switch(realSpace);
+    cloneStrArray(environ,&newEnviron,original,prc,environSize);
+    arch_mmu_switch(arch_mmu_getKernelSpace());
+    arch_putArgs(prc,argc,new_argv,newEnviron);
     if (caller != NULL )arch_mmu_destroyAspace(original,false);
     DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize());
     clock_setShedulerEnabled(true);
@@ -664,7 +686,7 @@ static int sys_clone(int entryPoint,int arg1,int arg2) {
     // by mapping, the arg1 is actual entry point, and arg2 is an argument to thread function
     st->entry = arg1;
     st->arg = (void *)arg2;
-    arch_putArgs(thread,1,(char **)(int)st); // Only test
+    arch_putArgs(thread,1,(char **)(int)st,NULL); // Only test
     return thread->pid;
 }
 
@@ -793,7 +815,7 @@ static int sys_fork() {
 	aspace_t *space = arch_mmu_newAspace();
 	arch_mmu_duplicate(orig,space);
 	// Arch specific code for fork
-    arch_forkProcess(parent,child);
+    	arch_forkProcess(parent,child);
 	child->aspace = space;
 	//arch_cloneStack(parent,child);
 	// Clone the FD's
@@ -806,10 +828,13 @@ static int sys_fork() {
 	// sys_sbrk
 	child->brk_begin = parent->brk_begin;
  	child->brk_end = parent->brk_end;
-    	child->brk_next_unallocated_page_begin = parent->brk_next_unallocated_page_begin;
+  child->brk_next_unallocated_page_begin = parent->brk_next_unallocated_page_begin;
 	child->parent = parent;
 	parent->child = child;
 	child->state = STATUS_RUNNING; // yeah
+  // Test.
+  arch_mmu_switch(space);
+  fb_map();
 	arch_mmu_switch(orig);
 	return child->pid;
 }
@@ -939,8 +964,11 @@ static int sys_settime(int clock,struct tm *time) {
 }
 
 static int sys_syslog(int type,char *buff,int len) {
-	kprintf("%s: kernel ring ptr: 0x%x\r\n",__func__,0xaa);
-	//output_write(ringBuff);
+	/*if (len >= ringBuffSize) {
+		len -= 20;
+	}
+	memcpy(buff,ringBuffPtr,len);*/
+	kprintf(ringBuff);
 	return 0;
 }
 
@@ -985,4 +1013,19 @@ int sys_nice(int prio) {
 }
 int sys_symlink(char *target,char *path) {
 	return 38;
+}
+static int sys_ipc(int cmd,int magicID,int ipcCmd,void *args) {
+  switch(cmd) {
+    case 1: {
+      // IPC create.
+      return ipc_create(magicID,args);
+    } break;
+    case 2: {
+      return ipc_cmd(magicID,ipcCmd,args);
+    } break;
+    case 3: {
+      return ipc_destroy(magicID);
+    } break;
+  }
+  return -1;
 }

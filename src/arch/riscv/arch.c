@@ -114,7 +114,7 @@ void arch_detect() {
 void arch_sysinfo() {
 	// This method not even is called anymore in the kernel, so it's useless now.
 }
-void arch_putArgs(process_t *prc,int argc,char **argv) {
+void arch_putArgs(process_t *prc,int argc,char **argv,char **environ) {
 }
 void arch_trace() {
 	kprintf("RISC-V Support is experemental.\r\n");

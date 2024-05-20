@@ -10,16 +10,12 @@
 
 // HelinOS specific stuff.
 #define FLAG_ECHO 0000001
-#ifdef LINUX
 #define SH_PATH "/bin/sh"
-#else
-#define SH_PATH "/initrd/sh"
-#endif
 
 char *users[] = {"root","user"};
 char *passwords[] = {"toor","yes"}; // when libc add support for the shadow password storing, then i delete this.
 int uids[] = {0,1000};
-
+extern char **environ;
 int ttyFlags = 0;
 void disableEcho() {
 	int stfd = fileno(stdout);
@@ -43,6 +39,7 @@ void runShell() {
 int main() {
 	char login[100];
 	char password[100];
+//  printf("environ[0]: %s\r\n",environ[0]);
 	while(1) {
 		printf("login: ");
 		fflush(stdout);

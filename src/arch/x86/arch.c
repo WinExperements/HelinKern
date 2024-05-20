@@ -102,14 +102,9 @@ void arch_init() {
     outb(0x43,0x00 | 0x06 | 0x30 | 0x00);
     outb(0x40,divisor);
     outb(0x40,divisor >> 8);
-    //initAcpi(info);
+    initAcpi(info);
     if (dontFB && !dontVGA) vga_change();
-    //apic_init();
-    //smp_init();
     setup_fpu();
-    // detect and copy the initrd if the address is bigger that the reserved area of MMU
-    
-    
 }
 void arch_sti() {
     asm volatile("sti");
@@ -269,8 +264,8 @@ void arch_post_init() {
 	apic_init();
 	smp_init();
 	smp_post_init();
-    	acpiPostInit();
-    	serialdev_init();
+  acpiPostInit();
+  serialdev_init();
 	// Create initrd
 	void *initrdAddr = NULL;
 	int initrdSize = 0;
@@ -283,6 +278,7 @@ void arch_post_init() {
 		// Reserve the memory where the structures are located.
 		//alloc_reserve((int)helinboot,(int)helinboot+4096);
 	} else {
+		if (info->mods_count == 0) return;
 		multiboot_module_t *initrdData = (multiboot_module_t *)info->mods_addr;
         	int size = initrdData->mod_end - initrdData->mod_start;
 		initrdAddr = (void *)initrdData->mod_start;
@@ -428,15 +424,17 @@ static void thread_main(int entryPoint,int esp,bool isUser) {
     memset((void *)_esp,0,4096);
     uint32_t stack = (uint32_t )_esp+4096;
     archStack->userESP_top = stack;
+    PUSH(stack,char **,(char **)(uintptr_t)archStack->environ);
     PUSH(stack,char **,(char **)(uintptr_t)archStack->argv);
     PUSH(stack,int,archStack->argc);
     x86_jumpToUser(entryPoint,(int)stack);
 }
-void arch_putArgs(process_t *prc,int argc,char **argv) {
+void arch_putArgs(process_t *prc,int argc,char **argv,char **environ) {
     if (prc == NULL || argv == 0) return;
     x86_task_t *s = (x86_task_t *)prc->arch_info;
     s->argc = argc;
     s->argv = (int)argv;
+    s->environ = (int)environ;
 }
 struct stackframe {
   struct stackframe* ebp;

@@ -71,13 +71,14 @@ char *symbols_findName(int value) {
         Elf32_Sym *symbols = (Elf32_Sym *)symtab->sh_addr;
         for (Elf32_Word i = 0; i < symtab->sh_size / sizeof(Elf32_Sym); i++) {
                 Elf32_Sym *can = symbols + i;
-		if (can->st_value > symbol_value && (int)can->st_value <= value) {
-                	uint32_t string_index = can->st_name;
-                	name = strtab_addr + string_index;
-                	break;
-		    }
+		            if (can->st_value >= value) {
+				if ((can->st_info & STT_FUNC) != STT_FUNC) continue;
+				//kprintf("can->st_value: 0x%x, st_size: 0x%x\r\n",can->st_value,can->st_size);
+				// Not working.
+				return 0;
+			}
         }
-	return name;
+	return "ntfnd";
 }
 int symbols_findValue(char *f_name) {
 	if (useInternal) {

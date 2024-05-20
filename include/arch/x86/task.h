@@ -7,7 +7,7 @@ typedef struct x86_task {
     int userESP;
     int kesp_start;
     // User mode
-    int argc,argv;
+    int argc,argv,environ;
     int forkESP;
     int userESP_top;
     registers_t *userTaskRegisters;

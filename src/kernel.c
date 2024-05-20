@@ -33,6 +33,7 @@
 #ifdef HWCLOCK
 #include <dev/clock.h>
 #endif
+#include <ipc/ipc_manager.h>
 static int fb_addr;
 extern int *syscall_table;
 extern bool disableOutput;
@@ -110,12 +111,9 @@ void kernel_main(const char *args) {
     vfs_init();
     rootfs_init();
     rootfs_mount("/");
-    // Populate rootfs with something
-    vfs_creat(vfs_getRoot(),"dev",VFS_DIRECTORY);
-    vfs_creat(vfs_getRoot(),"bin",VFS_DIRECTORY);
-    vfs_creat(vfs_getRoot(),"initrd",VFS_DIRECTORY);
-    vfs_creat(vfs_getRoot(),"fat",VFS_DIRECTORY);
     dev_init();
+    ipc_init();
+    ipc_init_standard();
     partTab_init();
     cpio_init();
     #ifdef X86
@@ -146,30 +144,29 @@ void kernel_main(const char *args) {
     // Directly try to mount initrd and run init if it fails then panic like Linux kernel or spawn kshell
     vfs_node_t *initrd = vfs_find("/initrdram");
     if (!initrd) {
+	kprintf(ringBuff);
         PANIC("Cannot find initrd. Pass it as module with initrd.cpio argument");
     }
     vfs_fs_t *cpio = vfs_findFS("cpio");
     if (!cpio) {
         PANIC("Cannot find CPIO FS in kernel!");
     }
-    vfs_mount(cpio,initrd,"/initrd");
-    vfs_node_t *mounted = vfs_find("/initrd");
+    vfs_mount(cpio,initrd,"/");
+    vfs_node_t *mounted = vfs_getRoot();
     if (!mounted || !strcmp(mounted->fs->fs_name,"cpio")) {
         PANIC("Failed to mount initrd");
     }
 #if 1
-    kprintf("Installing some modules\r\n");
     /*int (*insmod)(char *) = ((int (*)(char *))syscall_get(30));
     insmod("/initrd/pci.mod");*/
-    int (*exec)(char *,int,char **) = ((int (*)(char *,int,char **))syscall_get(13));
-    int pid = exec("/initrd/init",0,NULL); // Ядро передасть параметри за замовчуванням.
+    int (*exec)(char *,int,char **,char **) = ((int (*)(char *,int,char **,char **))syscall_get(13));
+    char *environ[] = {"PATH=/bin",NULL};
+    int pid = exec("/init",0,NULL,environ); // Ядро передасть параметри за замовчуванням.
     if (pid < 0) {
         PANIC("Failed to execute init");
    }
-   //exec("/initrd/demo-hello",0,NULL);
 #else
-    //thread_create("kshell",(int)kshell_main,false);
-	thread_create("kshell",(int)kshell_main,false);
+	  thread_create("kshell",(int)kshell_main,false);
 #endif
     arch_sti();
 }

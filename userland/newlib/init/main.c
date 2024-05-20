@@ -18,16 +18,11 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>
+#include <unistd.h>
 // Use uname() for the system identification.
 
 // OS-specific defines here.
-#ifdef LINUX
 #define CONF_PATH "/init.rc"
-#elif HELIN
-#define CONF_PATH "/initrd/init.rc"
-#else
-#error "Undefined OS port specified. Please fix in the source file."
-#endif
 
 void printVersion() {
 	struct utsname osID;
@@ -52,13 +47,13 @@ typedef struct serv {
 } service_t;
 
 static service_t *globalServiceList;
-
+extern char **environ;
 int main(int argc,char **argv) {
 	int mypid = getpid();
-	/*if (mypid != 1) {
+	if (mypid != 1) {
 		fprintf(stderr,"The init system can be runned only as PID 1!\r\n");
 		return 1;
-	}*/
+	}
 	printVersion();
 	printf("Configuration path: %s\r\n",CONF_PATH);
 	int rc_fd = open(CONF_PATH,O_RDONLY);
@@ -67,6 +62,11 @@ int main(int argc,char **argv) {
 		perror("error");
 		emergExit();
 	}
+  char *hostname = "localhost";
+  sethostname(hostname,sizeof(hostname));
+ 	 // Setup environment.
+	setenv("PATH","/bin:/sbin",1);
+  	printf("%s\r\n",environ[0]);
 	// Read init.rc file line by line.
 	char buffer[1024];
 	ssize_t readed;

@@ -336,8 +336,8 @@ void acpiPowerOff(void)
 {
    // SCI_EN is set to 1 if acpi shutdown is possible
    if (SCI_EN == 0) {
-	kprintf("ACPI shutdown not available\r\n");
-	return;
+	    kprintf("ACPI shutdown not available\r\n");
+	    return;
    }
 
    acpiEnable();

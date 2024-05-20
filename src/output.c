@@ -1,8 +1,9 @@
 // Global implementation
 #include <output.h>
 #include <stdarg.h>
-char *ringBuff = NULL;
+char ringBuff[1<<CONF_RING_SIZE];
 int ringBuffPtr;
+int ringBuffSize;
 bool disableOutput = true; // can be changed from somewhere in kernel
 void output_writeInt(int u) {
     	if (u == 0) {
@@ -74,4 +75,16 @@ void kprintf(char *format,...) {
 		format++;
 	}
 	va_end(arg);
+}
+void putc(char c) {
+  if (CONF_RING_SIZE > 0) {
+    if (ringBuffSize == 0) {
+      ringBuffSize = (1<<CONF_RING_SIZE);
+    }
+    ringBuff[ringBuffPtr++] = c;
+    if (ringBuffPtr >= ringBuffSize) {
+      ringBuffPtr = 0;
+    }
+  }
+  output_putc(c);
 }

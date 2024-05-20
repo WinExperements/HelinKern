@@ -70,7 +70,7 @@ void output_changeToFB() {
     
     fb_clear(0x0);
 }
-void putc(char c) {
+void output_putc(char c) {
     if (fbUsed) {
         fb_putc(c);
         return;

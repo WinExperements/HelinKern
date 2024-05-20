@@ -20,6 +20,9 @@ static vfs_node_t *new_node(const char *name,struct cpio_hdr *hdr,size_t sz,size
     p->name = strdup(name);
     p->data = data;
     node->name = p->name;
+    if ((hdr->mode & C_ISDIR) == C_ISDIR) {
+      node->flags |= VFS_DIRECTORY;
+    }
     return node;
 }
 
@@ -53,8 +56,8 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
     int dev_size = dev->size;
     me->workDir = mountpoint;
     if (dev->size == 0) {
-	kprintf("cpio: device size is zero! Device: %s\r\n",dev->name);
-	return false;
+	    kprintf("cpio: device size is zero! Device: %s\r\n",dev->name);
+	    return false;
     }
     for (; offset < dev_size; offset +=sizeof(struct cpio_hdr)+(hdr.namesize+1)/2*2 + (size+1)/2*2) {
         int data_offset = offset;
@@ -83,7 +86,7 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
         if (!name) {
             name = path;
         }
-	DEBUG("Processing file: %s\r\n",path);
+	      DEBUG("Processing file: %s\r\n",path);
         data_offset += hdr.namesize + (hdr.namesize % 2);
         vfs_node_t *node = new_node(name,&hdr,size,data_offset);
         vfs_node_t *parent = dir != NULL ? vfs_find(dir) : root;

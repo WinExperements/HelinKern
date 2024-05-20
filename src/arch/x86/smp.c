@@ -306,30 +306,30 @@ void smp_init() {
 void smp_post_init() {
     DEBUG_N("SMP initializing\r\n");
     struct mpf_struct *mpf;
-	struct mpc_table *mpc;
+	  struct mpc_table *mpc;
 
-	mpf = get_mpf();
+	  mpf = get_mpf();
     if (!mpf) {
         DEBUG_N("No MPF pointer found\r\n");
         return;
     }
     if (mpf->feature1) {
-		DEBUG_N("MP: Spec `default configuration' is not supported\r\n");
+		  DEBUG_N("MP: Spec `default configuration' is not supported\r\n");
         return;
     }
 
 	if (mpf->conf_physaddr == 0) {
-		DEBUG_N("MP: Spec configuration table does not exist\r\n");
+		  DEBUG_N("MP: Spec configuration table does not exist\r\n");
         return;
     }
     mpc = (struct mpc_table *)mpf->conf_physaddr;
     if (!mpc_check(mpc)) {
-		PANIC("Buggy MP conf table header");
-	}
+		  PANIC("Buggy MP conf table header");
+	  }
 
-	if (!parse_mpc(mpc)) {
-		PANIC("Can not parse MP conf table");
-	}
+	  if (!parse_mpc(mpc)) {
+		  PANIC("Can not parse MP conf table");
+	  }
     DEBUG("Total count of usable CPU(s): %d\r\n",nr_cpus);
 }
 int smp_getCPUCount() {
