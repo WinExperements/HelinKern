@@ -15,22 +15,22 @@ CCPATH =
 	@echo [OBJCOPY] 	$<
 	@$(CCPATH)objcopy -O elf32-i386 -B i386 -I binary $< $@
 all: $(OBJECTS) $(MODULE_OBJS)
-	make -C module/atapi
-	make -C module/mbr
-	make -C module/ext2
-	make -C module/pci
-	make -C userland/initrd
+	gmake -C module/atapi
+	gmake -C module/mbr
+	gmake -C module/ext2
+	gmake -C module/pci
+	gmake -C userland/initrd
 	@echo [LD] kernel.bin
 	@$(CCPATH)ld -melf_i386 -T src/arch/$(ARCH)/linker.ld -Map=kernel.map -o kernel.bin $(OBJECTS) $(MODULE_OBJS)
 clean:
 	rm -rf $(OBJECTS) kernel.map iso/kernel userland/initrd/*.mod userland/initrd/init userland/initrd/bin/mount userland/initrd/bin/windowserver userland/initrd/bin/test userland/initrd/bin/login userland/bin/initrd/sh
-	make -C module/atapi clean
-	make -C module/mbr clean
-	make -C module/fat32 clean
-	make -C module/ahci clean
-	make -C module/ext2 clean
-	make -C module/pci clean
-	make -C userland/initrd clean
+	gmake -C module/atapi clean
+	gmake -C module/mbr clean
+	gmake -C module/fat32 clean
+	gmake -C module/ahci clean
+	gmake -C module/ext2 clean
+	gmake -C module/pci clean
+	gmake -C userland/initrd clean
 makeiso:
 	cp kernel.bin iso/kernel
 	grub-mkrescue iso -o m.iso

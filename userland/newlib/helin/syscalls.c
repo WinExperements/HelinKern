@@ -218,7 +218,10 @@ int mount(const char *source,const char *target,
     }
     return ret;
 }
-
+int getfsstat(struct statfs *buf,long bufsize,int mode) {
+	int ret = helin_syscall(SYS_getfsstat,(int)buf,(int)bufsize,mode,0,0);
+	return ret;
+}
 // waitpid
 pid_t waitpid(pid_t pid,int *status,int options) {
     helin_syscall(22,pid,0,0,0,0);
@@ -519,7 +522,12 @@ int mkdir(const char *path, mode_t mode) {
 	return helin_syscall(53,(int)path,mode,0,0,0);
 }
 int creat(const char *path, mode_t mode) {
-	return open(path,7);
+	int ret = helin_syscall(SYS_creat,(int)path,mode,0,0,0);
+	if (ret > 0) {
+		errno = ret;
+		return -1;
+	}
+	return 0;
 }
 int sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
 	return 0;
@@ -688,7 +696,9 @@ int clock_gettime(clockid_t clock_id, struct timespec *tp) {
 	tp->tv_nsec = tp->tv_sec * 1000000000;
 	return 0;
 }
-
+int clock_getres(clockid_t clock_id,struct timespec *tp) {
+  return clock_gettime(clock_id,tp);
+}
 int syscall(int num,int p1,int p2,int p3,int p4,int p5) {
 	return helin_syscall(num,p1,p2,p3,p4,p5);
 }
@@ -698,12 +708,20 @@ int killpg(int grID,int sig) {
 	return -1;
 }
 int getrlimit(int resource, struct rlimit *rlp) {
-	errno = 13;
-	return -1;
+	int ret = helin_syscall(SYS_getrlimit,resource,(int)rlp,0,0,0);
+	if (ret > 0) {
+		errno = ret;
+		return -1;
+	}
+	return 0;
 }
 int setrlimit(int resource, const struct rlimit *rlp) {
-	errno = -13;
-	return -1;
+	int ret = helin_syscall(SYS_setrlimit,resource,(int)rlp,0,0,0);
+	if (ret > 0) {
+		errno = ret;
+		return -1;
+	}
+	return 0;
 }
 
 int chroot(const char *to) {
@@ -1065,5 +1083,29 @@ int posix_spawn(pid_t *restrict pid, const char *restrict path,
     *pid = ret;
   }
   return ret;
+}
+// time.h 
+int clock_nanosleep(clockid_t clock, int flags, const struct timespec *to,
+               struct timespec *remain) {
+  // Currently kernel only support millisecond sleeps.
+  errno = 38;
+  return -1;
+}
+// shed.h 
+int sched_get_priority_max() {
+  return 6;
+}
+int sched_get_priority_min() {
+  return 1;
+}
+int sched_getparam(pid_t pid,struct sched_param *to) {
+  return 0;
+}
+int sched_getscheduler(pid_t pid) {
+  return 0;
+}
+int sched_rr_get_interval(pid_t pid,struct timespec *time) {
+  errno = 38;
+  return -1;
 }
 

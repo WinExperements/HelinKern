@@ -227,7 +227,7 @@ void fb_map() {
 	    mapped = true;
 	    if (!mapped) cursor_x = cursor_y = 0; // why not?
     }
-    kprintf("FB mapped: from 0x%x to 0x%x\r\n",addr,(addr)+(pitch*width));
+    //kprintf("FB mapped: from 0x%x to 0x%x\r\n",addr,(addr)+(pitch*width));
 }
 void fb_clear(int color) {
     if (color == 0xffffff) {

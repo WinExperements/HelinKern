@@ -639,7 +639,7 @@ static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
     info.classCode = PciRead8(id, PCI_CONFIG_CLASS_CODE);
     kprintf("0x%x ",PciRead8(id,PCI_CONFIG_INTERRUPT_LINE));
     switch((info.classCode << 8) | info.subclass) {
-	    case PCI_STORAGE_IDE:
+	    case PCI_STORAGE_IDE: {
 		    unsigned int BAR0 = PciRead32(id,PCI_CONFIG_BAR0);
 		    unsigned int BAR1 = PciRead32(id,PCI_CONFIG_BAR1);
 		    unsigned int BAR2 = PciRead32(id,PCI_CONFIG_BAR2);
@@ -679,6 +679,7 @@ static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
             ata_device_detect(sec_pri,true);
             //kprintf("ata: pci: detection finished\n");
             return true;
+    } break;
 }
     return false;
 

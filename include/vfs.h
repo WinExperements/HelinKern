@@ -5,6 +5,8 @@
 #include <syscall.h> // syscall sync for sys_stat and other VFS syscall specific things.
 #define VFS_DIRECTORY 0x02
 #define VFS_NONBLOCK  0x3
+/* File System Mount options */
+#define VFS_MOUNT_RO	0x14	// Read-Only File system.
 typedef struct vfs_node {
     char *name;
     int mask;
@@ -17,6 +19,9 @@ typedef struct vfs_node {
     struct vfs_node *first_child;
     struct vfs_node *next_child;
     struct vfs_fs *fs,*orig_fs;
+    /* VFS specific */
+    int mount_flags;
+    void *fs_mountOptions; // FS specific options.
     void *device;
     void *priv_data;
 } vfs_node_t;
@@ -50,6 +55,13 @@ typedef struct file_descriptor {
 	vfs_node_t *node; // address of node
 	int offset;
 } file_descriptor_t;
+/* Virtual File System Mount Entry */
+typedef struct vfsmnt {
+	vfs_node_t *device;
+	vfs_node_t *target;
+	vfs_fs_t *fs;
+	struct vfsmnt *next;
+} vfs_mount_t;
 void vfs_init();
 void vfs_addFS(vfs_fs_t *fs);
 vfs_fs_t *vfs_findFS(char *name);
@@ -75,4 +87,5 @@ void *vfs_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
 bool vfs_rm(struct vfs_node *node);
 bool vfs_isReady(struct vfs_node *node);
 bool vfs_umount(struct vfs_node *node);
+vfs_mount_t *vfs_getMntList();
 #endif

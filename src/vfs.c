@@ -7,6 +7,7 @@
 static vfs_fs_t *fs_start;
 static vfs_node_t *fs_root;
 static vfs_node_t *vfs_find_impl(vfs_node_t *start,char *path);
+static vfs_mount_t *vfsmntlst;
 void vfs_init() {
 }
 void vfs_addFS(vfs_fs_t *fs) {
@@ -34,6 +35,9 @@ int vfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
         if (how <= 0) return -1;
         return -1;
     } else {
+	if ((node->mount_flags & VFS_MOUNT_RO) == VFS_MOUNT_RO) {
+		return -2;
+	}
         return node->fs->write(node,offset,how,buf);
     }
 }
@@ -68,6 +72,20 @@ vfs_node_t *vfs_finddir(vfs_node_t *in,char *name) {
 vfs_node_t *vfs_getRoot() {
     return fs_root;
 }
+void vfs_putIntoMnt(vfs_node_t *dev,vfs_node_t *target,vfs_fs_t *fs) {
+	vfs_mount_t *el = kmalloc(sizeof(vfs_mount_t));
+	memset(el,0,sizeof(vfs_mount_t));
+	el->device = dev;
+	el->target = target;
+	el->fs = fs;
+	if (vfsmntlst == NULL) {
+		vfsmntlst = el;
+	} else {
+		vfs_mount_t *mnt = NULL;
+		for (mnt = vfsmntlst; mnt->next != NULL; mnt = mnt->next) {}
+		mnt->next = el;
+	}
+}
 bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
     if (!fs) {
         kprintf("%s: filesystem are null!",__func__);
@@ -86,11 +104,13 @@ bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
             fs_root = kmalloc(sizeof(vfs_node_t));
             memset(fs_root,0,sizeof(vfs_node_t));
         }
-	    bool root = fs->mount(dev,fs_root,NULL);
+	bool root = fs->mount(dev,fs_root,NULL);
         if (!root) {
                 kprintf("%s: filesystem mount failed\n",mountPoint);
                 return false;
-        }
+        } else {
+		vfs_putIntoMnt(dev,fs_root,fs);
+	}
     } else {
         vfs_node_t *mount_point = vfs_find(mountPoint);
 	if (!mount_point) {
@@ -112,6 +132,8 @@ bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
                 return false;
         } else {
 		mount_point->orig_fs = origFS;
+		// Put this FS into mounted list.
+		vfs_putIntoMnt(dev,mount_point,fs);
 	}
    }
     return true;
@@ -234,4 +256,6 @@ bool vfs_umount(vfs_node_t *node) {
 	}
 	return res;
 }
-
+vfs_mount_t *vfs_getMntList() {
+	return vfsmntlst;
+}

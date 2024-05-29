@@ -51,19 +51,19 @@ int hw_clock_get(struct tm *to) {
 	to->tm_year = to->tm_year + 2000;
 	to->tm_year = to->tm_year - 1900;
 	int days_in_month[] = {0, 31, 28 + is_leap_year(to->tm_year + 1900), 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    	to->tm_yday = 0;
-    	for (int i = 0; i < to->tm_mon; ++i) {
-        	to->tm_yday += days_in_month[i];
-    	}
-    	to->tm_yday += to->tm_mday - 1; // Adjust for zero-based indexing
+  to->tm_yday = 0;
+  for (int i = 0; i < to->tm_mon; ++i) {
+      to->tm_yday += days_in_month[i];
+  }
+  to->tm_yday += to->tm_mday - 1; // Adjust for zero-based indexing
 
-    	// Calculate tm_wday using Zeller's congruence
-    	int k = to->tm_year % 100;
-    	int j = to->tm_year / 100;
-    	int m = to->tm_mon + 1;
-    	int q = to->tm_mday;
-    	int h = (q + (13 * (m + 1)) / 5 + k + k / 4 + j / 4 + 5 * j) % 7;
-    	to->tm_wday = (h + 5) % 7; // Convert to Sunday = 0, Monday = 1, ..., Saturday = 6
+  // Calculate tm_wday using Zeller's congruence
+  int k = to->tm_year % 100;
+  int j = to->tm_year / 100;
+  int m = to->tm_mon + 1;
+  int q = to->tm_mday;
+  int h = (q + (13 * (m + 1)) / 5 + k + k / 4 + j / 4 + 5 * j) % 7;
+  to->tm_wday = (h + 5) % 7; // Convert to Sunday = 0, Monday = 1, ..., Saturday = 6
 	return true;
 }
 int hw_clock_set(struct tm *to) {

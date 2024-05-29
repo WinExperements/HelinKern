@@ -10,12 +10,14 @@
 #include <debug.h>
 #include <dev/fb.h>
 #include <dev/socket.h>
+#include <resources.h>
 #define MAX_PRIORITY 6
 process_t *runningTask;
 queue_t *task_list;
 static int freePid;
 static process_t *idle;
 extern uint32_t cursor_x,cursor_y;
+rlimit_t limitList[7];
 // FILO queue code(need to be moved into specific library directory)
 typedef struct {
     size_t head;
@@ -92,6 +94,7 @@ void thread_init() {
     dequeue(task_list);
     idle->state = -1;
     runningTask = idle;
+    krn_rlimit_init_default();
 }
 /* Допоможіть :( */
 void *thread_schedule(void *stack) {
@@ -107,26 +110,25 @@ void *thread_schedule(void *stack) {
         }*/
 	    nextTask = pop_prc();
         if (nextTask == NULL) {
-            // Oh! Is this means that the init process just died?
-	        // We just send the warrning message and switch to idle
-	        kprintf("Warrning: no processes left to run, maybe your init just died, please reboot device\r\n");
-		kprintf("Kernel: EMERGENCY STATE! Pushing ALL processes!\r\n");
-		arch_mmu_switch(arch_mmu_getKernelSpace());
-		queue_for(element,task_list) {
-			process_t *prc = element->value;
-			if (prc->state == STATUS_RUNNING) {
-				push_prc(prc);
-				kprintf("Pushed %s\r\n",prc->name);
-			}
-		}
 	        push_prc(idle);
 	        return stack;
         }
     }
     if (nextTask->state == STATUS_CREATING || nextTask->state == -1 || nextTask->state == STATUS_WAITPID) {
 	    //kprintf("Finding next usable process\r\n");
+      // Check if the process doesn't receive any signals.
+      if (((queue_t*)nextTask->signalQueue)->size != 0) {
+        goto switchTask;
+      }
 	    while(nextTask) {
+        /*if (nextTask != NULL && nextTask->pid != 0 && nextTask->state == STATUS_WAITPID) {
+          push_prc(nextTask);
+        }*/
 		    nextTask = pop_prc();
+		    if (nextTask == NULL) {
+			    nextTask = idle;
+			    break;
+		    }
 		    if (nextTask->state == STATUS_RUNNING) break;
 		    if (nextTask->state != -1 || nextTask->state != STATUS_WAITPID) {
 			    push_prc(nextTask);
@@ -138,6 +140,7 @@ void *thread_schedule(void *stack) {
 	//kprintf("nextTask = NULL! Switch to idle\r\n");
         nextTask = idle;
     }
+switchTask:
     nextTask->quota = 0;
     if (!nextTask->started) {
         nextTask->started = true;
@@ -353,7 +356,7 @@ void thread_killThread(process_t *prc,int code) {
 void thread_waitPid(process_t *prc) {
     DEBUG("Waitpid for %d\r\n",prc->pid);
     prc->state = STATUS_WAITPID;
-    filo_remove(priority[prc->priority],prc);
+    //filo_remove(priority[prc->priority],prc);
 }
 int thread_getNextPID() {
     return freePid;
@@ -375,6 +378,10 @@ int thread_openFor(process_t *caller,vfs_node_t *node) {
 	    DEBUG_N("No node passed for thread_openFor, returning -1 as result\n");
 	    return -1;
     }
+    if (caller->next_fd+1 > limitList[RLIMIT_NOFILE].r_cur) {
+	    // Out of resources.
+	    return -1;
+    }
     DEBUG("%s: open: %s for %s\r\n",__func__,node->name,caller->name);
     file_descriptor_t *fd = kmalloc(sizeof(file_descriptor_t));
     memset(fd,0,sizeof(file_descriptor_t));
@@ -387,7 +394,14 @@ int thread_openFor(process_t *caller,vfs_node_t *node) {
 }
 
 void push_prc(process_t *prc) {
-	filo_write(priority[prc->priority],prc);
+  if (prc->priority >= 6) {
+		PANIC("Corrupted priority ID\r\n");
+	}
+	if (priority[1] == NULL) {
+		PANIC("Corrupted priority queue");
+	}
+  //kprintf("Pushing process name %s to priority queue %d\r\n",prc->name,prc->priority);
+	filo_write(priority[1],prc);
 }
 
 process_t *pop_prc() {
@@ -408,4 +422,17 @@ void thread_recreateStack(process_t *prc,int entryPoint,int isUser) {
     prc->stack = new_stack;
     prc->arch_info = arch_info;
     runningTask = NULL;
+}
+void *thread_getThreadList() {
+	return task_list;
+}
+void krn_rlimit_init_default() {
+	for (int i = 1; i < 7; i++) {
+		limitList[i].r_cur = -1;
+		limitList[i].r_max = -1;
+	}
+	limitList[0].r_cur = 0;
+	limitList[0].r_max = -1;
+	limitList[RLIMIT_NOFILE].r_cur = 1024;
+	limitList[RLIMIT_NOFILE].r_max = 4096;
 }

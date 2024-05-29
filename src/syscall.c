@@ -13,6 +13,7 @@
 #include <dev.h>
 #include <ipc/ipc_manager.h>
 #include <dev/fb.h>
+#include <resources.h>
 // Pthreads structure that passed to newlib thread_entry
 typedef struct _pthread_str {
 	int entry;
@@ -26,7 +27,11 @@ struct utsname {
     char *version;
     char *machine;
 };
-
+struct statfs {
+	char f_mntfromname[90];
+	char f_mnttoname[90];
+	char f_fstypename[90];
+};
 extern char *ringBuff;
 static char *system_hostname = NULL;
 extern queue_t *priority[6];
@@ -103,8 +108,11 @@ static int sys_getpgid(int pid);
 static int sys_nice(int priority);
 static int sys_symlink(char *target,char *path);
 static int sys_ipc(int cmd,int magicID,int ipcCmd,void *args);
+static int sys_getfsstat(struct statfs *buf,long bufsize,int mode);
+static int sys_getrlimit(int resID,rlimit_t *to);
+static int sys_setrlimit(int resID,rlimit_t *to);
 static void *kmalloc_user(process_t *prc,int size);
-int syscall_table[70] = {
+int syscall_table[73] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -175,10 +183,15 @@ int syscall_table[70] = {
     (int)sys_nice,
     (int)sys_symlink,
     (int)sys_ipc,
+    (int)sys_getfsstat,
+    (int)sys_getrlimit,
+    (int)sys_setrlimit,
 };
-int syscall_num = 70;
+int syscall_num = 73;
 extern char *ringBuff;
 extern int ringBuffSize;
+extern int ringBuffPtr;
+extern void push_prc(process_t *prc); // src/thread.c
 static void *kmalloc_user(process_t *prc,int size) {
 	return sbrk(prc,size);
 }
@@ -228,6 +241,11 @@ static void sys_kill(int pid,int sig) {
 	}
 	queue_t *que = (queue_t *)prc->signalQueue;
 	enqueue(que,(void *)sig);
+  if (prc->state != STATUS_RUNNING && prc->state != STATUS_CREATING) {
+    kprintf("sys_kill: Perfoming process unlock\r\n");
+    prc->state = STATUS_RUNNING;
+    push_prc(prc);
+  }
 	arch_reschedule();
 }
 static int sys_getpid() {
@@ -286,14 +304,17 @@ static int sys_write(int _fd,int offset,int size,void *buff) {
 	    kprintf("WARRNING: write: invalid FD passed\n");
 	    kprintf("Exit from sys_write!\r\n");
 	    return 0;
-	}
+    }
+    if ((fd->node->mount_flags == VFS_MOUNT_RO) == VFS_MOUNT_RO) {
+	    return 30;
+    }
     if (fd->node->flags == 4) {
 	    //kprintf("WARRNING: redirecting from write to send!\n");
 	    Socket *sock = (Socket *)fd->node->priv_data;
 	    //kprintf("Send from %s to socket owner: %s\n",caller->name,thread_getThread(sock->conn->owner)->name);
 	    int socksize = sock->send(sock,_fd,buff,size,0);
 	    return socksize;
-	}
+    }
     int wr = vfs_write(fd->node,fd->offset,size,buff);
     fd->offset+=wr;
     return wr;
@@ -333,6 +354,7 @@ static void cloneStrArray(char **fromAr,char ***toAr,void *fromAspace,process_t 
   }
   arch_mmu_switch(toP->aspace);
   *toAr = sbrk(toP,sizeof(char *) * (ArrSize + 1));
+  memset(*toAr,0,sizeof(char *) * (ArrSize + 1));
   for (int i = 0; i < ArrSize; i++) {
     *toAr[i] = strdup_user(toP,krnBuff[i]);
   }
@@ -361,7 +383,8 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
     int environSize = 0;
     aspace_t *realSpace = arch_mmu_getAspace();
     while(environ[environSize]) {
-      if (arch_mmu_getPhysical(environ[environSize]) == 0) {
+      int space = (int)arch_mmu_getPhysical(environ[environSize]);
+      if (space == 0 || space < 0x1000) {
         break; // corupted.
       }
       environSize++;
@@ -385,10 +408,10 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
     if (argc == 0 || argv == 0) {
         // Передамо звичайні параметри(ім'я файлу і т.д)
   	    arch_mmu_switch(prc->aspace);
-            new_argv = sbrk(prc,2);
-            new_argv[0] = strdup_user(prc,path);
-	    arch_mmu_switch(arch_mmu_getKernelSpace());
-            argc = 1;
+        new_argv = sbrk(prc,2);
+        new_argv[0] = strdup_user(prc,path);
+	      arch_mmu_switch(arch_mmu_getKernelSpace());
+        argc = 1;
     } else {
         // We need to copy arguments from caller to prevent #PG when process is exitng!
 	      // 14/04/2024: We need to switch to process address space to prevent #PG when process is trying to access it's own arguments.
@@ -414,6 +437,8 @@ static int sys_reboot(int reason) {
 	}
 	if (reason == POWEROFF_MAGIC) {
 		// Poweroff all POWER devices
+    arch_cli();
+    kprintf("kernel: Request power off from userland root process\r\n");
 		for (dev_t *dev = dev_getRoot(); dev != NULL; dev = dev->next) {
 			if ((dev->type & DEVFS_TYPE_POWER) == DEVFS_TYPE_POWER) {
 				if (dev->poweroff != NULL) {
@@ -876,6 +901,9 @@ static int sys_creat(char *path,int type) {
     } else {
         return -2; // not implemented :(
     }
+    if ((in->mount_flags & VFS_MOUNT_RO) == VFS_MOUNT_RO) {
+	    return 30;
+    }
     vfs_node_t *node = vfs_creat(in,path,VFS_DIRECTORY);
     if (!node) {
         return -3;
@@ -939,12 +967,17 @@ static int sys_unlink(char *path) {
 }
 
 static int sys_gettime(int clock,struct tm *time) {
-	if (clock != 0) {
+	switch(clock) {
+		case 0:
+		case 1:
+		case 4:
+#ifdef HWCLOCK
+		hw_clock_get(time);
+#endif
+		break;
+		default:
 		return 22;
 	}
-#ifdef HWCLOCK
-	hw_clock_get(time);
-#endif
 	return 0;
 }
 
@@ -968,7 +1001,10 @@ static int sys_syslog(int type,char *buff,int len) {
 		len -= 20;
 	}
 	memcpy(buff,ringBuffPtr,len);*/
-	kprintf(ringBuff);
+	if (type == 0 && buff == NULL) {
+    return ringBuffPtr;
+  }
+  memcpy(buff,ringBuff,len);
 	return 0;
 }
 
@@ -1014,6 +1050,10 @@ int sys_nice(int prio) {
 int sys_symlink(char *target,char *path) {
 	return 38;
 }
+struct prcInfo {
+	char name[20];
+	int pid;
+};
 static int sys_ipc(int cmd,int magicID,int ipcCmd,void *args) {
   switch(cmd) {
     case 1: {
@@ -1021,11 +1061,64 @@ static int sys_ipc(int cmd,int magicID,int ipcCmd,void *args) {
       return ipc_create(magicID,args);
     } break;
     case 2: {
-      return ipc_cmd(magicID,ipcCmd,args);
+		    if (magicID == 'P') {
+			    if (ipcCmd == 0) {
+				    return ((queue_t*)thread_getThreadList())->size;
+				} else if (ipcCmd == 1) {
+					queue_t *list = (queue_t*)thread_getThreadList();
+					struct prcInfo *lst = (struct prcInfo *)args;
+					int i = 0;
+					queue_for(node,list) {
+						process_t *prc = (process_t *)node->value;
+						struct prcInfo el = lst[i];
+						strcpy(el.name,prc->name);
+						el.pid = prc->pid;
+						lst[i] = el;
+						i++;
+					}
+					return 0;
+				}
+				
+		    }
+		    return ipc_cmd(magicID,ipcCmd,args);
     } break;
     case 3: {
       return ipc_destroy(magicID);
     } break;
   }
   return -1;
+}
+int sys_getfsstat(struct statfs *buf,long bufsize,int mode) {
+	if (buf == NULL) {
+		int how = 0;
+		for (vfs_mount_t *mnt = vfs_getMntList(); mnt != NULL; mnt = mnt->next) {
+			how++;
+		}
+		return how;
+	}
+	int how = bufsize / sizeof(struct statfs);
+	vfs_mount_t *root = vfs_getMntList();
+	for (int i = 0; i < how; i++) {
+		if (root == NULL) break;
+		if (root->device == NULL) {
+			strcpy(buf[i].f_mntfromname,"none");
+		} else {
+			vfs_node_path(root->device,buf[i].f_mntfromname,90);
+		}
+		vfs_node_path(root->target,buf[i].f_mnttoname,90);
+		strcpy(buf[i].f_fstypename,root->fs->fs_name);
+		root = root->next;
+	}
+	return 0;
+}
+int sys_getrlimit(int id,rlimit_t *to) {
+	if (id > 6) {
+		return 14;
+	}
+	to->r_cur = limitList[id].r_cur;
+	to->r_max = limitList[id].r_max;
+	return 0;
+}
+int sys_setrlimit(int id,rlimit_t *to) {
+	return 38;
 }

@@ -12,7 +12,7 @@ target remote localhost:1234
 #b sys_fork
 #b thread_main
 #b arch_cloneStack
-add-symbol-file /home/justuser/HelinKern/userland/initrd/bin/sh 0x40000000
+#add-symbol-file /home/justuser/HelinKern/userland/initrd/init 0x40000000
 #b sys_exec
 #b dash_execute
 #b fb_enable
@@ -20,4 +20,4 @@ add-symbol-file /home/justuser/HelinKern/userland/initrd/bin/sh 0x40000000
 #b arch_processSignal
 #add-symbol-file userland/initrd/mbr.mod 0x20289e6
 #add-symbol-file userland/initrd/atapi.mod 0x202c615
-b putc
+b sys_getrlimit

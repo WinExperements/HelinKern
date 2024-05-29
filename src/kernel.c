@@ -35,7 +35,7 @@
 #endif
 #include <ipc/ipc_manager.h>
 static int fb_addr;
-extern int *syscall_table;
+extern int *syscall_table,ringBuffPtr;
 extern bool disableOutput;
 extern char *ringBuff;
 bool dontUseAta;
@@ -88,7 +88,7 @@ void kernel_main(const char *args) {
     fb_enableCursor();
     // Bootstrap end
     kheap_init();
-    ringBuff = (char *)kmalloc(RING_BUFF_SIZE);
+    ringBuff = (char *)kmalloc(1<<CONF_RING_SIZE);
     kprintf("%s: begin of parsing kernel arguments!\n",__func__);
     char *begin = strtok(args," ");
     while(begin != NULL) {
@@ -133,7 +133,7 @@ void kernel_main(const char *args) {
     hw_clock_init();
     struct tm curtime;
     hw_clock_get(&curtime);
-    kprintf("Current time, reported by hardware clock: %d:%d %d/%d/%d\r\n",curtime.tm_hour,curtime.tm_min,curtime.tm_mday,curtime.tm_mon,curtime.tm_year);
+    kprintf("Current time, reported by hardware clock: %d:%d %d/%d/%d\r\n",curtime.tm_hour,curtime.tm_min,curtime.tm_mday,curtime.tm_mon,(curtime.tm_year > 100 ? curtime.tm_year + 1900 : curtime.tm_year + 2000));
 #endif
     // register some sockets
     unix_register();
@@ -160,7 +160,7 @@ void kernel_main(const char *args) {
     /*int (*insmod)(char *) = ((int (*)(char *))syscall_get(30));
     insmod("/initrd/pci.mod");*/
     int (*exec)(char *,int,char **,char **) = ((int (*)(char *,int,char **,char **))syscall_get(13));
-    char *environ[] = {"PATH=/bin",NULL};
+    char *environ[] = {"PATH=/bin:/abama",NULL};
     int pid = exec("/init",0,NULL,environ); // Ядро передасть параметри за замовчуванням.
     if (pid < 0) {
         PANIC("Failed to execute init");

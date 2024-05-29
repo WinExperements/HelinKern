@@ -86,6 +86,7 @@ static vfs_node_t *rootfs_creat(vfs_node_t *node,char *name,int flags) {
     newDir->fs = rootfs_fs;
     newDir->next_child = NULL;
     newDir->prev = node;
+    kprintf("0x%x\r\n",newDir->prev);
     int i = 1;
     if (node->first_child == NULL) {
         node->first_child = newDir;

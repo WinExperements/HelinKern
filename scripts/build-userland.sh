@@ -29,8 +29,8 @@ elif [ "$1" = "prephost" ]; then
     mkdir build
     cd build
     ../configure --prefix="$hostDir"
-    make
-    make install
+    gmake
+    gmake install
     cd ../..
     tar xf archives/autoconf-2.69.tar.gz
     mv autoconf-2.69 autoconf-host
@@ -38,8 +38,8 @@ elif [ "$1" = "prephost" ]; then
     mkdir build
     cd build
     ../configure --prefix="$hostDir"
-    make
-    make install
+    gmake
+    gmake install
     cd ../../
 elif [ "$1" = "build-binutils" ]; then
 	export PATH="$pseudoGcc:$hostDir/bin:$PATH"
@@ -59,8 +59,8 @@ elif [ "$1" = "build-binutils" ]; then
 	cd ..
 	cd ../build
 	../src/configure --target=i686-helin --prefix=$helinroot --with-sysroot=$sysrootPath --disable-werror
-	make -j$(nproc)
-	make install
+	gmake -j$(nproc)
+	gmake install
 elif [ "$1" = "build-newlib" ]; then
 	toA=$(pwd)
 	echo Building automake and autoconf for the newlib
@@ -79,15 +79,15 @@ elif [ "$1" = "build-newlib" ]; then
 	mkdir build
 	cd build
 	../configure --prefix="$toA/bin"
-	make
-	make install
+	gmake
+	gmake install
 	cd ../..
 	cd autoconf
 	mkdir build
 	cd build
 	../configure --prefix="$toA/bin"
-	make
-	make install
+	gmake
+	gmake install
 	cd ../..
 	cd $toA/newlib/src
 	patch -p1 < $toA/../userland/patches/newlib.patch
@@ -101,7 +101,7 @@ elif [ "$1" = "build-newlib" ]; then
 	cd ../../../../../build
 	export PATH="$toA/../gcc-i686/bin:$PATH"
 	../src/configure --target=i686-helin --prefix=/usr
-	make
+	gmake
 	echo If build failed, please remove latest symbols in $toA/newlib/build/i686-helin/newlib/libc/sys/helin/Makefile, then enter bash $0 retry-newlib
 elif [ $1 = "retry-newlib" ]; then
 	toA=$(pwd)
@@ -109,10 +109,10 @@ elif [ $1 = "retry-newlib" ]; then
 	export PATH="$toA/bin/bin:$PATH"
 	export PATH="$toA/../gcc-i686/bin:$PATH"
 	cd newlib/build
-	make -C i686-helin/newlib/libc/sys/helin
-	make -C i686-helin/newlib/libc/sys
-	make -j$(nproc)
-	make DESTDIR=$sysrootPath install
+	gmake -C i686-helin/newlib/libc/sys/helin
+	gmake -C i686-helin/newlib/libc/sys
+	gmake -j$(nproc)
+	gmake DESTDIR=$sysrootPath install
 elif [ $1 = "build-gcc" ]; then
 	# Here we do a GCC like stuff
 	# We need to build autoconf and automake specific versions for the GCC
@@ -127,8 +127,8 @@ elif [ $1 = "build-gcc" ]; then
 	mkdir build
 	cd build
 	../configure --prefix=$instT/bin
-	make
-	make install
+	gmake
+	gmake install
 	cd ../../
 	pwd
 	cd autoconf-2.64
@@ -136,8 +136,8 @@ elif [ $1 = "build-gcc" ]; then
 	cd build
 	bash ../configure --prefix=$instT/bin
 	pwd
-	make
-	make install
+	gmake
+	gmake install
 	cd ../../
 	tar xf ../archives/gcc-7.5.0.tar.gz
 	mv gcc-7.5.0 src
@@ -152,9 +152,9 @@ elif [ $1 = "build-gcc" ]; then
 	export PATH=/home/user/gcc-i686/bin:$PATH
 	cp -r $sysrootPath/usr/i686-helin $helinroot/
 	../src/configure --target=i686-helin --prefix=$helinroot --with-sysroot=$sysrootPath --enable-languages=c,c++ --with-newlib
-	make all-gcc all-target-libgcc -j$(nproc)
-	make all-target-libstdc++-v3 -j$(nproc)
-	make install-gcc install-target-libgcc install-target-libstdc++-v3
+	gmake all-gcc all-target-libgcc -j$(nproc)
+	gmake all-target-libstdc++-v3 -j$(nproc)
+	gmake install-gcc install-target-libgcc install-target-libstdc++-v3
 else
 	echo Script debug! hostDir: $hostDir sysroot path: $sysrootPath root of all: $helinroot
 fi

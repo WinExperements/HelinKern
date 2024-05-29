@@ -15,7 +15,7 @@ static int tty_ioctl(vfs_node_t *node,int request,va_list args);
 static bool tty_isReady(vfs_node_t *node);
 int tty_flags = FLAG_ECHO;
 extern bool disableOutput;
-
+extern bool userWrite;
 void tty_init() {
 	dev = kmalloc(sizeof(dev_t));
 	memset(dev,0,sizeof(dev_t));
@@ -37,9 +37,11 @@ static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) 
 	char *char_buff = (char *)buff;
 	if (!(tty_flags & FLAG_ECHO)) return size;
 	for (uint64_t i = 0; i < size; i++) {
-		putc(char_buff[i]);
+    userWrite = true;
+		output_putc(char_buff[i]);
 	}
-    	return size;
+  userWrite = false;
+  return size;
 }
 
 static int tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {

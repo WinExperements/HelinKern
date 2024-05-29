@@ -20,6 +20,7 @@ static vfs_node_t *new_node(const char *name,struct cpio_hdr *hdr,size_t sz,size
     p->name = strdup(name);
     p->data = data;
     node->name = p->name;
+    node->mount_flags = VFS_MOUNT_RO;
     if ((hdr->mode & C_ISDIR) == C_ISDIR) {
       node->flags |= VFS_DIRECTORY;
     }
@@ -36,6 +37,7 @@ static void new_child_node(vfs_node_t *parent,vfs_node_t *child) {
     pp->dir = child;
     pp->count++;
     cp->parent = parent;
+    child->prev = parent;
 }
 
 static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *params) {
@@ -95,6 +97,7 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
     }
     mountpoint->fs = cpio_fs;
     mountpoint->priv_data = p;
+    mountpoint->mount_flags = VFS_MOUNT_RO;
     me->workDir = home;
     return true;
 }

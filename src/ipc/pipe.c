@@ -88,5 +88,5 @@ void pipe_init() {
   pipe->name = "pipe";
   pipe->magicID = PIPE_MAGIC;
   ipc_add(pipe);
-  kprintf("pipe IPC registred with magic: 0x%x",PIPE_MAGIC);
+  kprintf("pipe IPC registred with magic: 0x%x\r\n",PIPE_MAGIC);
 }

@@ -96,7 +96,7 @@ static void keyboard_keyHandler(char key) {
     // Ці елементи більше не потрібні!
     enqueue(keys,(void *)(int)key);
     if ((tty_flags & FLAG_ECHO)) {
-		putc(key);
+		  output_putc(key);
     }
 }
 static int keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, void *buf) {

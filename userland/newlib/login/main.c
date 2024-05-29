@@ -32,16 +32,22 @@ void enableEcho() {
 void runShell() {
 	char *sh_path = SH_PATH;
 	char *sh_argv[] = {SH_PATH,NULL};
-	execv(sh_path,sh_argv);
-	exit(1);
+	int pid = fork();
+	if (pid == 0) {
+		execv(sh_path,sh_argv);
+		exit(1);
+	} else {
+		waitpid(pid,NULL,0);
+	}
 }
 
 int main() {
 	char login[100];
 	char password[100];
-//  printf("environ[0]: %s\r\n",environ[0]);
+  	char hostname[100];
+  	gethostname(hostname,100);
 	while(1) {
-		printf("login: ");
+		printf("%s login: ",hostname);
 		fflush(stdout);
 		scanf("%s",login);
 		printf("Password: ");
@@ -55,10 +61,11 @@ int main() {
 				if (!strcmp(password,passwords[i])) {
 					setuid(uids[i]);
 					runShell();
+				} else {
+					printf("Incorrect login\r\n");
 				}
 			}
 		}
-		printf("login: incorrect login\r\n");
 	}
 	return 0;
 }

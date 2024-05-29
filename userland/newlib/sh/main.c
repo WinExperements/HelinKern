@@ -16,6 +16,7 @@
 #include <sys/utsname.h>
 #include <sys/syscall.h>
 #include <pwd.h>
+#include <signal.h>
 char path[100];
 char oldpath[100];
 
@@ -31,10 +32,14 @@ int main() {
     char hostname[100];
     gethostname(hostname,100);
     char *usrName = strdup(crUser->pw_name); // Somehow printf overwrites the pw_name
+    char usC = '$';
+    if (getuid() == 0) {
+      usC = '#';
+    }
     while(!exit) {
         //putc('>',stdout);
         getcwd(path,100);
-        printf("%s@%s:%s# ",usrName,hostname,path);
+        printf("%s@%s:%s%c ",usrName,hostname,path,usC);
         fflush(stdout);
         fgets(line,100,stdin);
         line[strcspn(line,"\n")] = 0;
@@ -55,7 +60,10 @@ int main() {
    // printf("argv[0]: %s, 0x%x",environ[0],environ[0]);
     return 0;
 }
-
+struct prcInfo {
+	char name[20];
+	int pid;
+};
 bool executeCommand(int argc,char **argv) {
     // Try to find the file in argv[0]
     char execPath[100];
@@ -143,17 +151,25 @@ void parse(int argc,char **argv) {
 	    printf("HelinOS newlib shell version 0.1\r\n");
 	    printf("Supported built-in commands: ls,cd,pwd,help,poweroff,reboot,mount. All other commands will be tried to be runned from /initrd/<command name>\r\n");
     } else if (!strcmp(argv[0],"poweroff")) {
-	    if (reboot(RB_POWER_OFF) < 0) {
-		perror("Operation failed");
-	    }
+      kill(1,SIGINT);
     } else if (!strcmp(argv[0],"reboot")) {
 	    if (reboot(RB_AUTOBOOT) < 0) {
 		perror("Operation failed");
 	    }
     } else if (!strcmp(argv[0],"mount")) {
 	    if (argc < 3) {
-		    printf("Usage: mount <source> <target> <filesystem type>\r\n");
-		    return;
+		    // BSD style!
+		    int how = getfsstat(NULL,0,0);
+		    struct statfs *ar = malloc(sizeof(struct statfs) * how);
+		    memset(ar,0,sizeof(struct statfs) * how);
+		    if (getfsstat(ar,sizeof(struct statfs) * how,0) < 0) {
+			    perror("Failed to get list of mounted file systems from kernel");
+			    return;
+		    }
+		    for (int i = 0; i < how; i++) {
+			    printf("%s on %s (%s)\r\n",ar[i].f_mntfromname,ar[i].f_mnttoname,ar[i].f_fstypename);
+		    }
+		    free(ar);
 		} else {
 			if (mount(argv[1],argv[2],argv[3],0,NULL) < 0) {
 				perror("Mount failed. Check kernel logs based on your current system\r\n");
@@ -182,12 +198,25 @@ void parse(int argc,char **argv) {
         a++;
       }
     } else if (!strcmp(argv[0],"dmesg")) {
-      char buff[4096];
-      syscall(SYS_syslog,0,(int)buff,4096,0,0);
-      printf("%s\r\n",buff);
+      int ringBuffSize = syscall(SYS_syslog,0,0,0,0,0);
+      char *buff = malloc(ringBuffSize);
+      syscall(SYS_syslog,0,(int)buff,ringBuffSize,0,0);
+      buff[ringBuffSize] = 0;
+      printf(buff);
+    } else if (!strcmp(argv[0],"ps")) {
+	    int psList = syscall(SYS_ipc,2,'P',0,0,0);
+	    struct prcInfo *lst = malloc(sizeof(struct prcInfo) * psList);
+	    memset(lst,0,sizeof(struct prcInfo) * psList);
+	    if (syscall(SYS_ipc,2,'P',1,(int)lst,0) < 0) {
+		    perror("Retrive fail");
+		}
+	    for (int i = 0; i < psList; i++) {
+		    printf("%d tty0 notaval %s\r\n",lst[i].pid,lst[i].name);
+		}
+	    free(lst);
     } else {
-	      if (!executeCommand(argc,argv)) {
+	if (!executeCommand(argc,argv)) {
         	printf("Unknown command: %s\n",argv[0]);
-	      }
+	}
     }
 }

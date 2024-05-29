@@ -72,7 +72,10 @@ enum syscall_table {
 	SYS_getpgid,
 	SYS_nice,
 	SYS_symlink,
-  SYS_ipc,
+  	SYS_ipc,
+	SYS_getfsstat,	// BSD like syscall.
+	SYS_getrlimit,
+	SYS_setrlimit,
 	NUM_SYSCALLS,
 };
 

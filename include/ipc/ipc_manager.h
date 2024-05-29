@@ -23,3 +23,5 @@ int ipc_remove(Ipc *ipc);
 int ipc_create(int magicID,void *args);
 int ipc_cmd(int magicID,int cmd,void *args);
 int ipc_destroy(int magicID);
+/* Unique Key generation */ 
+void ipc_ftok(char *keyName,int flags);
