@@ -7,6 +7,7 @@
 #include <mm/alloc.h>
 #include <lib/string.h>
 #include <elf.h>
+#include <arch/mmu.h>
 //__attribute__((section(".modname"))) char *name = "ext2";
 
 /*
@@ -143,7 +144,7 @@ static int ext2_is_directory(struct ext2_disk *dev,int in_id)
 	return ret;
 }
 
-char *ext2_read_file(struct ext2_disk *hd,struct ext2_inode *inode, int size)
+char *ext2_read_file(struct ext2_disk *hd,struct ext2_inode *inode, int size,void *to)
 {
 	vfs_node_t *dev=hd->dev;
 
@@ -151,18 +152,22 @@ char *ext2_read_file(struct ext2_disk *hd,struct ext2_inode *inode, int size)
 
 	int *p, *pp, *ppp;
 	int i, j, k;
-	int n;
+	unsigned int n;
 
 	buf = (char *) kmalloc(hd->blocksize);
 	p = (int *) kmalloc(hd->blocksize);
 	pp = (int *) kmalloc(hd->blocksize);
 	ppp = (int *) kmalloc(hd->blocksize);
-
-	/* taille totale du fichier */
-	mmap_head = mmap_base = (char*)kmalloc(size);
+	process_t *prc = thread_getThread(thread_getCurrent());
+	if (to == NULL) {
+		mmap_base = mmap_head = kmalloc(size);
+	} else {
+		mmap_base = mmap_head = to;
+	}
 	/* direct block number */
 	for (i = 0; i < 12 && inode->i_block[i]; i++) {
-        read(dev,(inode->i_block[i] * hd->blocksize), buf, (hd->blocksize));
+		if (size < 0) goto clean;
+        	read(dev,(inode->i_block[i] * hd->blocksize), buf, (hd->blocksize));
 		n = ((size > (int)hd->blocksize) ? (int)hd->blocksize : size);
 		memcpy(mmap_head, buf, n);
 		mmap_head += n;
@@ -170,11 +175,12 @@ char *ext2_read_file(struct ext2_disk *hd,struct ext2_inode *inode, int size)
 	}
 	/* indirect block number */
 	if (inode->i_block[12]) {
-	    read(dev,(inode->i_block[12] * hd->blocksize), p, (hd->blocksize));
+		if (size < 0) goto clean;
+	    	read(dev,(inode->i_block[12] * hd->blocksize), p, (hd->blocksize));
 
 
 		for (i = 0; i < (int)hd->blocksize / 4 && p[i]; i++) {
-            read(dev,(p[i] * hd->blocksize),buf, (hd->blocksize));
+            		read(dev,(p[i] * hd->blocksize),buf, (hd->blocksize));
 			n = ((size > (int)hd->blocksize) ? (int)hd->blocksize : size);
 			memcpy(mmap_head, buf, n);
 			mmap_head += n;
@@ -183,30 +189,34 @@ char *ext2_read_file(struct ext2_disk *hd,struct ext2_inode *inode, int size)
 	}
 
 	/* bi-indirect block number */
+	/* Bug here. */
 	if (inode->i_block[13]) {
-	    read(dev,(inode->i_block[13] * hd->blocksize), p, (hd->blocksize));
+	    	read(dev,(inode->i_block[13] * hd->blocksize), p, (hd->blocksize));
 
-		for (i = 0; i < (int)hd->blocksize / 4 && p[i]; i++) {
-            read(dev,(p[i] * (int)hd->blocksize), pp,(hd->blocksize));
-			for (j = 0; j < (int)hd->blocksize / 4 && pp[j]; j++) {
-                read(dev,(pp[j] * hd->blocksize),buf,(hd->blocksize));
-				n = ((size > (int)hd-> blocksize) ? (int)hd->blocksize : size);
-				memcpy(mmap_head, buf, n);
-				mmap_head += n;
-				size -= n;
+			for (i = 0; i < (int)hd->blocksize / 4 && p[i]; i++) {
+            			read(dev,(p[i] * (int)hd->blocksize), pp,(hd->blocksize));
+				for (j = 0; j < (int)hd->blocksize / 4 && pp[j]; j++) {
+                			read(dev,(pp[j] * hd->blocksize),buf,(hd->blocksize));
+					if (size < 0) goto clean;
+					n = ((size > (int)hd-> blocksize) ? (int)hd->blocksize : size);
+					memcpy(mmap_head, buf, n);
+					mmap_head += n;
+					size -= n;
+					//kprintf("j -> %d, size -> %d, n-> %d\r\n",j,size,n);
 			}
 		}
 	}
 	/* tri-indirect block number */
 	if (inode->i_block[14]) {
-        read(dev,(inode->i_block[14] * hd->blocksize), p,(hd->blocksize));
+        	read(dev,(inode->i_block[14] * hd->blocksize), p,(hd->blocksize));
 		for (i = 0; i < (int)hd->blocksize / 4 && p[i]; i++) {
-            read(dev,(p[i] * hd->blocksize), pp,(hd->blocksize));
+            		read(dev,(p[i] * hd->blocksize), pp,(hd->blocksize));
 			for (j = 0; j < (int)hd->blocksize / 4 && pp[j]; j++) {
-                read(dev,(pp[j] * hd->blocksize), ppp,(hd->blocksize));
+                		read(dev,(pp[j] * hd->blocksize), ppp,(hd->blocksize));
 				for (k = 0; k < (int)hd->blocksize / 4 && ppp[k]; k++) {
-                    read(dev,(ppp[k] * hd->blocksize), buf,(hd->blocksize));
+                    			read(dev,(ppp[k] * hd->blocksize), buf,(hd->blocksize));
 					n = ((size > (int)hd->blocksize) ? (int)hd->blocksize : size);
+					if (size < 0) goto clean;
 					memcpy(mmap_head, buf, n);
 					mmap_head += n;
 					size -= n;
@@ -214,10 +224,11 @@ char *ext2_read_file(struct ext2_disk *hd,struct ext2_inode *inode, int size)
 			}
 		}
 	}
+clean:
 	kfree(buf);
 	kfree(p);
 	kfree(pp);
-	kfree(ppp);;
+	kfree(ppp);
 	return mmap_base;
 }
 
@@ -225,7 +236,7 @@ static void ext2_read_directory(struct ext2_disk *disk,struct ext2_inode *inode)
     char *filename;
     struct ext2_directory_entry *dentry;
     uint32_t dsize = inode->i_size;
-    void *d = ext2_read_file(disk,inode,inode->i_size);
+    void *d = ext2_read_file(disk,inode,inode->i_size,NULL);
     dentry = (struct ext2_directory_entry *)d;
     while(inode && dsize) {
         filename = (char *) kmalloc(dentry->name_len + 1);
@@ -241,7 +252,7 @@ static void ext2_read_directory(struct ext2_disk *disk,struct ext2_inode *inode)
         kfree(filename);
         if (!ext2_is_directory(disk,dentry->inode)) {
             struct ext2_inode *file = ext2_read_inode(disk,dentry->inode);
-            char *cont = ext2_read_file(disk,file,file->i_size);
+            char *cont = ext2_read_file(disk,file,file->i_size,NULL);
 	    elf_load_file(cont,thread_getThread(thread_getCurrent()));
            // kprintf("Reading file: %s\n",cont);
             kfree(cont);
@@ -289,7 +300,7 @@ struct vfs_node *ext2_finddir(struct vfs_node *in,char *name) {
     	struct ext2_directory_entry *dentry;
     	uint32_t dsize = inode->i_size;
 	struct ext2_disk *disk = pr->disk;
-    	void *d = ext2_read_file(disk,inode,inode->i_size);
+    	void *d = ext2_read_file(disk,inode,inode->i_size,NULL);
     	dentry = (struct ext2_directory_entry *)d;
     	while(inode && dsize) {
         	filename = (char *) kmalloc(dentry->name_len + 1);
@@ -335,7 +346,7 @@ struct dirent *ext2_readdir(struct vfs_node *dir,uint32_t index) {
         char *filename;
         struct ext2_directory_entry *dentry;
         uint32_t dsize = inode->i_size;
-        void *d = ext2_read_file(pr->disk,inode,inode->i_size);
+        void *d = ext2_read_file(pr->disk,inode,inode->i_size,NULL);
         dentry = (struct ext2_directory_entry *)d;
         while(inode && dsize) {             
                 filename = (char *) kmalloc(dentry->name_len + 1);
@@ -365,9 +376,7 @@ static int ext2_fs_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buf
 	ext2_pr *prv = (ext2_pr *)node->priv_data;
 	struct ext2_inode *in = ext2_read_inode(prv->disk,prv->inode_id);
 	if (in == NULL) return 0;
-	void *read = ext2_read_file(prv->disk,in,size);
-	memcpy(buff,read,size);
-	kfree(read);
+	void *read = ext2_read_file(prv->disk,in,size,buff);
 	kfree(in);
 	return size;
 }

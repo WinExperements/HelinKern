@@ -33,7 +33,7 @@ bool elf_check_file(Elf32_Ehdr *hdr) {
 	}
     return true;
 }
-uint32_t elf_get_end_in_memory(void *elf_data) {
+int elf_get_end_in_memory(void *elf_data) {
     uint32_t v_end;
     Elf32_Ehdr *hdr;
     Elf32_Phdr *p_entry;
@@ -63,7 +63,7 @@ uint32_t elf_get_end_in_memory(void *elf_data) {
         }
     }
 
-    return result;
+    return (int)result;
 }
 bool elf_load_file(void *addr,process_t *caller) {
     int pe;

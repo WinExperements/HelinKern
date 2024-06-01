@@ -71,6 +71,7 @@ bool executeCommand(int argc,char **argv) {
     char *foundedPath = NULL;
     if (argv[0][0] == '/') {
 	    strncpy(execPath,argv[0],100);
+	    foundedPath = argv[0];
     } else {
       // We need to find executable somewhere in the PATH environment variable.
       char *where = strtok(getenv("PATH"),":");

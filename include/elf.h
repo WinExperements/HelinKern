@@ -160,7 +160,7 @@ static inline char *elf_lookup_string(Elf32_Ehdr *hdr, int offset) {
 bool elf_check_file(Elf32_Ehdr *hdr);
 // If no caller passed, create a new one
 bool elf_load_file(void *addr,process_t *caller);
-uint32_t elf_get_end_in_memory(void *addr);
+int elf_get_end_in_memory(void *addr);
 /* Return additional count of bytes that need to be allocated for correctly module loading */
 int elf_get_module_bytes(vfs_node_t *n);
 #endif

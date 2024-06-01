@@ -123,9 +123,11 @@ int main(int argc,char **argv) {
 						if (restarted == 0) {
 							execv(start->execPath,start->prc_argv);
 							perror("init[1]: service restarting fauilure: ");
+							printf("\r\n");
 							exit(1);
 						} else {
 							start->pid = restarted;
+							start->executionRetries++;
 						}
 				}
 			}
@@ -192,10 +194,14 @@ void parseCommand(int argc,char **argv) {
 			fprintf(stderr,"init: insmod require the module path!\r\n");
 			return;
 		}
+#ifndef TARGET_LINUX
 		if (syscall(SYS_insmod,(int)argv[1],0,0,0,0) < 0) {
 			fprintf(stderr,"init: insmod fail.\r\n");
 			return;
 		}
+#else
+		printf("init[1]: not available\r\n");
+#endif
 	} else if (!strcmp(argv[0],"mount")) {
 		if (argc < 4) {
 			printf("init: mount: not enought arguments\r\n");
@@ -214,6 +220,9 @@ void sigint_handler(int sig) {
 	printf("%s ",srv->serviceName);
 	fflush(stdout);
 	kill(srv->pid,SIGKILL);
+	printf("Waiting for PID %d...");
+	fflush(stdout);
+	waitpid(srv->pid,NULL,0);
   }
   printf("\r\nDone, unmounting all removable file systems...");
   // TODO

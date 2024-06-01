@@ -52,13 +52,13 @@ static int mbr_dev_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buff
 	return vfs_read((vfs_node_t *)dev->harddrive_addr,off+offset,how,buff);
 }
 
-static void mbr_registerDevice(vfs_node_t *harddrive,int lba_start) {
+static void mbr_registerDevice(vfs_node_t *harddrive,int lba_start,uint64_t sectors) {
     mbr_dev_t *dev = kmalloc(sizeof(mbr_dev_t));
     memset(dev,0,sizeof(mbr_dev_t));
     dev->harddrive_addr = (int)harddrive;
     dev->part_index = 0;
     dev->lba_start = lba_start;
-    dev->sectors = 0;
+    dev->sectors = sectors;
     dev_t *d = kmalloc(sizeof(dev_t));
     memset(d,0,sizeof(dev_t));
     d->name = kmalloc(6);
@@ -108,7 +108,8 @@ static void parseGPT(vfs_node_t *hard) {
             kprintf("%c",buff[i]);
         }
         kprintf(" LBA: 0x%x\n",array[i].startingLBA);*/
-        mbr_registerDevice(hard,array[i].startingLBA);
+	uint64_t sizeOfPart = array[i].endingLBA - array[i].startingLBA;
+        mbr_registerDevice(hard,array[i].startingLBA,sizeOfPart);
     }
     // Free header taken memory
     kfree(header);
@@ -126,7 +127,7 @@ static void mbr_parseMbr(vfs_node_t *harddrive,uint32_t extPartSector,mbr_t mbr)
                     int off = extPartSector;
                     mbr.partitions[i].lba_first_sector += off;
                     //kprintf("MBR: Partiton %d start: %d, size(in sectors): %d, offset: %d\n",i,mbr.partitions[i].lba_first_sector,mbr.partitions[i].sector_count,off);
-                    mbr_registerDevice(harddrive,mbr.partitions[i].lba_first_sector);
+                    mbr_registerDevice(harddrive,mbr.partitions[i].lba_first_sector,(uint64_t)mbr.partitions[i].sector_count);
                     if (mbr.partitions[i].type == 0x5 || mbr.partitions[i].type == 0xf) {
                         mbr_t *sec_mbr = kmalloc(sizeof(mbr_t));
                         vfs_readBlock(harddrive,(mbr.partitions[i].lba_first_sector),512,sec_mbr);

@@ -3,7 +3,7 @@
 #include <tty.h>
 #include <dev.h>
 #include <output.h>
-
+#include <lib/string.h>
 
 // TODO: Add also the virtual TTY devices and the pipelines support
 
@@ -13,7 +13,7 @@ static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
 static int tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
 static int tty_ioctl(vfs_node_t *node,int request,va_list args);
 static bool tty_isReady(vfs_node_t *node);
-int tty_flags = FLAG_ECHO;
+struct termios curState;
 extern bool disableOutput;
 extern bool userWrite;
 void tty_init() {
@@ -26,22 +26,25 @@ void tty_init() {
 	dev->ioctl = tty_ioctl;
 	dev->isReady = tty_isReady;
 	dev_add(dev);
+	curState.c_lflag = FLAG_ECHO;
 	// Find keyboard in our devfs
 	dev_t *kbd = dev_find("keyboard");
-    if (kbd != NULL) {
-        keyboard = kbd->devNode;
-    }
+    	if (kbd != NULL) {
+        	keyboard = kbd->devNode;
+    	}
 }
 
 static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 	char *char_buff = (char *)buff;
-	if (!(tty_flags & FLAG_ECHO)) return size;
+	if ((curState.c_lflag & FLAG_ECHO) != FLAG_ECHO) {
+		return size;
+	}
 	for (uint64_t i = 0; i < size; i++) {
-    userWrite = true;
+    		userWrite = true;
 		output_putc(char_buff[i]);
 	}
-  userWrite = false;
-  return size;
+  	userWrite = false;
+  	return size;
 }
 
 static int tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
@@ -50,14 +53,15 @@ static int tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 }
 
 static int tty_ioctl(vfs_node_t *node,int request,va_list args) {
-	int *arg = va_arg(args,int *);
+	void *arg = va_arg(args,void *);
 	switch(request) {
 		case 1:
-			*arg = tty_flags;
+			// get
+			memcpy(arg,&curState,sizeof(struct termios));
 			break;
 		case 2:
 			// Set flags
-			tty_flags = *arg;
+			memcpy(&curState,arg,sizeof(struct termios));
 			break;
 		case 3:
 			output_clear();
@@ -69,4 +73,7 @@ static int tty_ioctl(vfs_node_t *node,int request,va_list args) {
 }
 static bool tty_isReady(vfs_node_t *node) {
 	return keyboard->fs->isReady(keyboard);
+}
+int tty_getFlags() {
+	return curState.c_lflag;
 }

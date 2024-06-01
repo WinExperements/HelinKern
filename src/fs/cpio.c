@@ -8,19 +8,20 @@ static vfs_fs_t *cpio_fs;
 static vfs_node_t *root;
 static vfs_node_t *d;
 
-static vfs_node_t *new_node(const char *name,struct cpio_hdr *hdr,size_t sz,size_t data) {
+static vfs_node_t *new_node(const char *name,struct cpio_hdr *hdr,size_t sz,size_t data,int inode_index) {
     vfs_node_t *node = kmalloc(sizeof(vfs_node_t));
     memset(node,0,sizeof(vfs_node_t));
-    struct cpio *p = kmalloc(sizeof(struct cpio));
-    memset(p,0,sizeof(struct cpio));
+    struct cpio *child_cpio = kmalloc(sizeof(struct cpio));
+    memset(child_cpio,0,sizeof(struct cpio));
     node->size = sz;
     node->uid = node->guid = 0;
-    node->priv_data = p;
     node->fs = cpio_fs;
-    p->name = strdup(name);
-    p->data = data;
-    node->name = p->name;
+    node->name = strdup(name);
     node->mount_flags = VFS_MOUNT_RO;
+    node->inode = inode_index;
+    child_cpio->node = node;
+    child_cpio->data = data;
+    node->priv_data = child_cpio;
     if ((hdr->mode & C_ISDIR) == C_ISDIR) {
       node->flags |= VFS_DIRECTORY;
     }
@@ -30,14 +31,17 @@ static vfs_node_t *new_node(const char *name,struct cpio_hdr *hdr,size_t sz,size
 static void new_child_node(vfs_node_t *parent,vfs_node_t *child) {
     if (!parent || !child) return;
     if (parent->flags != VFS_DIRECTORY) return;
-    struct cpio *pp = (struct cpio *)parent->priv_data;
-    struct cpio *cp = (struct cpio *)child->priv_data;
-    vfs_node_t *tmp = pp->dir;
-    cp->next = tmp;
-    pp->dir = child;
-    pp->count++;
-    cp->parent = parent;
-    child->prev = parent;
+    struct cpio *inform = (struct cpio *)parent->priv_data;
+    struct cpio *child_cpio = (struct cpio *)child->priv_data;
+    if (inform->child == NULL) {
+	    inform->child = child_cpio;
+	    child_cpio->root = parent;
+    } else {
+	    for (; inform->child != NULL; inform = inform->child);
+	    inform->child = child_cpio;
+	    child_cpio->root = parent;
+   }
+    ((struct cpio*)parent->priv_data)->dirSize++;
 }
 
 static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *params) {
@@ -48,7 +52,6 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
     struct cpio_hdr hdr;
     int offset = 0;
     int size = 0;
-    // FIXME: Add the header checks at mount!
     root = mountpoint;
     d = dev;
     root->fs = cpio_fs;
@@ -61,11 +64,12 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
 	    kprintf("cpio: device size is zero! Device: %s\r\n",dev->name);
 	    return false;
     }
+    int ino_index = 0;
     for (; offset < dev_size; offset +=sizeof(struct cpio_hdr)+(hdr.namesize+1)/2*2 + (size+1)/2*2) {
         int data_offset = offset;
         vfs_read(dev,data_offset,sizeof(struct cpio_hdr),&hdr);
         if (hdr.magic != CPIO_MAGIC) {
-            kprintf("cpiofs: Invalid magic\r\n");
+            kprintf("cpiofs: Invalid magic(0x%x)\r\n",hdr.magic);
             me->workDir = home;
             return false;
         }
@@ -88,12 +92,12 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
         if (!name) {
             name = path;
         }
-	      DEBUG("Processing file: %s\r\n",path);
         data_offset += hdr.namesize + (hdr.namesize % 2);
-        vfs_node_t *node = new_node(name,&hdr,size,data_offset);
+        vfs_node_t *node = new_node(name,&hdr,size,data_offset,ino_index);
         vfs_node_t *parent = dir != NULL ? vfs_find(dir) : root;
         parent->flags = VFS_DIRECTORY;
         new_child_node(parent,node);
+	ino_index++;
     }
     mountpoint->fs = cpio_fs;
     mountpoint->priv_data = p;
@@ -114,16 +118,12 @@ static int cpio_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *b
 
 struct vfs_node *cpio_finddir(struct vfs_node *di,char *name) {
     struct cpio *p = (struct cpio *)di->priv_data;
-    size_t i = 0;
-    vfs_node_t *dir = p->dir;
-    for (vfs_node_t *e = dir; e != NULL; e = ((struct cpio *) e->priv_data)->next) {
-        char *n = (((struct cpio *)e->priv_data)->name);
-        if (strcmp(n,name)) {
-            return e;
-        }
-        ++i;
-        if (i == p->count) break;
-    }
+    for (; p != NULL; p = p->child) {
+	    if (p->node == NULL && p->child != NULL) continue; // looks like root
+	    if (strcmp(p->node->name,name)) {
+		    return p->node;
+		}
+	}
     return NULL;
 }
 static struct dirent find_d;
@@ -138,17 +138,21 @@ struct dirent *cpio_readdir(struct vfs_node *di,uint32_t index) {
     }
     index -= 2;
     struct cpio *p = (struct cpio *)di->priv_data;
-    if (index == p->count) return NULL;
-    size_t i = 0;
-    vfs_node_t *dir = p->dir;
-    for (vfs_node_t *e = dir; e != NULL; e = ((struct cpio *) e->priv_data)->next) {
-        if (i == index) {
-            
-            strcpy(find_d.name,((struct cpio *)e->priv_data)->name);
-            return &find_d;
-        }
-        ++i;
-    }
+    // Debug.
+    struct cpio *pa = p->child;
+    for (int i = 0; i < p->dirSize; i++) {
+	    if (pa == NULL) break;
+	    if (pa->root != di) {
+		    i--;
+		    pa = pa->child;
+		    continue;
+		}
+	    if (i == index) {
+		    strcpy(find_d.name,pa->node->name);
+		    return &find_d;
+		}
+	    pa = pa->child;
+	}
     return NULL;
 }
 

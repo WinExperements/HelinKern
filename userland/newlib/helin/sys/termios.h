@@ -15,7 +15,6 @@ struct termios {
 };
 
 // Flags
-#define ECHO 0000001
 #define VINTR    0
 #define VQUIT    1
 #define VERASE   2

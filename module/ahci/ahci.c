@@ -797,6 +797,7 @@ static void ahci_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf)
 static int ahci_vdev_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buffer) {
     struct sata_info *inf = (struct sata_info *)node->device;
     if (inf->type == AHCI_DEV_SATAPI) return 0;
+    bool reqSwitch = (arch_mmu_getAspace() == arch_mmu_getKernelSpace() ? false : true);
     process_t *prc = thread_getThread(thread_getCurrent());
     void *orig = prc->aspace;
     prc->aspace = arch_mmu_getKernelSpace();
@@ -839,7 +840,7 @@ static int ahci_vdev_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *bu
 	    arch_mmu_switch(prc->aspace);
   }
     prc->aspace = orig;
-    arch_mmu_switch(orig);
+    if (reqSwitch) arch_mmu_switch(orig);
     return how;
 }
 

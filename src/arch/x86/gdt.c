@@ -260,12 +260,8 @@ void *x86_irq_handler(registers_t *regs) {
 	if (runningTask != NULL && runningTask->userProcess) {
 		x86_task_t *archInfo = (x86_task_t *)runningTask->arch_info;
 		archInfo->userTaskRegisters = regs;
-		//kprintf("Registers updated\r\n");
 		runningTask->arch_info = archInfo; // for any case
-	} /*else {
-		kprintf("runningTask = 0x%x, userProcess -> %d\r\n",runningTask,runningTask == NULL ? 0 : runningTask->userProcess);
-	}*/
-	      //PANIC("Check here");
+	}
       interrupt_sendEOI();
       return clock_handler(regs);
     } /*else {

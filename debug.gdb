@@ -20,4 +20,4 @@ target remote localhost:1234
 #b arch_processSignal
 #add-symbol-file userland/initrd/mbr.mod 0x20289e6
 #add-symbol-file userland/initrd/atapi.mod 0x202c615
-b sys_getrlimit
+b sys_getfsstat

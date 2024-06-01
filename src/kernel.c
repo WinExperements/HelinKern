@@ -62,7 +62,6 @@ void kernel_main(const char *args) {
     arch_pre_init(); // must setup the base thinks in the architecture, for example: just check if the CPU is supported
     // init output
     output_uart_init();
-    kprintf("HelinOS kernel, build date: %s using GCC %s\r\n",__DATE__,__VERSION__);
     fbinfo_t fb;
     if (arch_getFBInfo(&fb)) {
         fb_init(&fb);
@@ -79,9 +78,7 @@ void kernel_main(const char *args) {
     // Hi!
     fb_disableCursor();
     int mem = arch_getMemSize();
-    kprintf("Initializing memory\r\n");
-   alloc_init(arch_getKernelEnd(),mem);
-    kprintf("Initializing MMU\r\n");
+    alloc_init(arch_getKernelEnd(),mem);
     arch_mmu_init();
     alloc_mapItself();
     fb_map();
@@ -89,6 +86,7 @@ void kernel_main(const char *args) {
     // Bootstrap end
     kheap_init();
     ringBuff = (char *)kmalloc(1<<CONF_RING_SIZE);
+    kprintf("HelinOS kernel compiled by GCC %s on %s\r\n",__VERSION__,__DATE__);
     kprintf("%s: begin of parsing kernel arguments!\n",__func__);
     char *begin = strtok(args," ");
     while(begin != NULL) {
@@ -120,7 +118,6 @@ void kernel_main(const char *args) {
     keyboard_init();
     fbdev_init();
     ps2mouse_init();
-    //kprintf("**** DELL AND REAL HARDWARE BUG ****\r\n");
     mbr_init();
     pci_init();
     ahci_init();
@@ -140,7 +137,6 @@ void kernel_main(const char *args) {
     arch_post_init();
     clock_setShedulerEnabled(true);
     arch_detect();
-    kprintf("Monolitic kernel: Booting up some drives drivers....\n");
     // Directly try to mount initrd and run init if it fails then panic like Linux kernel or spawn kshell
     vfs_node_t *initrd = vfs_find("/initrdram");
     if (!initrd) {
@@ -160,7 +156,7 @@ void kernel_main(const char *args) {
     /*int (*insmod)(char *) = ((int (*)(char *))syscall_get(30));
     insmod("/initrd/pci.mod");*/
     int (*exec)(char *,int,char **,char **) = ((int (*)(char *,int,char **,char **))syscall_get(13));
-    char *environ[] = {"PATH=/bin:/abama",NULL};
+    char *environ[] = {NULL};
     int pid = exec("/init",0,NULL,environ); // Ядро передасть параметри за замовчуванням.
     if (pid < 0) {
         PANIC("Failed to execute init");

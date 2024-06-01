@@ -32,6 +32,7 @@ struct statfs {
 	char f_mnttoname[90];
 	char f_fstypename[90];
 };
+// stat.
 extern char *ringBuff;
 static char *system_hostname = NULL;
 extern queue_t *priority[6];
@@ -354,9 +355,11 @@ static void cloneStrArray(char **fromAr,char ***toAr,void *fromAspace,process_t 
   }
   arch_mmu_switch(toP->aspace);
   *toAr = sbrk(toP,sizeof(char *) * (ArrSize + 1));
-  memset(*toAr,0,sizeof(char *) * (ArrSize + 1));
+  char **ar = *toAr;
+  memset(ar,0,sizeof(char *) * (ArrSize + 1));
   for (int i = 0; i < ArrSize; i++) {
-    *toAr[i] = strdup_user(toP,krnBuff[i]);
+    char *clone = strdup_user(toP,krnBuff[i]);
+    ar[i] = clone;
   }
   arch_mmu_switch(arch_mmu_getKernelSpace());
   for (int i = 0; i < ArrSize; i++) {
@@ -406,12 +409,12 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
     char **new_argv = NULL;
     char **newEnviron = NULL;
     if (argc == 0 || argv == 0) {
-        // Передамо звичайні параметри(ім'я файлу і т.д)
-  	    arch_mmu_switch(prc->aspace);
-        new_argv = sbrk(prc,2);
-        new_argv[0] = strdup_user(prc,path);
-	      arch_mmu_switch(arch_mmu_getKernelSpace());
-        argc = 1;
+        	// Передамо звичайні параметри(ім'я файлу і т.д)
+  	    	arch_mmu_switch(prc->aspace);
+        	new_argv = sbrk(prc,2);
+        	new_argv[0] = strdup_user(prc,path);
+	      	arch_mmu_switch(arch_mmu_getKernelSpace());
+        	argc = 1;
     } else {
         // We need to copy arguments from caller to prevent #PG when process is exitng!
 	      // 14/04/2024: We need to switch to process address space to prevent #PG when process is trying to access it's own arguments.
@@ -946,9 +949,19 @@ static int sys_stat(int fd,struct stat *stat) {
 	if (dsc == NULL) return -1 /* TODO: Return actual errno */;
 	/* Return some peace of information that currently available */
 	if (stat == NULL) return -1;
-	// VFS must process that piece of request?
-	if (dsc->node->fs->stat == NULL) return 38; // not implemented
-	return dsc->node->fs->stat(dsc->node,stat);
+	memset(stat,0,sizeof(struct stat));
+	// Populate non FS specific information based on VFS node.
+	vfs_node_t *node = dsc->node;
+	stat->st_ino = node->inode;
+	stat->st_mode = (node->flags & VFS_DIRECTORY) == VFS_DIRECTORY ? 40000 : 100000;
+	stat->st_uid = node->uid;
+	stat->st_gid = node->guid;
+	stat->st_size = node->size;
+	/* Try to call FS specific stat */
+	if (node->fs->stat != NULL) {
+		node->fs->stat(node,stat);
+	}
+	return 0;
 }
 static int sys_unlink(char *path) {
 	char *path_copy = strdup(path);

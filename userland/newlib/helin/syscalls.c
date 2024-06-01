@@ -76,11 +76,48 @@ int execve(char *name, char **argv, char **env) {
 int fork() {
     return helin_syscall(49,0,0,0,0,0);
 }
+struct kernelStat {
+	int           	st_dev;
+  	int           	st_ino;
+  	int          	st_mode;
+  	int         	st_nlink;
+  	int           	st_uid;
+  	int           	st_gid;
+  	int          	st_rdev;
+  	int         	st_size;
+	int        	st_atime;
+  	long          	st_spare1;
+  	int        	st_mtime;
+  	long          	st_spare2;
+  	int        	st_ctime;
+  	long          	st_spare3;
+	int 		st_blksize;
+  	int	      st_blocks;
+  	long  st_spare4[2];
+};
+static void convertKrnStat(struct kernelStat *from,struct stat *to) {
+	if (from == NULL || to == NULL) return;
+	to->st_dev = from->st_dev;
+	to->st_ino = from->st_ino;
+	to->st_mode = from->st_mode;
+	to->st_nlink = from->st_nlink;
+	to->st_uid = from->st_uid;
+	to->st_gid = from->st_gid;
+	to->st_rdev = from->st_rdev;
+	to->st_size = from->st_size;
+	to->st_atime = from->st_atime;
+	to->st_mtime = from->st_mtime;
+	to->st_ctime = from->st_ctime;
+	to->st_blksize = from->st_blksize;
+	to->st_blocks = from->st_blocks;
+}
 int fstat(int file, struct stat *st) {
-    errno = helin_syscall(SYS_stat,(int)st,0,0,0,0);
+    struct kernelStat krnStat;
+    errno = helin_syscall(SYS_stat,file,(int)&krnStat,0,0,0);
     if (errno > 0) {
 	return -1;
     }
+    convertKrnStat(&krnStat,st);
     return 0;
 }
 int getpid(){
@@ -116,7 +153,19 @@ caddr_t sbrk(int incr){
     return (caddr_t)helin_syscall(35,incr,0,0,0,0);
 }
 int stat(const char *file, struct stat *st){
-  return helin_syscall(SYS_stat,(int)file,(int)st,0,0,0);
+	int fd = open(file,O_RDONLY);
+	if (fd < 0) {
+		return -1;
+	}
+	struct kernelStat krnStat;
+	int ret = helin_syscall(SYS_stat,fd,(int)&krnStat,0,0,0);
+	if (ret > 0) {
+		errno = ret;
+		return -1;
+	}
+	convertKrnStat(&krnStat,st);
+	close(fd);
+	return 0;
 }
 clock_t times(struct tms *buf){}
 int unlink(char *name){
@@ -287,12 +336,16 @@ int sleep(int sec) {
 
 int tcgetattr(int fd,struct termios* tio) {
 	// Return success
-	errno = ENOSYS;
-	return -ENOSYS;
+	ioctl(fd,1,(int)tio);
+	return 0;
 }
 int     tcsetattr(int fd, int type, const struct termios *term) {
-	errno = -ENOSYS; // isn't implemented
-	return -ENOSYS;
+	if (type != 0) {
+		errno = ENOSYS;
+		return -1;
+	}
+	ioctl(fd,2,(int)term);
+	return 0;
 }
 
 int access(const char *pathname,int mode) {
@@ -312,7 +365,7 @@ int fcntl(int fd, int cmd, ...) {
 }
 
 int lstat(const char *pathname, struct stat *statbuf) {
-	return helin_syscall(SYS_stat,2,(int)pathname,(int)statbuf,0,0);
+	return stat(pathname,statbuf);
 }
 
 mode_t umask(mode_t mask) {

@@ -37,7 +37,7 @@ typedef struct vfs_fs {
     void (*open)(struct vfs_node *node,bool w,bool r);
     void (*close)(struct vfs_node *node);
     struct vfs_node *(*finddir)(struct vfs_node *in,char *name);
-    struct dirent *(*readdir)(struct vfs_node *dir,uint32_t index);
+    struct dirent *(*readdir)(struct vfs_node *dir,unsigned int index);
     struct vfs_node *(*creat)(struct vfs_node *in,char *name,int flags);
     void (*truncate)(struct vfs_node *in,int size);
     void (*readBlock)(struct vfs_node *node,int blockN,int how,void *buff);
@@ -69,7 +69,7 @@ int vfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
 int vfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
 void vfs_open(vfs_node_t *node,bool w,bool r);
 void vfs_close(vfs_node_t *node);
-struct dirent *vfs_readdir(vfs_node_t *in,uint32_t index);
+struct dirent *vfs_readdir(vfs_node_t *in,unsigned index);
 vfs_node_t *vfs_finddir(vfs_node_t *in,char *name);
 vfs_node_t *vfs_getRoot();
 bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint);

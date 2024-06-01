@@ -61,7 +61,7 @@ void keyboard_init() {
 static void *keyboard_handler(void *stack) {
     uint8_t key = inb(0x60);
     if (key < 0x80) {
-	    if ((tty_flags & FLAG_RAW)) {
+	    if ((tty_getFlags() & FLAG_RAW) == FLAG_RAW) {
 		    enqueue(keys,(void *)(int)key);
 		    return stack;
 	    }
@@ -95,7 +95,7 @@ static void *keyboard_handler(void *stack) {
 static void keyboard_keyHandler(char key) {
     // Ці елементи більше не потрібні!
     enqueue(keys,(void *)(int)key);
-    if ((tty_flags & FLAG_ECHO)) {
+    if ((tty_getFlags() & FLAG_ECHO) == FLAG_ECHO) {
 		  output_putc(key);
     }
 }

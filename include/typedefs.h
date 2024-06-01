@@ -28,6 +28,8 @@ typedef unsigned int            uintptr_t;
 typedef uintptr_t addr_t;
 typedef uintptr_t vaddr_t;
 typedef uintptr_t paddr_t;
+typedef unsigned short tcflag_t;
+typedef unsigned int speed_t;
 typedef enum {false,true} bool;
 #define OS_VERSION	"0.0.1"
 #define OS_RELEASE	__DATE__

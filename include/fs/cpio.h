@@ -21,13 +21,12 @@ struct cpio_hdr {
 } __attribute__((packed));
 
 struct cpio {
-    vfs_node_t *super;
-    vfs_node_t *parent;
-    vfs_node_t *dir;
-    size_t count;
-    size_t data;
-    char *name;
-    vfs_node_t *next;
+	vfs_node_t *root;
+	vfs_node_t *node;	// node attached to this structure.
+	int data;
+	int dirSize;
+	struct cpio *next; 	// finddir.
+	struct cpio *child;
 };
 
 void cpio_init(); // register CPIO FS
