@@ -8,7 +8,7 @@
 #define STATUS_KILLED 4
 #define STATUS_WAITPID 5
 #define STATUS_CREATING 6 // Don't switch by the scheduler
-#define PROCESS_QUOTA 100 // 100 ms
+#define PROCESS_QUOTA 10 // 100 ms
 #define TYPE_PROCESS 0
 #define TYPE_THREAD 1
 #define NSIGNALS	32 // Number of signals supported by kernel that can be handled.

@@ -31,7 +31,13 @@ void tty_init() {
 	dev_t *kbd = dev_find("keyboard");
     	if (kbd != NULL) {
         	keyboard = kbd->devNode;
-    	}
+    	} else {
+		kbd = dev_find("serial");
+		if (kbd == NULL) {
+			kprintf("%s: warrning: no way to read user input!\r\n",__func__);
+		}
+		keyboard = kbd->devNode;
+	}
 }
 
 static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {

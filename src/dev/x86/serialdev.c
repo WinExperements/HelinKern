@@ -32,6 +32,7 @@ static int serialdev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *b
 	uint64_t i;
 	for (i = 0; i < size; i++) {
 		char c = read_serial();
+		output_putc(c);
 		b[i] = c;
 		if (c == '\n') {
 			break;

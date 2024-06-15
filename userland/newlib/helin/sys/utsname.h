@@ -1,6 +1,8 @@
 #ifndef UTNAME_H
 #define UTNAME_H
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct utsname {
     char *sysname;    /* Operating system name (e.g., "Linux") */
@@ -11,5 +13,7 @@ typedef struct utsname {
 };
 
 int uname(struct utsname *name);
-
+#ifdef __cplusplus
+}
+#endif
 #endif

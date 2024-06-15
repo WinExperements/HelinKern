@@ -93,6 +93,7 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
             name = path;
         }
         data_offset += hdr.namesize + (hdr.namesize % 2);
+	//kprintf("%s: data offset: %d, size: %d\r\n",__func__,data_offset,size);
         vfs_node_t *node = new_node(name,&hdr,size,data_offset,ino_index);
         vfs_node_t *parent = dir != NULL ? vfs_find(dir) : root;
         parent->flags = VFS_DIRECTORY;

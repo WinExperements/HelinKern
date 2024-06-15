@@ -13,7 +13,8 @@ struct mntent
     int mnt_passno;             /* Pass number for `fsck'.  */
   };
 
-
-extern struct mntent *getmntent (FILE *__stream);
+extern "C" {
+	extern struct mntent *getmntent (FILE *__stream);
+}
 
 #endif

@@ -25,6 +25,7 @@
 #include <atapi/atapi.h>
 #include <ahci/ahci.h>
 #include <ext2/ext2.h>
+#include <iso9660/iso9660.h>
 // Sockets!
 #include <socket/unix.h>
 #ifdef X86
@@ -46,6 +47,7 @@ void *memset(void *dest,char val,int count) {
 }
 void panic(char *file,int line,char *msg) {
     arch_cli();
+    disableOutput = false;
     kprintf("Sorry, but the OS seems crashed by unknown reason. Send the information above to the system administrator for help.\r\n");
     kprintf("PANIC: %s:%d %s\r\n",file,line,msg);
     arch_trace();
@@ -118,10 +120,11 @@ void kernel_main(const char *args) {
     keyboard_init();
     fbdev_init();
     ps2mouse_init();
-    mbr_init();
     pci_init();
+    mbr_init();
     ahci_init();
     ext2_main();
+    iso9660_init();
     #endif
     tty_init();
     socket_init();

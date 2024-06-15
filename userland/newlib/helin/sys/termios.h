@@ -1,6 +1,8 @@
 #ifndef SYS_TERMIOS_H
 #define SYS_TERMIOS_H
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 typedef unsigned short tcflag_t;
 typedef unsigned int speed_t;
 
@@ -188,5 +190,7 @@ struct termios {
 int tcgetattr(int fd, struct termios* tio);
 int tcsetattr(int fd,int type,const struct termios* tio);
 
-
+#ifdef __cplusplus
+}
+#endif
 #endif

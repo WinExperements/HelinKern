@@ -114,6 +114,7 @@ void arch_cli() {
 }
 bool arch_getFBInfo(fbinfo_t *fb_info) {
     if (!fb_info) return false;
+    if (dontFB) return false;
     kprintf("Skipped some work of arch_getFBInfo\r\n");
     if (helinboot != NULL) {
 	    // Okay, our custom boot protocol, that i developed when tryed to boot headless version of kernel on ARM EFI device(real HW)
@@ -261,11 +262,12 @@ void arch_post_init() {
 		arch_mmu_mapPage(NULL,(int)helinboot,(int)helinboot,3);
 	}
 	symbols_init(info);
-	apic_init();
-	smp_init();
-	smp_post_init();
-  acpiPostInit();
-  serialdev_init();
+	//apic_init();
+	//smp_init();
+	//smp_post_init();
+  	acpiPostInit();
+	kprintf("Initializing serial device\r\n");
+  	serialdev_init();
 	// Create initrd
 	void *initrdAddr = NULL;
 	int initrdSize = 0;

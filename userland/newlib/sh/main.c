@@ -17,6 +17,7 @@
 #include <sys/syscall.h>
 #include <pwd.h>
 #include <signal.h>
+#include <sys/ioctl.h>
 char path[100];
 char oldpath[100];
 
@@ -215,6 +216,11 @@ void parse(int argc,char **argv) {
 		    printf("%d tty0 notaval %s\r\n",lst[i].pid,lst[i].name);
 		}
 	    free(lst);
+    } else if (!strcmp(argv[0],"krndbg")) {
+	    // trigger kernel debug.
+	    syscall(SYS_ipc,2,'P',2,0,0);
+    } else if (!strcmp(argv[0],"clear")) {
+	    ioctl(0,3);
     } else {
 	if (!executeCommand(argc,argv)) {
         	printf("Unknown command: %s\n",argv[0]);

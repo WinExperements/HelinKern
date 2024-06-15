@@ -1,7 +1,8 @@
 #ifndef SYS_SOCKET_H
 #define SYS_SOCKET_H
-
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 #define	AF_UNSPEC	0		/* unspecified */
 #define	AF_UNIX		1		/* local to host */
 #define	AF_LOCAL	AF_UNIX		/* draft POSIX compatibility */
@@ -30,5 +31,7 @@ int connect(int sockfd, const struct sockaddr *addr,
                    socklen_t addrlen);
 int send(int sockfd,const void *buf,int len,int flags); // yeah, hahaha
 int recv(int sockfd,void *buf,int len,int flags);
-
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -8,9 +8,42 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <libgen.h>
+#include <sys/ioctl.h>
+#include <string.h>
 int main(int argc,char **argv) {
-	for (int i = 0; i < argc; i++) {
-		printf("%s\r\n",argv[i]);
+	int fd = open("/dev/satapi0",O_RDONLY);
+	if (fd < 0) {
+		perror("Failed to open the SATA ATAPI Device 0 Node\r\n");
+		return 1;
 	}
+	int eject = 1;
+	int stop = 0;
+	int start = 0;
+	int cmd = 0;
+	for (int i = 1; i < argc; i++) {
+		if (!strcmp(argv[i],"stop")) {
+			stop = 1;
+			eject = 0;
+			break;
+		} else if (!strcmp(argv[i],"start")) {
+			start = 1;
+			eject = 0;
+			break;
+		} else if (!strcmp(argv[i],"close")) {
+			eject = 0;
+			cmd = 0x1a;
+		}
+	}
+	if (eject) {
+		cmd = 0x1b;
+	}
+	if (stop) {
+		cmd = 0x1c;
+	}
+	if (start) {
+		cmd = 0x1f;
+	}
+	ioctl(fd,0x31,cmd);
+	close(fd);
 	return 0;
 }

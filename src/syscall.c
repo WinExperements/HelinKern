@@ -14,6 +14,7 @@
 #include <ipc/ipc_manager.h>
 #include <dev/fb.h>
 #include <resources.h>
+#include <symbols.h>
 // Pthreads structure that passed to newlib thread_entry
 typedef struct _pthread_str {
 	int entry;
@@ -41,7 +42,7 @@ static void sys_exit(int exitCode);
 static void sys_kill(int pid,int code);
 static int sys_getpid();
 static int sys_open(char *path,int flags);
-static void sys_close(int fd);
+static int sys_close(int fd);
 static int sys_read(int fd,int offset,int size,void *buff);
 static int sys_write(int fd,int offset,int size,void *buff);
 // This 3 syscalls need to be changed.
@@ -93,7 +94,7 @@ static int sys_creat(char *path,int type);
 static int sys_sync(int fd);
 static int sys_munmap(void *ptr,int size);
 static int sys_umount(char *mountpoint);
-static int sys_access(int fd);
+static int sys_access(char *path,int mode);
 static int sys_chmod(int fd,int mode);
 static int sys_stat(int fd,struct stat *);
 static int sys_unlink(char *path);
@@ -112,8 +113,9 @@ static int sys_ipc(int cmd,int magicID,int ipcCmd,void *args);
 static int sys_getfsstat(struct statfs *buf,long bufsize,int mode);
 static int sys_getrlimit(int resID,rlimit_t *to);
 static int sys_setrlimit(int resID,rlimit_t *to);
+static int sys_getrusage(int resID,void *to);
 static void *kmalloc_user(process_t *prc,int size);
-int syscall_table[73] = {
+int syscall_table[74] = {
     (int)sys_default,
     (int)sys_print,
     (int)sys_exit,
@@ -187,11 +189,13 @@ int syscall_table[73] = {
     (int)sys_getfsstat,
     (int)sys_getrlimit,
     (int)sys_setrlimit,
+    (int)sys_getrusage,
 };
-int syscall_num = 73;
+int syscall_num = 74;
 extern char *ringBuff;
 extern int ringBuffSize;
 extern int ringBuffPtr;
+extern bool disableOutput;
 extern void push_prc(process_t *prc); // src/thread.c
 static void *kmalloc_user(process_t *prc,int size) {
 	return sbrk(prc,size);
@@ -258,16 +262,31 @@ static int sys_open(char *path,int flags) {
     process_t *caller = thread_getThread(thread_getCurrent());
     char *path_copy = strdup(path);
     vfs_node_t *node = vfs_find(path_copy);
-    if (!node && flags == 7) {
-	strcpy(path_copy,path);
-        node = vfs_creat(vfs_getRoot(),path_copy,flags);
+    if (!node && (flags == 7 || flags == 1538)) {
+	    // Before any creation, check if file system isn't read only.
+	    vfs_node_t *where = vfs_getRoot();
+	    if (path[0] != '/') {
+		    where = caller->workDir;
+	    }
+	    if ((where->mount_flags & VFS_MOUNT_RO) == VFS_MOUNT_RO) {
+		    return -30;
+	    }
+	    strcpy(path_copy,path);
+	    node = vfs_creat(vfs_getRoot(),path_copy,flags);
+	    if (!node) {
+		    // Even after this....
+		    return -1;
+	    }
     }
     kfree(path_copy);
     return thread_openFor(caller,node);
 }
-static void sys_close(int fd) {
+static int sys_close(int fd) {
     process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *d = caller->fds[fd];
+    if (d == NULL || d->node == NULL) {
+	    return 1;
+    }
     vfs_close(d->node);
     if (d->node->flags == 4) {
 	Socket *s = (Socket *)d->node->priv_data;
@@ -276,6 +295,7 @@ static void sys_close(int fd) {
     }
     kfree(d);
     caller->fds[fd] = NULL;
+    return 0;
 }
 static int sys_read(int _fd,int offset,int size,void *buff) {
     process_t *caller = thread_getThread(thread_getCurrent());
@@ -394,15 +414,14 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
     }
     aspace_t *original = (caller != NULL ? caller->aspace : NULL);
     arch_mmu_switch(arch_mmu_getKernelSpace());
-    void *file_buff = kmalloc(len+1);
-    vfs_read(file,0,len,file_buff);
     if (caller != NULL )caller->aspace = arch_mmu_newAspace();
-    elf_load_file(file_buff,caller);
+    arch_sti();
+    elf_load_file(file,caller);
+    arch_cli();
     arch_mmu_switch(arch_mmu_getKernelSpace());
     process_t *prc = (caller != NULL ? caller : thread_getThread(thread_getNextPID()-1));
     // Change name to actual file name
     thread_changeName(prc,file->name);
-    kfree(file_buff);
     kfree(buff);
     if (caller != NULL )arch_mmu_switch(original);
     vfs_close(file);
@@ -428,7 +447,7 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
     cloneStrArray(environ,&newEnviron,original,prc,environSize);
     arch_mmu_switch(arch_mmu_getKernelSpace());
     arch_putArgs(prc,argc,new_argv,newEnviron);
-    if (caller != NULL )arch_mmu_destroyAspace(original,false);
+    //if (caller != NULL )arch_mmu_destroyAspace(original,false);
     DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize());
     clock_setShedulerEnabled(true);
     arch_reschedule();
@@ -440,8 +459,9 @@ static int sys_reboot(int reason) {
 	}
 	if (reason == POWEROFF_MAGIC) {
 		// Poweroff all POWER devices
-    arch_cli();
-    kprintf("kernel: Request power off from userland root process\r\n");
+		arch_cli();
+		disableOutput = false;
+    		kprintf("kernel: Request power off from userland root process\r\n");
 		for (dev_t *dev = dev_getRoot(); dev != NULL; dev = dev->next) {
 			if ((dev->type & DEVFS_TYPE_POWER) == DEVFS_TYPE_POWER) {
 				if (dev->poweroff != NULL) {
@@ -589,6 +609,7 @@ static int sys_tell(int _fd) {
 }
 static void *sys_mmap(int _fd,int addr,int size,int offset,int flags) {
     process_t *caller = thread_getThread(thread_getCurrent());
+    if (_fd == -1) return NULL;
     file_descriptor_t *fd = caller->fds[_fd];
     vfs_node_t *node = fd->node;
     if (node != NULL) {
@@ -664,8 +685,11 @@ static int sys_getgid() {
 static void *sys_sbrk(int increment) {
     process_t *prc = thread_getThread(thread_getCurrent());
     if (!prc) return (void *)-1;
+    if (increment == 0) {
+	    increment = 1;
+	}
     void *ptr = sbrk(prc,increment);
-    DEBUG("Ptr -> 0x%x\r\n",ptr);
+    //kprintf("Ptr -> 0x%x\r\n",ptr);
     return ptr;
 }
 static int sys_dup(int oldfd,int newfd) {
@@ -926,8 +950,19 @@ static int sys_umount(char *mountpoint) {
     return -1;
 }
 
-static int sys_access(int _fd) {
+static int sys_access(char *path,int mode) {
 	// Check if the process can access the file pointed by fd
+	char *usr_path = strdup(path);
+	vfs_node_t *node = vfs_find(usr_path);
+	if (node == NULL) {
+		kfree(usr_path);
+		return -1;
+	}
+	/*if ((node->flags != 0)) {
+		kfree(usr_path);
+		return -1;
+	}*/
+	kfree(usr_path);
 	return 0;
 }
 static int sys_chmod(int fd,int mode) {
@@ -1089,6 +1124,9 @@ static int sys_ipc(int cmd,int magicID,int ipcCmd,void *args) {
 						lst[i] = el;
 						i++;
 					}
+				} else if (ipcCmd == 2) {
+					kprintf("DEBUG!\r\n");
+					symbols_print();
 					return 0;
 				}
 				
@@ -1116,9 +1154,10 @@ int sys_getfsstat(struct statfs *buf,long bufsize,int mode) {
 		if (root->device == NULL) {
 			strcpy(buf[i].f_mntfromname,"none");
 		} else {
-			vfs_node_path(root->device,buf[i].f_mntfromname,90);
+			//vfs_node_path(root->device,buf[i].f_mntfromname,90);
+			strcpy(buf[i].f_mntfromname,root->device->name);
 		}
-		vfs_node_path(root->target,buf[i].f_mnttoname,90);
+		strcpy(buf[i].f_mnttoname,root->target_path);
 		strcpy(buf[i].f_fstypename,root->fs->fs_name);
 		root = root->next;
 	}
@@ -1134,4 +1173,8 @@ int sys_getrlimit(int id,rlimit_t *to) {
 }
 int sys_setrlimit(int id,rlimit_t *to) {
 	return 38;
+}
+int sys_getrusage(int resID,void *to) {
+	// TODO: Implement THIS!
+	return 0;
 }

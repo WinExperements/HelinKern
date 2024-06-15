@@ -71,7 +71,7 @@ static inline uint16_t swap_bytes16(uint16_t _x)
 {
    return (uint16_t) ((_x << 8) | (_x >> 8));
 }
-
+#define htonl(l)  ( (((l) & 0xFF) << 24) | (((l) & 0xFF00) << 8) | (((l) & 0xFF0000) >> 8) | (((l) & 0xFF000000) >> 24))
 #define swap_bytes16_compile_time(x) ((((x) & 0xff) << 8) | (((x) & 0xff00) >> 8))
 #define swap_bytes32_compile_time(x) ((((x) & 0xff) << 24) | (((x) & 0xff00) << 8) | (((x) & 0xff0000) >> 8) | (((x) & 0xff000000UL) >> 24))
 #define swap_bytes64_compile_time(x)	\

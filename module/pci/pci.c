@@ -6,6 +6,7 @@
 #include <output.h>
 #include "pci/registry.h"
 #include "pci/driver.h"
+#include <arch/x86/idt.h>
 
 //char modname[] __attribute__((section(".modname"))) = "pci";
 
@@ -33,7 +34,7 @@ static void PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
         info.vendorId, info.deviceId,
         PciClassName(info.classCode, info.subclass, info.progIntf),
         PciRead32(id,PCI_CONFIG_HEADER_TYPE),
-	PciRead32(id,PCI_CONFIG_INTERRUPT_PIN)
+	IRQ0 + PciRead8(id,PCI_CONFIG_INTERRUPT_LINE)
         );
 }
 

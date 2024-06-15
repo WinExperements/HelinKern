@@ -194,7 +194,6 @@ void arch_mmu_destroyAspace(aspace_t *space, bool all) {
                     if ((pt[pt_index] & PG_OWNED) == PG_OWNED && allowed)
                     {
                         uint32_t physicalFrame = pt[pt_index] & ~0xFFF;
-
                         alloc_freePage(physicalFrame);
                     }
                 }

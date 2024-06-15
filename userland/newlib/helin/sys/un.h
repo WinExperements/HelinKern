@@ -1,6 +1,8 @@
 #ifndef SYS_UN_H
 #define SYS_UN_H
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/cdefs.h>
 #include <sys/_types.h>
 
@@ -17,5 +19,7 @@ struct	sockaddr_un {
 	sa_family_t	sun_family;	/* AF_UNIX */
 	char	sun_path[104];		/* path name (gag) */
 };
-
+#ifdef __cplusplus
+}
+#endif
 #endif

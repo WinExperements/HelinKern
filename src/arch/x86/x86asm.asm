@@ -173,7 +173,7 @@ irq_common_stub:
     add esp,4
     mov esp,eax
     jmp irq_handler_exit ; Exit from this code using jmp
-[EXTERN irq_handler_exit]    
+[GLOBAL irq_handler_exit]    
 irq_handler_exit:
     pop ebx
     mov ds, ebx

@@ -144,7 +144,7 @@ static int ext2_is_directory(struct ext2_disk *dev,int in_id)
 	return ret;
 }
 
-char *ext2_read_file(struct ext2_disk *hd,struct ext2_inode *inode, int size,void *to)
+char *ext2_read_file(struct ext2_disk *hd,struct ext2_inode *inode, int size,void *to,int offset)
 {
 	vfs_node_t *dev=hd->dev;
 
@@ -162,34 +162,63 @@ char *ext2_read_file(struct ext2_disk *hd,struct ext2_inode *inode, int size,voi
 	if (to == NULL) {
 		mmap_base = mmap_head = kmalloc(size);
 	} else {
-		mmap_base = mmap_head = to;
+		mmap_base =mmap_head = to;
 	}
+	int offBlk = hd->blocksize;
+	int hd_blocksize = hd->blocksize;
+	//kprintf("%s: offset -> %d\r\n",__func__,offset);
 	/* direct block number */
 	for (i = 0; i < 12 && inode->i_block[i]; i++) {
-		if (size < 0) goto clean;
+		if (size <= 0) goto clean;
         	read(dev,(inode->i_block[i] * hd->blocksize), buf, (hd->blocksize));
 		n = ((size > (int)hd->blocksize) ? (int)hd->blocksize : size);
-		memcpy(mmap_head, buf, n);
+		if (offset != 0 && offset < offBlk) {
+			//kprintf("OFFSET! DIRECT-BLOCK READ MECHANISM GOT IT, blksize: %d, offset: %d, blk_index: %d\r\n",hd->blocksize,offset,i);
+			memcpy(mmap_head,buf+offset,size);
+		} else if (offset == 0) {
+			//kprintf("Copying direct block offset\r\n");
+			memcpy(mmap_head, buf, n);
+		} else {
+			offBlk += hd_blocksize;
+			continue;
+		}
 		mmap_head += n;
 		size -= n;
+		offBlk += hd_blocksize;
 	}
 	/* indirect block number */
 	if (inode->i_block[12]) {
-		if (size < 0) goto clean;
+		if (size <= 0) goto clean;
 	    	read(dev,(inode->i_block[12] * hd->blocksize), p, (hd->blocksize));
 
 
 		for (i = 0; i < (int)hd->blocksize / 4 && p[i]; i++) {
             		read(dev,(p[i] * hd->blocksize),buf, (hd->blocksize));
 			n = ((size > (int)hd->blocksize) ? (int)hd->blocksize : size);
-			memcpy(mmap_head, buf, n);
+			if (offset != 0 && offset <= offBlk) {
+				int accurOff = offBlk - offset;
+				if (accurOff > hd_blocksize) {
+					accurOff %= hd_blocksize;
+					if (accurOff > hd_blocksize) {
+						PANIC("ERROR");
+					}
+				}
+				memcpy(mmap_head,buf+accurOff,n);
+			} else if (offset == 0) {
+				//kprintf("Copying indirect block\r\n");
+				memcpy(mmap_head, buf, n);
+			} else {
+				kprintf("Found! Block id: %d\r\n",(p[i] * hd->blocksize));
+				offBlk += hd_blocksize;
+				continue;
+			}
 			mmap_head += n;
 			size -= n;
+			offBlk += hd_blocksize;
 		}
 	}
 
 	/* bi-indirect block number */
-	/* Bug here. */
 	if (inode->i_block[13]) {
 	    	read(dev,(inode->i_block[13] * hd->blocksize), p, (hd->blocksize));
 
@@ -197,11 +226,27 @@ char *ext2_read_file(struct ext2_disk *hd,struct ext2_inode *inode, int size,voi
             			read(dev,(p[i] * (int)hd->blocksize), pp,(hd->blocksize));
 				for (j = 0; j < (int)hd->blocksize / 4 && pp[j]; j++) {
                 			read(dev,(pp[j] * hd->blocksize),buf,(hd->blocksize));
-					if (size < 0) goto clean;
+					if (size <= 0) goto clean;
 					n = ((size > (int)hd-> blocksize) ? (int)hd->blocksize : size);
-					memcpy(mmap_head, buf, n);
+					if (offset != 0 && offset <= offBlk) {
+						int accurOff = offBlk - offset;
+						if (accurOff > hd_blocksize) {
+							accurOff %= hd_blocksize;
+							if (accurOff > hd_blocksize) {
+								PANIC("Non-existent offset");
+							}
+						}
+						memcpy(mmap_head,buf+accurOff,n);
+					} else if (offset == 0) {
+						//kprintf("Copying bi-inderect block\r\n");
+						memcpy(mmap_head, buf, n);
+					} else {
+						offBlk += hd_blocksize;
+						continue;
+					}
 					mmap_head += n;
 					size -= n;
+					offBlk += hd_blocksize;
 					//kprintf("j -> %d, size -> %d, n-> %d\r\n",j,size,n);
 			}
 		}
@@ -216,10 +261,17 @@ char *ext2_read_file(struct ext2_disk *hd,struct ext2_inode *inode, int size,voi
 				for (k = 0; k < (int)hd->blocksize / 4 && ppp[k]; k++) {
                     			read(dev,(ppp[k] * hd->blocksize), buf,(hd->blocksize));
 					n = ((size > (int)hd->blocksize) ? (int)hd->blocksize : size);
-					if (size < 0) goto clean;
+					if (size <= 0) goto clean;
+					if (offset != 0 && offset <= offBlk) {
+						kprintf("tri-inderect block offset\r\n");
+						PANIC("AAAHAHAHAAH");
+					} else {
+						kprintf("Non-tridirect?\r\n");
+					}
 					memcpy(mmap_head, buf, n);
 					mmap_head += n;
 					size -= n;
+					offBlk += hd_blocksize;
 				}
 			}
 		}
@@ -236,7 +288,7 @@ static void ext2_read_directory(struct ext2_disk *disk,struct ext2_inode *inode)
     char *filename;
     struct ext2_directory_entry *dentry;
     uint32_t dsize = inode->i_size;
-    void *d = ext2_read_file(disk,inode,inode->i_size,NULL);
+    void *d = ext2_read_file(disk,inode,inode->i_size,NULL,0);
     dentry = (struct ext2_directory_entry *)d;
     while(inode && dsize) {
         filename = (char *) kmalloc(dentry->name_len + 1);
@@ -250,14 +302,6 @@ static void ext2_read_directory(struct ext2_disk *disk,struct ext2_inode *inode)
         }
         //kprintf("File name: %s, inode id: %d\n",filename,dentry->inode);
         kfree(filename);
-        if (!ext2_is_directory(disk,dentry->inode)) {
-            struct ext2_inode *file = ext2_read_inode(disk,dentry->inode);
-            char *cont = ext2_read_file(disk,file,file->i_size,NULL);
-	    elf_load_file(cont,thread_getThread(thread_getCurrent()));
-           // kprintf("Reading file: %s\n",cont);
-            kfree(cont);
-            kfree(file);
-        }
         dsize -= dentry->rec_len;
         dentry = (struct ext2_directory_entry *) ((char *) dentry + dentry->rec_len);
     }
@@ -270,7 +314,7 @@ typedef struct ext2_priv_data {
 	struct ext2_disk *disk;
 } ext2_pr;
 
-static bool ext2_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *) {
+static bool ext2_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *options) {
 	if (dev == NULL || mountpoint == NULL) return false;
 	if (!check_ext2(dev)) {
 		return false;
@@ -300,7 +344,7 @@ struct vfs_node *ext2_finddir(struct vfs_node *in,char *name) {
     	struct ext2_directory_entry *dentry;
     	uint32_t dsize = inode->i_size;
 	struct ext2_disk *disk = pr->disk;
-    	void *d = ext2_read_file(disk,inode,inode->i_size,NULL);
+    	void *d = ext2_read_file(disk,inode,inode->i_size,NULL,0);
     	dentry = (struct ext2_directory_entry *)d;
     	while(inode && dsize) {
         	filename = (char *) kmalloc(dentry->name_len + 1);
@@ -346,7 +390,7 @@ struct dirent *ext2_readdir(struct vfs_node *dir,uint32_t index) {
         char *filename;
         struct ext2_directory_entry *dentry;
         uint32_t dsize = inode->i_size;
-        void *d = ext2_read_file(pr->disk,inode,inode->i_size,NULL);
+        void *d = ext2_read_file(pr->disk,inode,inode->i_size,NULL,0);
         dentry = (struct ext2_directory_entry *)d;
         while(inode && dsize) {             
                 filename = (char *) kmalloc(dentry->name_len + 1);
@@ -373,11 +417,13 @@ struct dirent *ext2_readdir(struct vfs_node *dir,uint32_t index) {
 
 static int ext2_fs_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 	if (node == NULL || buff == NULL) return 0;
+	kprintf("%s: inode read begin\r\n",__func__);
 	ext2_pr *prv = (ext2_pr *)node->priv_data;
 	struct ext2_inode *in = ext2_read_inode(prv->disk,prv->inode_id);
 	if (in == NULL) return 0;
-	void *read = ext2_read_file(prv->disk,in,size,buff);
+	void *read = ext2_read_file(prv->disk,in,size,buff,offset);
 	kfree(in);
+	kprintf("%s: inode read end\r\n",__func__);
 	return size;
 }
 

@@ -20,7 +20,7 @@
 */
 // === Add module name here ===
 // === Internal functions here ===
-//__attribute__((section(".modname"))) char *name = "atapi";
+__attribute__((section(".modname"))) char *name = "atapi";
 
 
 typedef struct {
@@ -685,7 +685,7 @@ static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
 
 }
 
-void atapi_init() {
+static void module_main() {
 	kprintf("ATA device driver\n");
     kprintf("ata: scanning PCI bus\n");
     for (unsigned int bus = 0; bus < 256; ++bus)

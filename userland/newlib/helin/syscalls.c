@@ -144,7 +144,12 @@ int lseek(int file, int ptr, int dir){
     return helin_syscall(27,file,dir,ptr,0,0);
 }
 int open(const char *name, int flags, ...){
-    return helin_syscall(7,(int)name,flags,0,0,0);
+	int ret = helin_syscall(SYS_open,(int)name,flags,0,0,0);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return ret;
 }
 int read(int file, char *ptr, int len){
     return helin_syscall(9,file,0,len,(int)ptr,0);
@@ -776,7 +781,16 @@ int setrlimit(int resource, const struct rlimit *rlp) {
 	}
 	return 0;
 }
-
+int getrusage(int resID,struct rusage *to) {
+	// Make sure that the structure is clean by itself.
+	memset(to,0,sizeof(struct rusage));
+	int ret = helin_syscall(SYS_getrusage,resID,(int)to,0,0,0);
+	if (ret > 0) {
+		errno = ret;
+		return -1;
+	}
+	return 0;
+}
 int chroot(const char *to) {
 	errno =  helin_syscall(SYS_chroot,(int)to,0,0,0,0);
 	if (errno > 0) {

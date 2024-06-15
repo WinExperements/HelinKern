@@ -28,6 +28,7 @@ static void mbr_dev_readBlock(vfs_node_t *node,int blockNo,int how,void *buf) {
     mbr_dev_t *dev = (mbr_dev_t *)node->device;
     if (dev->lba_start == 0) return;
     int off = dev->lba_start;
+    kprintf("DEBUG: Reading from sector %d(origin is %d)\r\n",dev->lba_start+blockNo,dev->lba_start);
     off+=blockNo;
     vfs_readBlock((vfs_node_t *)dev->harddrive_addr,off,how,buf);
 }
@@ -49,9 +50,16 @@ static int mbr_dev_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buff
 	if (node->device == NULL) return 0;
 	mbr_dev_t *dev = (mbr_dev_t *)node->device;
 	int off = dev->lba_start*512;
+	//kprintf("Reading from offset %d(lba_start -> %d)\r\n",off,dev->lba_start);
+	kprintf("Reading %d bytes\r\n",how);
 	return vfs_read((vfs_node_t *)dev->harddrive_addr,off+offset,how,buff);
 }
-
+static int mbr_dev_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buff) {
+	if (node->device == NULL) return 0;
+	mbr_dev_t *dev = (mbr_dev_t *)node->device;
+	uint64_t off = dev->lba_start*512;
+	return vfs_write((vfs_node_t *)dev->harddrive_addr,off+offset,how,buff);
+}
 static void mbr_registerDevice(vfs_node_t *harddrive,int lba_start,uint64_t sectors) {
     mbr_dev_t *dev = kmalloc(sizeof(mbr_dev_t));
     memset(dev,0,sizeof(mbr_dev_t));
@@ -74,6 +82,7 @@ static void mbr_registerDevice(vfs_node_t *harddrive,int lba_start,uint64_t sect
     d->writeBlock = mbr_dev_writeBlock;
     d->readBlock = mbr_dev_readBlock;
     d->read = mbr_dev_read;
+    d->write = mbr_dev_write;
     d->device = dev;
     d->buffer_sizeMax = dev->sectors*512;
     dev_add(d);

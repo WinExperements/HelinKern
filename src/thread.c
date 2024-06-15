@@ -116,14 +116,11 @@ void *thread_schedule(void *stack) {
     }
     if (nextTask->state == STATUS_CREATING || nextTask->state == -1 || nextTask->state == STATUS_WAITPID) {
 	    //kprintf("Finding next usable process\r\n");
-      // Check if the process doesn't receive any signals.
-      if (((queue_t*)nextTask->signalQueue)->size != 0) {
-        goto switchTask;
-      }
+	    // Check if the process doesn't receive any signals.
+	    if (((queue_t*)nextTask->signalQueue)->size != 0) {
+		    goto switchTask;
+	    }
 	    while(nextTask) {
-        /*if (nextTask != NULL && nextTask->pid != 0 && nextTask->state == STATUS_WAITPID) {
-          push_prc(nextTask);
-        }*/
 		    nextTask = pop_prc();
 		    if (nextTask == NULL) {
 			    nextTask = idle;
@@ -206,6 +203,7 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     th->priority = 1;
     th->pid = freePid++;
     th->name = strdup(name);
+    th->quota = 10;
     th->stack = arch_prepareContext(entryPoint,isUser);
     th->arch_info = arch_preapreArchStack(isUser);
     th->aspace = arch_mmu_getKernelSpace();

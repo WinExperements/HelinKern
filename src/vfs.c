@@ -72,11 +72,12 @@ vfs_node_t *vfs_finddir(vfs_node_t *in,char *name) {
 vfs_node_t *vfs_getRoot() {
     return fs_root;
 }
-void vfs_putIntoMnt(vfs_node_t *dev,vfs_node_t *target,vfs_fs_t *fs) {
+void vfs_putIntoMnt(vfs_node_t *dev,vfs_node_t *target,vfs_fs_t *fs,char *target_path) {
 	vfs_mount_t *el = kmalloc(sizeof(vfs_mount_t));
 	memset(el,0,sizeof(vfs_mount_t));
 	el->device = dev;
 	el->target = target;
+	el->target_path = strdup(target_path);
 	el->fs = fs;
 	if (vfsmntlst == NULL) {
 		vfsmntlst = el;
@@ -109,7 +110,7 @@ bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
                 kprintf("%s: filesystem mount failed\n",mountPoint);
                 return false;
         } else {
-		vfs_putIntoMnt(dev,fs_root,fs);
+		vfs_putIntoMnt(dev,fs_root,fs,"/");
 	}
     } else {
         vfs_node_t *mount_point = vfs_find(mountPoint);
@@ -133,7 +134,7 @@ bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
         } else {
 		mount_point->orig_fs = origFS;
 		// Put this FS into mounted list.
-		vfs_putIntoMnt(dev,mount_point,fs);
+		vfs_putIntoMnt(dev,mount_point,fs,mountPoint);
 	}
    }
     return true;

@@ -1,6 +1,8 @@
 #ifndef SYS_SYSCALL_H
 #define SYS_SYSCALL_H
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 // Just define enum of system calls
 enum syscall_table {
 	SYS_default,
@@ -76,9 +78,12 @@ enum syscall_table {
 	SYS_getfsstat,	// BSD like syscall.
 	SYS_getrlimit,
 	SYS_setrlimit,
+	SYS_getrusage,
 	NUM_SYSCALLS,
 };
 
 int syscall(int num,int p1,int p2,int p3,int p4,int p5); // helinkern specific syscall function
-
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -1,6 +1,8 @@
 #ifndef MNTENT_H
 #define MNTENT_H
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 struct mntent
   {
     char *mnt_fsname;           /* Device or server for filesystem.  */
@@ -11,7 +13,8 @@ struct mntent
     int mnt_passno;             /* Pass number for `fsck'.  */
   };
 
-
 extern struct mntent *getmntent (FILE *__stream);
-
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -33,25 +33,25 @@ bool elf_check_file(Elf32_Ehdr *hdr) {
 	}
     return true;
 }
-int elf_get_end_in_memory(void *elf_data) {
+int elf_get_end_in_memory(vfs_node_t *node) {
     uint32_t v_end;
-    Elf32_Ehdr *hdr;
-    Elf32_Phdr *p_entry;
+    Elf32_Ehdr *hdr = kmalloc(sizeof(Elf32_Ehdr));
+    Elf32_Phdr *p_entry = NULL;
 
-    hdr = (Elf32_Ehdr *) elf_data;
-    p_entry = (Elf32_Phdr *) (elf_data + hdr->e_phoff);
-
-    if (!elf_check_file(elf_data))
+    vfs_read(node,0,sizeof(Elf32_Ehdr),hdr);
+    //p_entry = (Elf32_Phdr *) (elf_data + hdr->e_phoff);
+    p_entry = kmalloc(sizeof(Elf32_Phdr));
+    if (!elf_check_file(hdr))
     {
         return 0;
     }
 
     uint32_t result = 0;
 
-    for (int pe = 0; pe < hdr->e_phnum; pe++, p_entry++)
+    for (int pe = 0; pe < hdr->e_phnum; pe++)
     {
         //Read each entry
-
+	vfs_read(node,hdr->e_phoff + pe * hdr->e_phentsize,sizeof(Elf32_Phdr),p_entry);
         if (p_entry->p_type == PT_LOAD)
         {
             v_end = p_entry->p_vaddr + p_entry->p_memsz;
@@ -61,13 +61,20 @@ int elf_get_end_in_memory(void *elf_data) {
                 result = v_end;
             }
         }
+	//vfs_read(node,hdr->e_phoff + pe * hdr->e_phentsize,sizeof(Elf32_Phdr),p_entry);
     }
-
+    kfree(hdr);
+    kfree(p_entry);
+    //kprintf("%s: reporting %d....\r\n",__func__,result);
     return (int)result;
 }
-bool elf_load_file(void *addr,process_t *caller) {
+bool elf_load_file(vfs_node_t *node,process_t *caller) {
+    /*void *addr = kmalloc(node->size);
+    vfs_read(node,0,node->size,addr);*/
     int pe;
-    Elf32_Ehdr *header = (Elf32_Ehdr *)addr;
+    Elf32_Ehdr *header = kmalloc(sizeof(Elf32_Ehdr));
+    memset(header,0,sizeof(Elf32_Ehdr));
+    vfs_read(node,0,sizeof(Elf32_Ehdr),header);
     if (!elf_check_file(header)) {
         kprintf("%s: not a ELF file, check erros\n",__func__);
         return false;
@@ -96,31 +103,43 @@ bool elf_load_file(void *addr,process_t *caller) {
         return false;
     }
     if (caller != NULL) {
-        //arch_mmu_switch()
+        arch_mmu_switch(prc->aspace);
         thread_recreateStack(prc,header->e_entry,true);
+	arch_mmu_switch(space);
     }
     prc->state = STATUS_CREATING;
-    size_t elf_base = (size_t)addr;
-    uint32_t memEnd = elf_get_end_in_memory(addr);
+    /*size_t elf_base = (size_t)addr; */
+    uint32_t memEnd = elf_get_end_in_memory(node);
     // Switch to the new process memory map
     if (caller == NULL) {
 	    // clone kernel address space
 	    arch_mmu_duplicate(arch_mmu_getKernelSpace(),prc->aspace);
 	}
-    arch_mmu_switch(prc->aspace);
+    void *prc_aspace = prc->aspace; // some drivers have bugs :)
+    arch_mmu_switch(prc_aspace);
     if (caller != NULL) {
 	    fb_map();
 	}
-	alloc_initProcess(prc,memEnd - USER_OFFSET);
+    if (memEnd == 0) {
+	    kprintf("CAUTION! ELF End address reported AS zero! WARRNING! WARRNING!\r\n");
+	    kfree(header);
+	    thread_killThread(caller,0);
+	    return false;
+	}
+    alloc_initProcess(prc,memEnd - USER_OFFSET);
+    Elf32_Phdr *p_entry = kmalloc(sizeof(Elf32_Phdr));
+    memset(p_entry,0,sizeof(Elf32_Phdr));
     for (pe = 0; pe < header->e_phnum; pe++) {
-        Elf32_Phdr *p_entry = (void *)(header->e_phoff + elf_base + pe * header->e_phentsize);
+        //Elf32_Phdr *p_entry = (void *)(header->e_phoff + elf_base + pe * header->e_phentsize);
+	vfs_read(node,header->e_phoff + pe * header->e_phentsize,sizeof(Elf32_Phdr),p_entry);
         uint32_t v_begin = p_entry->p_vaddr;
         if (p_entry->p_type == 1) {
             if (p_entry->p_memsz == 0) {
                 continue; // skip
             }
-            DEBUG("v_begin: 0x%x, how: %d\r\n",v_begin,p_entry->p_filesz);
-            memcpy((void *) v_begin,(void *)(elf_base + p_entry->p_offset), p_entry->p_filesz);
+            //kprintf("v_begin: 0x%x, how: %d, offset: %d\r\n",v_begin,p_entry->p_filesz,p_entry->p_offset);
+            //memcpy((void *) v_begin,(void *)(elf_base + p_entry->p_offset), p_entry->p_filesz);
+	    vfs_read(node,p_entry->p_offset,p_entry->p_filesz,(void *)v_begin); 
             if (p_entry->p_memsz > p_entry->p_filesz)
             {
                 char* p = (char *) p_entry->p_vaddr;
@@ -133,6 +152,7 @@ bool elf_load_file(void *addr,process_t *caller) {
     }
     // back to original space
     arch_mmu_switch(space);
+    prc->aspace = prc_aspace;
     if (!keyboard) {
         dev_t *tt = dev_find("tty");
         if (tt != NULL) {
@@ -150,6 +170,9 @@ bool elf_load_file(void *addr,process_t *caller) {
 	    	thread_openFor(prc,ke); // yeah 3 times
     	}
     }
+    //kfree(addr);
+    kfree(header);
+    kfree(p_entry);
     prc->state = STATUS_RUNNING;
     return true;
 }

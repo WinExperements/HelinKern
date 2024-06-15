@@ -26,6 +26,8 @@ static bool exit = false;
 static void start_module();
 static void load_m(void *);
 static void th_m();
+static int testdev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer);
+static void *elf_buffer = NULL;
 // Signal testing.
 void sighand(int signal) {
 	kprintf("Signal handled!!\r\n");
@@ -114,25 +116,7 @@ static void parseCommand(int argc,char *cmd[]) {
     } else if (strcmp(cmd[0],"syms")) {
         symbols_print();
     } else if (strcmp(cmd[0],"loadm")) {
-        if (argc > 1) {
-                char *a = strdup(cmd[1]);
-                vfs_node_t *f = vfs_find(a);
-                if (!f) {
-                    kprintf("failed to load module %s: no file found\r\n",cmd[1]);
-                    return;
-                }
-                int len = f->size;
-                void *addr = kmalloc(len+elf_get_module_bytes(f));
-                vfs_read(f,0,len,addr);
-                module_t *mod = load_module(addr);
-                if (mod != NULL) {
-                    kprintf("kshell(internal kernel API), calling\n");
-                    mod->init(mod);
-                } 
-                kfree(addr);
-      } else {
-        load_m((void *)arch_getModuleAddress());
-      }
+        start_module();
     } else if (strcmp(cmd[0],"clear")) {
         fb_clear(BLACK);
     } else if (strcmp(cmd[0],"mount")) {
@@ -371,21 +355,22 @@ static void parseCommand(int argc,char *cmd[]) {
     }
 }
 static void start_module() {
-    kprintf("Trying to start actual init\r\n");
-    arch_cli();
-    int addr = arch_getModuleAddress();
-    if (addr != 0) {
-        kprintf("Trying to load initrd as ELF\r\n");
-        if (!elf_load_file((void *)addr,NULL)) {
-            kprintf("Failed to load ELF! Check console\r\n");
-        } else {
-            // change name to "module"
-            thread_changeName(thread_getThread(thread_getNextPID()-1),"module");
-        }
-    } else {
-	    kprintf("No initrd passed, skipping...\r\n");
-    }
+    vfs_node_t *dev = vfs_find("/dev/sata0");
+    if (!dev) {
+	    kprintf("Failed to find SATA0\r\n");
+	    return;
+	}
     arch_sti();
+    elf_buffer = kmalloc(693956);
+    vfs_read(dev,0,693956,elf_buffer);
+    dev_t *dn = kmalloc(sizeof(dev_t));
+    dn->name = "testdev";
+    dn->buffer_sizeMax = 693956;
+    dn->read = testdev_read;
+    dev_add(dn);
+    char *env[] = {"PATH=/bin",NULL};
+    int (*exec)(char *,int,char **,char **) = ((int (*)(char *,int,char **,char **))syscall_get(13));
+    exec("/dev/testdev",0,NULL,env);
 }
 static void load_m(void *addr) {
     module_t *mod = NULL;
@@ -427,4 +412,17 @@ static void th_m() {
 	kfree(client);
 	kprintf("Done\n");
 	thread_killThread(thread_getThread(thread_getCurrent()),0);
+}
+static int testdev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
+	if (elf_buffer == NULL) {
+		return 0;
+	}
+	if (size+offset > node->size) {
+		return 0;
+	}
+	if (offset > node->size) {
+		return 0;
+	}
+	memcpy(buffer,elf_buffer+offset,size);
+	return size;
 }

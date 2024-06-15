@@ -1,8 +1,10 @@
-#ifndef _SYS_MMAN_H
+  #ifndef _SYS_MMAN_H
 #define _SYS_MMAN_H
 
 // Used LyOS newlib headers
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/cdefs.h>
 #include <sys/types.h>
 
@@ -53,5 +55,7 @@ int munmap(void* addr, size_t len);
 void* mremap(void*, size_t, size_t, int, ...);
 
 __END_DECLS
-
+#ifdef __cplusplus
+}
+#endif
 #endif

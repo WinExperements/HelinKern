@@ -3,9 +3,10 @@
 
 #ifndef _SYS_DIRENT_H
 #define _SYS_DIRENT_H
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdint.h>
-
 struct _helin_dirent {
     char name[128];
     uint32_t index;
@@ -28,12 +29,13 @@ typedef struct _dir {
 } DIR;
 
 // linux/sys/dirent.h
-
 DIR *opendir(const char *);
 struct dirent *readdir(DIR *);
 int readdir_r(DIR *__restrict, struct dirent *__restrict,
               struct dirent **__restrict); // not supported, i don't know what is this
 void rewinddir(DIR *);
 int closedir(DIR *);
-
+#ifdef __cplusplus
+}
+#endif
 #endif

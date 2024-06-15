@@ -59,6 +59,8 @@ typedef struct file_descriptor {
 typedef struct vfsmnt {
 	vfs_node_t *device;
 	vfs_node_t *target;
+	char *device_path;
+	char *target_path;
 	vfs_fs_t *fs;
 	struct vfsmnt *next;
 } vfs_mount_t;
