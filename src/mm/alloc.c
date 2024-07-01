@@ -9,7 +9,7 @@
 */
 // Ядро дуже не стабільне!
 static uint8_t *phys_map;
-static int total_pages = 0;
+static unsigned long total_pages = 0;
 static char *m_kheap = NULL;
 static int heap_used;
 static bool mapped = false;
@@ -18,7 +18,7 @@ static int kernel_endAddress;
 static int end_address;
 static int numAllocs = 0; // debug only!
 static int lastAlloc = 0;
-static int usedPhysMem = 0;
+static unsigned long usedPhysMem = 0;
 void alloc_init(int kernel_end,int high_mem) {
     if (high_mem == 0) {
       kprintf("Headless platform detected, %s not possible\r\n",__func__);
@@ -31,7 +31,12 @@ void alloc_init(int kernel_end,int high_mem) {
     // Place map at the end of kernel address
     phys_map = (uint8_t *)kernel_end;
     // Clean the map
-    total_pages = (high_mem*1024)/4096;
+    total_pages = (high_mem)/4096;
+    total_pages *= 1024;
+    if (total_pages < 0) {
+	    kprintf("Something went really WRONG. HIGH MEM(%d,0x0%x). MN: %d, DEL: %d\r\n",high_mem,high_mem,high_mem*1024,(high_mem*1024)/4096);
+	    PANIC("WHAAHAHAHAH");
+	}
     int pg = 0;
     kernel_endAddress = (int)kernel_end;
     for (pg = 0; pg < total_pages / 8; ++pg) {
@@ -93,7 +98,8 @@ void *ksbrk_page(int n) {
 	for (int i = 0; i < n ; i++) {
 		p_addr = alloc_getPage();
 		if (p_addr == (uint32_t)-1) {
-			PANIC("ksbrk_page: No free space left");
+			kprintf("ksbrk_page: No free space left. alloc_getPage returns(new call): 0x%x",alloc_getPage());
+			PANIC("A");
 			return (void *)-1;
 		}
 		arch_mmu_mapPage(NULL,(int)m_kheap,p_addr,3);
@@ -251,7 +257,10 @@ int alloc_getBitmapSize() {
     return total_pages*sizeof(uint16_t);
 }
 void alloc_mapItself() {
-    arch_mmu_map(arch_mmu_getAspace(),(int)phys_map,alloc_getBitmapSize(),7);
+    for (int i = 0; i < (alloc_getBitmapSize() / 4096)+1; i++) {
+	    int pgAd = (int)phys_map + (i*4096);
+	    arch_mmu_mapPage(NULL,pgAd,pgAd,3);
+	}
     mapped = true;
     int page = PAGE_INDEX_4K(kernel_endAddress+alloc_getBitmapSize());
     for (int i = page; i < pagesUsedBeforeMapping; i++) {
@@ -269,10 +278,10 @@ void alloc_reserve(int start,int end) {
 	}
 }
 
-int alloc_getUsedPhysMem() {
+unsigned long alloc_getUsedPhysMem() {
 	return usedPhysMem;
 }
-int alloc_getAllMemory() {
+unsigned long alloc_getAllMemory() {
 	return total_pages*4096;
 }
 int alloc_alignAddress(int addr,int al) {

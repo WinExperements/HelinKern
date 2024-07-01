@@ -29,15 +29,15 @@ int arch_getMemSize();
 /* Switch context of process */
 void arch_switchContext(void *prSt);
 /* Prepare process context */
-void *arch_prepareContext(int entry,bool isUser);
+void *arch_prepareContext(void* entry,bool isUser);
 /* Prepare arch specific stack(for user or kernel process, required for architectures where need to store some additional architecture specific information for conext switch, syscall handler or something) */
 void *arch_preapreArchStack(bool isUser);
 /* Init syscall interrupt handler. When the syscall interrupt was rised, the arch code must check if the syscall number isn't out of bounds, call syscall_get to get handler address, and pass using specific args convertion for specific architecture to pass the arguments for handler.*/
 void arch_syscall_init();
 /* Get the first module address */
-int arch_getModuleAddress();
+uint64_t arch_getModuleAddress();
 /* Get kernel end address in memory(required to init the PMM) */
-int arch_getKernelEnd();
+uint64_t arch_getKernelEnd();
 /* Destroy the context information) */
 void arch_destroyContext(void *context);
 /* Destroy arch specific context for process */

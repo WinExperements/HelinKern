@@ -75,5 +75,16 @@ int main() {
 			printf("Incorrect login\r\n");
 		}
 	}
+	/*printf("Hello! GUI test!\r\n");
+	sleep(5);
+	printf("Running landmine\r\n");
+	int f = fork();
+	char *sh_path = "/mnt/usr/bin/landmine";
+	char *sh_argv[] = {"/mnt/usr/bin/landmine",NULL};
+	if (f == 0) {
+		execv(sh_path,sh_argv);
+		exit(1);
+	}
+	while(1) {}*/
 	return 0;
 }

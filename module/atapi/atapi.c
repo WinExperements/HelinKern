@@ -119,14 +119,15 @@ static ata_device_t ata_channel2_slave  = {.base = 0x168, .ctrl = 0x360, .slave 
 static ata_device_t ata_channel3_master = {.base = 0x1e8, .ctrl = 0x3e0, .slave = 0};
 static ata_device_t ata_channel3_slave = {.base = 0x1e8, .ctrl = 0x3e0, .slave = 1};
 void ata_create_device(bool hda,ata_device_t *dev);
-static int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
-static void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf);
+static uint64_t ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+static bool ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf);
 int ata_print_error(ata_device_t *dev);
-static void ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf);
-static int ata_vdev_ioctl(vfs_node_t *node,int request,char *buf);
+static bool ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf);
+static uint64_t ata_vdev_ioctl(vfs_node_t *node,int request,char *buf);
 static char ata_start_char = 'a';
 static char ata_cdrom_char = 'a';
 static uint64_t next_lba = 0;
+static char atapiBuffer[2048];
 static ata_device_t *inter_ata;
 void *ata_irq_handler(void *stack);
 void ata_io_wait(ata_device_t *dev) {
@@ -210,43 +211,36 @@ unsigned char ide_read(ata_device_t *dev, unsigned char reg) {
       ide_write(dev, ATA_REG_CONTROL, dev->nein);
    return result;
 }
-bool ata_device_init(ata_device_t *dev,int id) { 
-	uint8_t ch = ide_read(dev,ATA_REG_LBA1);
-	uint8_t cl = ide_read(dev,ATA_REG_LBA2);
-	unsigned char err = 0,status;
-	ide_write(dev,ATA_REG_CONTROL,2);
-	ide_write(dev,ATA_REG_HDDEVSEL,0xA0 | (id << 4));
-	ata_io_wait(dev);
+bool ata_device_init(ata_device_t *dev,int id,int j) {
+	unsigned char status,err = 0;
+	int ty = (id == 1 ? 0xB0 : 0xA0);
+	outb(dev->base + ATA_REG_HDDEVSEL,ty | (j << 4));
+	arch_sti();
+	kwait(1);
+	arch_cli();
 	ide_write(dev,ATA_REG_COMMAND,ATA_CMD_IDENTIFY);
-	ata_io_wait(dev);
-	if (ide_read(dev,ATA_REG_STATUS) == 0) return false;
-	kprintf("Waiting device to clear BSY state...");
+	arch_sti();
+	kwait(1);
+	arch_cli();
+	if (ide_read(dev,ATA_REG_STATUS) == 0) {
+		kprintf("Device is empty\r\n");
+		return false;
+	}
 	while(1) {
 		status = ide_read(dev,ATA_REG_STATUS);
 		if ((status & ATA_SR_ERR)) {
-			// Looks like, we send wrong command?
-			uint8_t t1 = ide_read(dev,ATA_REG_LBA1);
-			uint8_t t2 = ide_read(dev,ATA_REG_LBA2);
-			if (t1 == 0x14 && t2 == 0xEB) {
-				// fault caused by WRONG command.
-				kprintf("ATAPI device fault(normal,ignore)\r\n");
-				dev->type = IDE_ATAPI;
-				break;
-			} else {
-				kprintf("First device fault received 0x%x 0x%x\r\n",t1,t2);
-				return false;
-			}
+			err = 1;
+			break; // maybe ATAPI?
 		}
 		if (!(status & ATA_SR_BSY) && (status & ATA_SR_DRQ)) break;
 	}
-	kprintf("cleared\r\n");
-	if (dev->type == IDE_ATAPI) {
-		// Selected by first fault handler.
-		goto atapiDetect;
-	}
-	if (cl == 0x14 && ch == 0xEB) {
+	uint8_t ch = ide_read(dev,ATA_REG_LBA1);
+	uint8_t cl = ide_read(dev,ATA_REG_LBA2);
+	//kprintf("%s: cl -> 0x%x, ch = 0x%x,id -> %d, j -> %d\r\n",__func__,cl,ch,id,j);
+	if (cl == 0xEB && ch == 0x14) {
 atapiDetect:
 		kprintf("ATAPI device detected!\r\n");
+		err = 0;
 		dev->type = IDE_ATAPI;
 		ide_write(dev,ATA_REG_COMMAND,ATA_CMD_IDENTIFY_PACKET);
 		ata_io_wait(dev);
@@ -259,19 +253,14 @@ atapiDetect:
 			}
 			if (!(status & ATA_SR_BSY) && (status & ATA_SR_DRQ)) break;
 		}
-	} else if (cl == 0x69 && ch == 0x96) {
-		kprintf("ATA device!\r\n");
-	} else if (cl == 0x0 && ch == 0) {
-		kprintf("We skiped something?!\r\n");
-	} else {
-		kprintf("Unknown type: 0x%x 0x%x\r\n",ch,cl);
+	}
+	if (err) {
 		return false;
 	}
 	uint16_t *identf = (uint16_t *)&dev->identify;
 	for (int i = 0; i < 256; i++) {
 		identf[i] = inw(dev->base);
 	}
-	kprintf("readed\n");
 	uint8_t *ptr = (uint8_t *)&dev->identify.model;
 	for (int i = 0; i < 39; i+=2) {
 		uint8_t tmp = ptr[i+1];
@@ -280,14 +269,13 @@ atapiDetect:
 	}
 	kprintf("ATA: Detected device name: %s, type: %s\r\n",dev->identify.model,dev->type == IDE_ATAPI ? "ATAPI" : "IDE");
 	ata_create_device(dev->type == IDE_ATA,dev);
-	dev->type = IDE_ATA;
+	dev->type = IDE_ATAPI;
 	ide_write(dev,ATA_REG_CONTROL,0);
 	return true;
 }
 int ata_device_detect(ata_device_t *dev,bool second) {
 	ata_soft_reset(dev);
 	ata_io_wait(dev);
-	kprintf("ATA: Enabling DMA support on this drive!\r\n");
 	dev->dma_prdt = kmalloc(4096);
 	dev->dma_start = kmalloc(8192);
 	dev->dma_prdt_phys = (uintptr_t)arch_mmu_getPhysical(dev->dma_prdt);
@@ -300,7 +288,6 @@ int ata_device_detect(ata_device_t *dev,bool second) {
 		command_reg |= (1 << 2); /* bit 2 */
 		PciWrite32(dev->pci_id, PCI_CONFIG_COMMAND,command_reg);
 		command_reg = PciRead16(dev->pci_id, PCI_CONFIG_COMMAND);
-		kprintf("Enabled bit 2 in command register of this PCI device\r\n");
 	}
 	dev->bar4 =PciRead32(dev->pci_id, PCI_CONFIG_BAR4);
 	if (dev->bar4 & 0x00000001) {
@@ -309,28 +296,26 @@ int ata_device_detect(ata_device_t *dev,bool second) {
 		kprintf("ERROR: We don't know what to do with this DMA device!\r\n");
 		return 1; /* No DMA because we're not sure what to do here */
 	}
-	for (int ch = 0; ch < 2; ch++) {
-		ata_device_init(dev,ch);
+	for (int i = 0; i < 2; i++) {
+		ata_device_init(dev,i,i);
 	}
+
         if (inter_ata == NULL) {
-            kprintf("Adding inter_ata");
             inter_ata = dev; 
         }
 	return 0;
 }
 /* This function added for EXT2 FS driver */
-int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buffer) {
+uint64_t ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buffer) {
    // kprintf("ATA: read %d bytes\n",how);
 	ata_device_t *dev = node->device;
 	if (dev->type == IDE_ATAPI) {
 		kprintf("Device type ATAPI!\r\n");
 		return 0;
 	}
-	kprintf("%s(0x%x,%d,%d,0x%x)\r\n",__func__,node,offset,how,buffer);
 	int startSec = offset / 512;
 	int totalSectors = how / 8192;
 	if (totalSectors == 0) {
-		kprintf("Total sectors is 0!\r\n");
 		ata_vdev_readBlock(node,startSec,8192,NULL);
 		//kprintf("ATA: copy %d bytes of data\r\n",how);
 		memcpy(buffer,dev->dma_start,how);
@@ -339,17 +324,13 @@ int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buffe
 	// okay, now we need some loop.
 	int total_bytes = how;
 	int off = 0;
-	kprintf("Total bytes: %d\r\n",total_bytes);
 	while(total_bytes > 0) {
 		// We need to check if the buffer can fit into 8192
 		int howToCopy = total_bytes - 8192;
-		kprintf("ATA: yes, we in loop\r\n");
 		if (howToCopy < 0) {
 			// We don't fit, retry
 			howToCopy = total_bytes;
-			kprintf("%s: don't fit on this iteration\r\n",__func__);
 		}
-		kprintf("%s: %d\r\n",__func__,howToCopy);
 		ata_vdev_readBlock(node,startSec,8192,NULL);
 		memcpy(buffer+off,dev->dma_start,howToCopy);
 		total_bytes-=8192;
@@ -360,14 +341,14 @@ int ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buffe
 }
 
 /* Only for DEVELOPERS! */
-void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
+bool ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 	// Convert void * to uint8_t *
 	uint8_t *target = (uint8_t *)buf;
 	uint64_t lba = blockNo;
 	uint16_t sectors = how/512;
 	if (sectors == 0) sectors = 1;
 	ata_device_t *dev = node->device;
-	if (dev->type == IDE_ATAPI) return;
+	if (dev->type == IDE_ATAPI) return false;
 	outb(dev->base+ATA_REG_HDDEVSEL,0xE0 | (dev->slave << 4));
 	outb(dev->base+ATA_REG_SECCOUNT0,(sectors >> 8) & 0xFF);
 	outb(dev->base+ATA_REG_LBA0, (lba & 0xff000000) >> 24);
@@ -388,7 +369,7 @@ void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 				break;
 			} else if (status & ATA_SR_ERR) {
 				kprintf("ATA: Disk error. Cancel\n");
-				return;
+				return false;
 			}
 		}
 		// Tranfer data over PIO
@@ -406,11 +387,55 @@ void ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf) {
 	indicate the process of IRQ for device, as result we got
 	the IRQ storm(Dell Latitude E4310).
 */
-static void ata_vdev_readBlock(vfs_node_t *node,int lba,int how, void *buf) {
+static bool atapi_readBlock(ata_device_t *dev,int lba,void *buffer) {
+	// ATAPI devices use different kind of command(SCSI)
+	ide_write(dev,ATA_REG_HDDEVSEL,0xA0 | (dev->slave << 4));
+	ata_io_wait(dev);
+	ide_write(dev,ATA_REG_FEATURES,0); // PIO.
+	int sector_size = 2048;
+	ide_write(dev,ATA_REG_LBA1,sector_size & 0xFF);
+	ide_write(dev,ATA_REG_LBA2,sector_size >> 8);
+	ide_write(dev,ATA_REG_COMMAND,ATA_CMD_PACKET);
+	// Prepare SCSI command.
+	int timeout = 100;
+	while(1) {
+		uint8_t status = ide_read(dev,ATA_REG_STATUS);
+		if ((status & ATA_SR_ERR)) {
+			kprintf("ATAPI early device error. Error: 0x%x\r\n",ide_read(dev,ATA_REG_ERROR));
+			return false;
+		}
+		/*if (timeout-- < 0) {
+			kprintf("Device timeout reached\r\n");
+			return false;
+		}*/
+		if (!(status & ATA_SR_BSY) && (status & ATA_SR_DRDY)) break;
+	}
+	uint8_t *atapiPacket = kmalloc(12);
+	memset(atapiPacket,0,12);
+	atapiPacket[0] = 0xA8;
+	atapiPacket[2] = (lba >> 0x18) & 0xFF;
+	atapiPacket[3] = (lba >> 0x10) & 0xFF;
+	atapiPacket[4] = (lba >> 0x08) & 0xFF;
+	atapiPacket[5] = (lba >> 0x00) & 0xFF;
+	atapiPacket[9] = 1;
+	uint16_t *packet = (uint16_t *)atapiPacket;
+	for (int i = 0; i < 6; i++) {
+		// Write command.
+		outw(dev->base,packet[i]);
+	}
+	while(inb(dev->base+ATA_REG_STATUS) & ATA_SR_BSY);
+	uint16_t *buf = (uint16_t *)buffer;
+	for (int i = 0; i < 1024; i++) {
+		buf[i] = inw(dev->base);
+	}
+	kfree(atapiPacket);
+	return true;
+}
+static bool ata_vdev_readBlock(vfs_node_t *node,int lba,int how, void *buf) {
         ata_device_t *dev = node->device;
         if (dev->type == IDE_ATAPI) {
-                kprintf("Currently doesn't supported!\n");
-                return;
+                // We can have different type of address spaces.
+		return atapi_readBlock(dev,lba,buf);
         }
 	int numsects = how / 512;
 	if (numsects == 0) {
@@ -420,7 +445,6 @@ static void ata_vdev_readBlock(vfs_node_t *node,int lba,int how, void *buf) {
 		numsects = 255;
 	}
 	//ide_write(dev,ATA_REG_CONTROL,0); // enable IRQ for device
-	kprintf("ATA: fallback to PIO currently..\r\n");
 	unsigned char lba_mode /* 0: CHS, 1:LBA28, 2: LBA48 */, dma /* 0: No DMA, 1: DMA */, cmd;
    	unsigned char lba_io[6];
    	unsigned int  slavebit      = 0; // Read the Drive [Master/Slave]
@@ -485,28 +509,25 @@ static void ata_vdev_readBlock(vfs_node_t *node,int lba,int how, void *buf) {
 	arch_sti();
 	dev->busy = 1;
 	inter_ata = dev;
-	kprintf("dev->base = 0x%x, 0x%x\r\n",dev->base,dev);
 	outb(dev->base+ATA_REG_COMMAND,cmd);
 	inb(dev->base+ATA_REG_ALTSTATUS);
 	inb(dev->base+ATA_REG_ALTSTATUS);
 	inb(dev->base+ATA_REG_ALTSTATUS);
 	inb(dev->base+ATA_REG_ALTSTATUS);
-	while(dev->busy);
-	kprintf("ATA: device busy status cleared\r\n");
 	while(inb(dev->base+ATA_REG_STATUS) & ATA_SR_BSY);
 	uint8_t stat = ide_read(dev,ATA_REG_STATUS);
 	if (stat & ATA_SR_ERR) {
 		kprintf("Device error!\r\n");
-		return;
+		return false;
 	}
 	if (stat & ATA_SR_DF) {
 		kprintf("Device fault!\r\n");
+		return false;
 	}
 	if ((stat & ATA_SR_DRDY) == 0) {
 		kprintf("ATA_SR_DRY not set?\r\n");
-		return;
+		return false;
 	}
-	kprintf("Reading data from DATA port of device\r\n");
 	uint8_t *bu = (uint8_t *)buf;
 	for (int i = 0; i < numsects; i++) {
 		insw(dev->base,bu,256);
@@ -516,11 +537,6 @@ static void ata_vdev_readBlock(vfs_node_t *node,int lba,int how, void *buf) {
 
 
 void ata_create_device(bool hda,ata_device_t *dev) {
-	kprintf("ATA: creating device: ctrl -> 0x%x, base -> 0x%x\n",dev->ctrl,dev->base);
-	if (dev->type == IDE_ATAPI) {
-		kprintf("%s: ATAPI device skipped\r\n",__func__);
-		return;
-	}
 	char *name = kmalloc(4);
 	if (hda) {
 		name = "hd ";
@@ -530,7 +546,6 @@ void ata_create_device(bool hda,ata_device_t *dev) {
 		name = "cd ";
 		name[2] = ata_cdrom_char;
 		ata_cdrom_char++;
-		return;
 	}
 	name[3] = 0;
 	dev_t *disk = kmalloc(sizeof(dev_t));
@@ -542,14 +557,8 @@ void ata_create_device(bool hda,ata_device_t *dev) {
 	disk->device = dev;
 	disk->readBlock = ata_vdev_readBlock;
 	disk->ioctl = ata_vdev_ioctl;
-	kprintf("Device name address: 0x%x\r\n",name);
-	//if (hda) disk->type = DEVFS_TYPE_BLOCK; // this will trigger the partTab to scan partition table
-	// Now register device in our DEVFS
-	kprintf("Adding device via dev_add()...");
 	dev_add(disk);
-	kprintf("done. Freeing....");
 	kfree(name);
-	kprintf("done\r\n");
 }
 // === Public functions here ===
 
@@ -606,20 +615,19 @@ void parseATAStatus(uint8_t status) {
 
 void *ata_irq_handler(void *stack) {
 	// ATA specifications
-	kprintf("ATA IRQ! 0x%x 0x%x\r\n",inter_ata->base,inter_ata);
+	//kprintf("ATA IRQ! 0x%x 0x%x\r\n",inter_ata->base,inter_ata);
 	//uint8_t stat = inb(inter_ata->base+ATA_REG_STATUS);
-	//ide_read(inter_ata,ATA_REG_ALTSTATUS);
-    	//inb(inter_ata->base+ATA_REG_STATUS);
-	kprintf("IRQ: dev->busy = %d\r\n",inter_ata->busy);
+	ide_read(inter_ata,ATA_REG_ALTSTATUS);
+    	inb(inter_ata->base+ATA_REG_STATUS);
 	if (inter_ata->busy) {
 		inter_ata->busy = 0;
 	}
-    outb(inter_ata->bar4+4,0x00);
-    //parseATAStatus(stat);
-    /*kprintf("ATA IRQ handler!\n");
-    kprintf("Status of drive(after sending there commands): 0x%x\n",inb(inter_ata->base+ATA_REG_STATUS));
-    kprintf("Error register: 0x%x\n",inb(inter_ata->base+ATA_REG_ERROR));*/
-    return stack;
+	outb(inter_ata->bar4+4,0x00);
+    	//parseATAStatus(stat);
+    	/*kprintf("ATA IRQ handler!\n");
+    	kprintf("Status of drive(after sending there commands): 0x%x\n",inb(inter_ata->base+ATA_REG_STATUS));
+    	kprintf("Error register: 0x%x\n",inb(inter_ata->base+ATA_REG_ERROR));*/
+    	return stack;
 }
 
 static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
@@ -637,48 +645,45 @@ static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
     info.progIntf = PciRead8(id, PCI_CONFIG_PROG_INTF);
     info.subclass = PciRead8(id, PCI_CONFIG_SUBCLASS);
     info.classCode = PciRead8(id, PCI_CONFIG_CLASS_CODE);
-    kprintf("0x%x ",PciRead8(id,PCI_CONFIG_INTERRUPT_LINE));
     switch((info.classCode << 8) | info.subclass) {
 	    case PCI_STORAGE_IDE: {
 		    unsigned int BAR0 = PciRead32(id,PCI_CONFIG_BAR0);
 		    unsigned int BAR1 = PciRead32(id,PCI_CONFIG_BAR1);
 		    unsigned int BAR2 = PciRead32(id,PCI_CONFIG_BAR2);
 		    unsigned int BAR3 = PciRead32(id,PCI_CONFIG_BAR3);
-	    unsigned int BAR4 = PciRead32(id,PCI_CONFIG_BAR4);
-	    kprintf("BAR4 for the controller: 0x%x\r\n",BAR4);
-            uint16_t base = (BAR0 & 0xFFFFFFFC) + 0x1F0 * (!BAR0);
-            uint16_t ctrl = (BAR1 & 0xFFFFFFFC) + 0x3F6 * (!BAR1);
-            uint16_t sec_base = (BAR2 & 0xFFFFFFFC) + 0x170 * (!BAR2);
-            uint16_t sec_ctrl = (BAR3 & 0xFFFFFFFC) + 0x376 * (!BAR3);
-            ata_device_t *ata_pri = kmalloc(sizeof(ata_device_t));
-            ata_pri->base = base;
-            ata_pri->ctrl = ctrl;
-            ata_pri->slave = 0;
-            ata_pri->bar4 = BAR4;
-	    ata_pri->bmide = (BAR4 & 0xFFFFFFFC) + 0;
-            ata_pri->pci_id = id;
-            ata_device_t *sec_pri = kmalloc(sizeof(ata_device_t));
-            sec_pri->base = sec_base;
-            sec_pri->ctrl = sec_ctrl;
-            sec_pri->slave = 0;
-            sec_pri->bar4 = BAR4;
-            sec_pri->pci_id = id;
-	    sec_pri->bmide = (BAR4 & 0xFFFFFFFC) + 8;
-            kprintf("PCI line: 0x%x, 0x%x\n",PciRead8(id,0x3c),PciRead8(id,PCI_CONFIG_INTERRUPT_PIN));
-            kprintf("PCI PRIF: 0x%x\n",PciRead8(id,0x09));
-            kprintf("ata: pci: detecting drives.... 0x%x\n",base);
-            if (base == 0x0) {
-                kprintf("device is zero! Skip\n");
-                return false;
-            }
-            inter_ata = ata_pri;
-            interrupt_add(0x2a,ata_irq_handler);
-            interrupt_add(0x2f,ata_irq_handler);
-            interrupt_add(0x2e,ata_irq_handler);
-            ata_device_detect(ata_pri,false);
-            ata_device_detect(sec_pri,true);
-            //kprintf("ata: pci: detection finished\n");
-            return true;
+		    unsigned int BAR4 = PciRead32(id,PCI_CONFIG_BAR4);
+		    uint16_t base = (BAR0 & 0xFFFFFFFC) + 0x1F0 * (!BAR0);
+		    uint16_t ctrl = (BAR1 & 0xFFFFFFFC) + 0x3F6 * (!BAR1);
+		    uint16_t sec_base = (BAR2 & 0xFFFFFFFC) + 0x170 * (!BAR2);
+		    uint16_t sec_ctrl = (BAR3 & 0xFFFFFFFC) + 0x376 * (!BAR3);
+		    if (base == 0) {
+			    // Use legacy device I/O ports.
+			    base = 0x1F0;
+			    ctrl = 0x3F6;
+			    sec_base = 0x170;
+			    sec_ctrl = 0x376;
+		    }
+		    ata_device_t *ata_pri = kmalloc(sizeof(ata_device_t));
+		    ata_pri->base = base;
+		    ata_pri->ctrl = ctrl;
+		    ata_pri->slave = 0;
+		    ata_pri->bar4 = BAR4;
+		    ata_pri->bmide = (BAR4 & 0xFFFFFFFC) + 0;
+		    ata_pri->pci_id = id;
+		    ata_device_t *sec_pri = kmalloc(sizeof(ata_device_t));
+		    sec_pri->base = sec_base;
+		    sec_pri->ctrl = sec_ctrl;
+		    sec_pri->slave = 0;
+		    sec_pri->bar4 = BAR4;
+		    sec_pri->pci_id = id;
+		    sec_pri->bmide = (BAR4 & 0xFFFFFFFC) + 8;
+		    inter_ata = ata_pri;
+		    uint8_t irqLine = IRQ0 + PciRead8(id,PCI_CONFIG_INTERRUPT_LINE);
+		    //kprintf("IRQ for this PCI IDE controller: 0x%x\r\n",irqLine);
+		    ata_device_detect(ata_pri,false);
+		    ata_device_detect(sec_pri,true);
+		    //kprintf("ata: pci: detection finished\n");
+		    return true;
     } break;
 }
     return false;
@@ -687,7 +692,6 @@ static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
 
 static void module_main() {
 	kprintf("ATA device driver\n");
-    kprintf("ata: scanning PCI bus\n");
     for (unsigned int bus = 0; bus < 256; ++bus)
     {
         for (unsigned int dev = 0; dev < 32; ++dev)
@@ -707,7 +711,8 @@ static void module_main() {
             }
         }
     }
-    interrupt_add(0x2b,ata_irq_handler);
+    interrupt_add(IRQ14,ata_irq_handler);
+    interrupt_add(IRQ15,ata_irq_handler);
     
 }
 // === Loading as module support! ===
@@ -719,7 +724,7 @@ int ata_print_error(ata_device_t *dev) {
 	return type;
 }
 
-static int ata_vdev_ioctl(vfs_node_t *node,int request,char *buf) {
+static uint64_t ata_vdev_ioctl(vfs_node_t *node,int request,char *buf) {
 	ata_device_t *dev = node->device;
 	if (dev == NULL || dev->base == 0) return -1;
 	switch (request) {

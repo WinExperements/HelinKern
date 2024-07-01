@@ -6,8 +6,8 @@
 #include <lib/string.h>
 #include <lib/fifosize.h>
 // VFS methods.
-static int pipe_vfs_read(vfs_node_t *node,uint64_t start,uint64_t size,void *buffer);
-static int pipe_vfs_write(vfs_node_t *node,uint64_t start,uint64_t size,void *buffer);
+static uint64_t pipe_vfs_read(vfs_node_t *node,uint64_t start,uint64_t size,void *buffer);
+static uint64_t pipe_vfs_write(vfs_node_t *node,uint64_t start,uint64_t size,void *buffer);
 static void pipe_vfs_close(vfs_node_t *node);
 // IPC methods :)
 typedef struct pipe_data {
@@ -45,12 +45,12 @@ int pipe_destroyIPC(process_t *caller) {
   return 0;
 }
 // vfs functions.
-static int pipe_vfs_write(vfs_node_t *node,uint64_t start,uint64_t size,void *buffer) {
+static uint64_t pipe_vfs_write(vfs_node_t *node,uint64_t start,uint64_t size,void *buffer) {
   // Determinate what kind of file we are(reader or writer.)
   PipeData *data = (PipeData *)node->priv_data;
-  return (int)queueSize_enqueue(data->queue,(uint8_t *)buffer,(uint32_t)size);
+  return (uint64_t)queueSize_enqueue(data->queue,(uint8_t *)buffer,(uint32_t)size);
 }
-static int pipe_vfs_read(vfs_node_t *node,uint64_t start,uint64_t size,void *buffer) {
+static uint64_t pipe_vfs_read(vfs_node_t *node,uint64_t start,uint64_t size,void *buffer) {
   PipeData *data = (PipeData *)node->priv_data;
   if ((node->flags & VFS_NONBLOCK) != VFS_NONBLOCK) {
     while(queueSize_is_empty(data->queue));

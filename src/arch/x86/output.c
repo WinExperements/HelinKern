@@ -15,7 +15,6 @@ static uint8_t bg = 0x0;
 static uint16_t vga_getPos();
 static void update_cursor(int x, int y);
 static void disable_cursor();
-static void draw_ramka();
 static bool disableCursor = false;
 void output_uart_init() {
    // Prepare UART output before primary output is begin initialized
@@ -94,15 +93,15 @@ static void vga_putc(char c) {
 		vgaBuff[vga_y * 80 + vga_x] = 0x20;
 	} else if (c == '\n') {
         	if (!disableCursor) vga_putchar(' ',vga_x,vga_y);
-		vga_x = 1;
+		vga_x = 0;
 		vga_y++;
 	}
 	if (c >= ' ') {
-        vga_putchar(c,vga_x,vga_y);
-        vga_x++;
+        	vga_putchar(c,vga_x,vga_y);
+        	vga_x++;
 	}
 	if (vga_x >= 78) {
-		vga_x = 1;
+		vga_x = 0;
 		vga_y++;
 	}
 	if (vga_y >= 24) {
@@ -111,14 +110,14 @@ static void vga_putc(char c) {
         if (!disableCursor) update_cursor(vga_x,vga_y);
 }
 static void vga_scroll() {
-	for (int y = 1; y < 23; y++) {
-		for (int x = 1; x < 78; x++) {
+	for (int y = 0; y < 25; y++) {
+		for (int x = 0; x < 80; x++) {
 			int i = y * 80 + x;
 			vgaBuff[i] = vgaBuff[i+80];
 		}
 	}
 	// Стрем лінію
-	for (int x = 1; x < 77; x++) {
+	for (int x = 0; x < 77; x++) {
 		vgaBuff[23 * 80 + x] = 0x20;
 	}
 	vga_y = 23;
@@ -126,14 +125,11 @@ static void vga_scroll() {
 
 void vga_change() {
     uint16_t pos = vga_getPos();
-    vga_x = pos % 80;
-    vga_y = pos / 80;
 	// Clear screen using memset
 	fbUsed = false;
 	vgaUsed = true;
     if (vga_x < 0) vga_x = 0;
     disable_cursor();
-    draw_ramka(); // Я забув як буде рамка на англійській :(
 }
 void output_clear() {
     if (fbUsed) {
@@ -164,32 +160,6 @@ static void disable_cursor()
 {
 	outb(0x3D4,0x0A);
 	outb(0x3D5,0x20);
-}
-static void draw_ramka() {
-	// Малюємо рамку для красивого та стильного вивіду :)
-	// Бокова сторона
-	// Колір: блакитний, як у старих та класичних BIOS :)
-	bg = BLUE;
-	for (int i = 0; i < 25; i++) {
-		vga_putchar('|',0,i);
-		vga_putchar('|',79,i);
-	}
-	for (int i = 0; i < 80; i++) {
-		vga_putchar('-',i,0);
-		vga_putchar('-',i,24);
-	}
-	//int tmp_x = vga_x++;
-	//int tmp_y = vga_y++;
-	// Напишемо назву ядра!
-	vga_x = 35;
-	vga_y = 0;
-	disableCursor = true;
-	output_write("HelinKern");
-	bg = BLACK;
-	vga_x = 1;
-	vga_y = 1;
-	disableCursor = false;
-	//while(1) {}
 }
 bool output_secondary_avail() {
     return (fbUsed || vgaUsed ? 1 : 0);

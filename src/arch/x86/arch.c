@@ -155,17 +155,17 @@ int arch_getMemSize() {
 	}
     return size/1024;
 }
-void *arch_prepareContext(int entry,bool isUser) {
+void *arch_prepareContext(void *entry,bool isUser) {
     int frame = (int)(kmalloc(4096)+4096);
     stack_addr = ((int)frame-4096);
     memset((void *)stack_addr,0,4096);
     if (!isUser) {
         PUSH(frame,int,0);
-        PUSH(frame,int,entry);
+        PUSH(frame,int,(int)entry);
     } else {
         PUSH(frame,int,isUser);
         PUSH(frame,int,0);
-        PUSH(frame,int,entry);
+        PUSH(frame,int,(int)entry);
         PUSH(frame,int,0);
         PUSH(frame,int, (int)thread_main);
     }
@@ -219,7 +219,7 @@ void arch_syscall_init() {
 bool arch_elf_check_header(Elf32_Ehdr *hdr) {
     return hdr->e_machine == 3;
 }
-int arch_getModuleAddress() {
+uint64_t arch_getModuleAddress() {
     if (helinboot != NULL) {
 	    // Yes, X86 now support HelinBoot boot protocol.
 	    if (helinboot->moduleCount == 0) return 0;
@@ -229,7 +229,7 @@ int arch_getModuleAddress() {
     multiboot_module_t *mod = (multiboot_module_t *)info->mods_addr;
     return mod->mod_start;
 }
-int arch_getKernelEnd() {
+uint64_t arch_getKernelEnd() {
     if (helinboot != NULL) {
 	    if (helinboot->moduleCount == 0) return (int)kernel_end;
 	    return (int)helinboot->mod[helinboot->moduleCount-1].end;

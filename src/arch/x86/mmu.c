@@ -14,6 +14,7 @@
  * HelinKern modification.
  * Currently no modification to the init code applied. But as soon as possible we need to change the arch_mmu_init code
  * to add support for any size initrd, and don't limit it to 12MB
+ * 29.06.2024: So, we back, and the 12MB limit bug seems to be fixed.
 */
 
 #define PAGE_DIRECTORY_INDEX(x) (((x) >> 22) & 0x3ff)
@@ -45,7 +46,6 @@ void arch_mmu_init() {
     KERN_PD_AREA_END = 0x0100000A;
     RESERVED_AREA = arch_getKernelEnd();
     alloc_reserve(0,RESERVED_AREA);
-    kprintf("Reserved area: 0x%x, KERN_PD_AREA_BEGIN: 0x%x, KERN_PD_AREA_END: 0x%x\n",RESERVED_AREA,KERN_PD_AREA_BEGIN,KERN_PD_AREA_END);
     if (arch_getKernelEnd() > RESERVED_AREA) {
 	    PANIC("Initrd is overwriting our page tables!");
 	}
@@ -55,7 +55,7 @@ void arch_mmu_init() {
     for (i = 0; i < end_index; ++i)
     {
 	    // TODO: Remove PG_USER and fix all #PG after it
-        kernel_pg[i] = (i * PAGESIZE_4M | (PG_PRESENT | PG_WRITE | PG_4MB | PG_USER));//add PG_USER for accesing kernel code in user mode
+        kernel_pg[i] = (i * PAGESIZE_4M | (PG_PRESENT | PG_WRITE | PG_4MB));//add PG_USER for accesing kernel code in user mode
 	
     }
     for (i = end_index; i < 1024; ++i)
@@ -124,20 +124,72 @@ static void add_page_to_pd(void *v_addr,uint32_t p_addr,int flags) {
         CHANGE_PD(cr3);
     }
 }
-
-int arch_mmu_map(aspace_t *aspace,vaddr_t base,size_t size,uint32_t flags) {
+static void remove_page(void *v_addr) {
+	int vaddr = (int)v_addr;
+	int pd_index =  PAGE_DIRECTORY_INDEX(vaddr);
+	int pt_index = PAGE_TABLE_INDEX(vaddr);
+	int *pd = (int *)0xFFFFF000;
+	uint32_t* pt = ((uint32_t*)0xFFC00000) + (0x400 * pd_index);
+	// Check if we have the address mapped?
+	// Sanity checks.
+	if (pd_index < 0 || pd_index >= 1024) return;
+	if (pt_index < 0 || pt_index >= 1024) return;
+	if (pd[pd_index] == 0) {
+		// We don't map this area?
+		return;
+	}
+	pt[pt_index] = 0;
+	INVALIDATE(v_addr);
+}
+size_t arch_mmu_map(aspace_t *aspace,vaddr_t base,size_t size,uint32_t flags) {
     int s = PAGE_INDEX_4K(base);
     for (size_t i = 0; i < (size/PAGESIZE_4K)+1; i++) {
         // Bro WTF?
             add_page_to_pd((void *)base+(i*4096),alloc_getPage(),flags);
     }
-    return 0;
+    return 1;
 }
-int arch_mmu_unmap(aspace_t *aspace,vaddr_t vaddr,uint32_t count) {
-    return 0;
+size_t arch_mmu_unmap(aspace_t *aspace,vaddr_t vaddr,uint32_t pageCount) {
+	// arch_mmu_unmap - just like actual map, but we will just clean the page pointer.
+	for (int i = 0; i < pageCount; i++) {
+		remove_page((void *)vaddr);
+		vaddr+=4096;
+	}
+	return 1;
 }
-int arch_mmu_query(aspace_t *aspace,vaddr_t vaddr,paddr_t *paddr,uint32_t *flags) {
-    return 0;
+/*
+ * Return virtual address in which required size can fit.
+*/
+int arch_mmu_query(aspace_t *aspace,vaddr_t start,unsigned long size) {
+	int pd_index = PAGE_DIRECTORY_INDEX(start);
+	int pt_index = PAGE_TABLE_INDEX(start);
+	int sizeInPages = size / 4096;
+	int *pd = (int *)0xFFFFF000;
+	int foundedPages = 0;
+	uint32_t* pt = ((uint32_t*)0xFFC00000) + (0x400 * pd_index);
+	for (; pd_index <= 1024; pd_index++) {
+		if (pd[pd_index] == 0) {
+			// Page directory doesn't allocated.
+			kprintf("%s: page directory doesn't allocated, so we found it at 0x%x\r\n",__func__,start);
+			return start;
+		}
+		for (; pt_index < 1024; pt_index++) {
+			if (pt[pt_index] == 0) {
+				foundedPages++;
+			} else {
+				// Reset.
+				foundedPages = 0;
+			}
+			start+=4096;
+			if (foundedPages == sizeInPages) {
+				kprintf("FOUND! At 0x%x!\r\n",start);
+				return start;
+			}
+		}
+		pt = ((uint32_t*)0xFFC00000) + (0x400 * pd_index);
+		pt_index = 0;
+	}
+	return -1;
 }
 void arch_mmu_switch(aspace_t *aspace) {
     CHANGE_PD(aspace);
@@ -217,10 +269,10 @@ void *arch_mmu_getPhysical(void *virtual) {
     int vaddr = (int)virtual;
     uint32_t cr3 = 0;
 
-    if (vaddr < (int)KERN_HEAP_END) {
+    /*if (vaddr < (int)KERN_HEAP_END) {
         cr3 = read_cr3();
         CHANGE_PD(kernel_pg);
-    }
+    }*/
 
     int *ptable = (int *)0xFFFFF000;
     int index = PAGE_DIRECTORY_INDEX(vaddr);
@@ -229,9 +281,9 @@ void *arch_mmu_getPhysical(void *virtual) {
     if (index >= 1024 || page_index >= 1024)
         return NULL; // Invalid virtual address
 
-    if (ptable[index] == 0)
-        return NULL; // Unmapped
-
+    if (ptable[index] == 0) {
+	    return NULL;
+	}
     int *table = ((uint32_t*)0xFFC00000) + (0x400 * index);
     int physAddr = table[page_index] & ~0xfff;
     int align = vaddr & 0xfff;

@@ -29,6 +29,8 @@
 #include <sys/resource.h>
 /* I finally managed to open the POSIX specifications */ 
 #include <spawn.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #define PATH_MAX 40
 // Structure from src/thread.c from kernel source
 typedef struct _pthread_str {
@@ -68,10 +70,9 @@ int execve(char *name, char **argv, char **env) {
     while (argv[num_args] != NULL) {
         num_args++;
     }
-
-    int pid = helin_syscall(13, (int)name, num_args, (int)argv, (int)env, 0);
-    if (pid < 0) return -1;
-    return 0;
+    // We are UNIX system. In this space exec() is replacing caller.
+    errno = helin_syscall(13, (int)name, num_args, (int)argv, (int)env, 0);
+    return -1;
 }
 int fork() {
     return helin_syscall(49,0,0,0,0,0);
@@ -152,7 +153,12 @@ int open(const char *name, int flags, ...){
 	return ret;
 }
 int read(int file, char *ptr, int len){
-    return helin_syscall(9,file,0,len,(int)ptr,0);
+	int how = helin_syscall(9,file,0,len,(int)ptr,0);
+	if (how < 0) {
+		errno = how * -1;
+		return -1;
+	}
+	return how;
 }
 caddr_t sbrk(int incr){
     return (caddr_t)helin_syscall(35,incr,0,0,0,0);
@@ -185,6 +191,10 @@ int wait(int *status){
 }
 int write(int file, char *ptr, int len){
     int how = helin_syscall(10,file,0,len,(int)ptr,0);
+    if (how < 0) {
+	    errno = how * -1;
+	    return -1;
+    }
     return how;
 }
 int gettimeofday(struct timeval *__restrict __p,
@@ -210,21 +220,22 @@ DIR *opendir(const char *path) {
     ret->_pos = 0;
     ret->pointer = (struct dirent *)malloc(sizeof(struct dirent));
     memset(ret->pointer,0,sizeof(struct dirent));
+    ret->native_ptr = (struct _helin_dirent *)malloc(sizeof(struct _helin_dirent));
+    memset(ret->native_ptr,0,sizeof(struct _helin_dirent));
     return ret;
 }
 
 struct dirent *readdir(DIR *d) {
     if (!d) return NULL;
     // get platform specific dirent then convert it to system
-    struct _helin_dirent *native = (struct _helin_dirent *)helin_syscall(20,d->_fd,d->_pos,0,0,0);
-    if (native == NULL) {
-        // End of directory
-        return NULL;
+    int ret = helin_syscall(20,d->_fd,d->_pos,(int)d->native_ptr,0,0);
+    if (ret == -1) {
+	    return NULL;
     }
     // Increment the file position
     d->_pos++;
     struct dirent *dire = (struct dirent *)d->pointer;
-    dire->d_name = native->name;
+    dire->d_name = d->native_ptr->name;
     return dire;
 }
 
@@ -236,6 +247,7 @@ int closedir(DIR *dir) {
     }
     // Free our pointer of struct dirent
     free(dir->pointer);
+    free(dir->native_ptr);
     close(dir->_fd);
     free(dir);
     return 0;
@@ -1175,4 +1187,64 @@ int sched_rr_get_interval(pid_t pid,struct timespec *time) {
   errno = 38;
   return -1;
 }
-
+static speed_t io_speed = 100;
+speed_t cfgetispeed(const struct termios *unsued) {
+	return io_speed;
+}
+speed_t cfgetospeed(const struct termios *us) {
+	return io_speed;
+}
+int     cfsetispeed(struct termios *what, speed_t sp) {
+	io_speed = sp;
+	return 0;
+}
+int     cfsetospeed(struct termios *abama, speed_t sp) {
+	io_speed = sp;
+	return 0;
+}
+// IPC, finally.
+key_t ftok(const char *path,int id) {
+	struct stat buf;
+	if (stat(path,&buf) < 0) {
+		return -1;
+	}
+	return (key_t)((buf.st_ino & 0xFFFF) | ((buf.st_dev & 0xFF) << 16) | ((id & 0xFF) << 24));
+}
+struct shm_cmd {
+	int key;
+	const void *mapAddr;
+	int size;
+	int flags;
+};
+int   shmget(key_t key, size_t size, int shmflags) {
+	struct shm_cmd *cmd = (struct shm_cmd *)malloc(sizeof(struct shm_cmd));
+	memset(cmd,0,sizeof(struct shm_cmd));
+	cmd->key = key;
+	cmd->size = size;
+	cmd->flags = shmflags;
+	int ret = syscall(SYS_ipc,1,'S',0,(int)cmd,0);
+	free(cmd);
+	return ret;
+}
+void *shmat(int shmid, const void *to, int flags) {
+	struct shm_cmd *cmd = (struct shm_cmd *)malloc(sizeof(struct shm_cmd));
+	memset(cmd,0,sizeof(struct shm_cmd));
+	cmd->key = shmid;
+	cmd->flags = flags;
+	cmd->mapAddr = to;
+	int ret = syscall(SYS_ipc,2,'S',2,(int)cmd,0);
+	free(cmd);
+	return ret;
+}
+int shmdt(const void *ptr) {
+	return syscall(SYS_ipc,2,'S',3,(int)ptr,0);
+}
+int shmctl(int shmid,int cmd,struct shmid_ds *buf) {
+	struct shm_cmd *pcmd = (struct shm_cmd *)malloc(sizeof(struct shm_cmd));
+	memset(pcmd,0,sizeof(struct shm_cmd));
+	pcmd->key = shmid;
+	pcmd->mapAddr = buf;
+	int ret = syscall(SYS_ipc,2,'S',cmd,(int)pcmd,0);
+	free(pcmd);
+	return ret;
+}

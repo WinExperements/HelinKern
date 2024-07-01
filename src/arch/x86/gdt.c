@@ -248,6 +248,7 @@ void *x86_irq_handler(registers_t *regs) {
         //arch_poweroff();
         if (regs->cs == 0x1b) {
             kprintf("%s in %s\r\n",exception_names[int_no],thread_getThread(thread_getCurrent())->name);
+	    arch_sti();
             thread_killThread(thread_getThread(thread_getCurrent()),18198);
             arch_reschedule(); // never return?
          }

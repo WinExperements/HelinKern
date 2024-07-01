@@ -23,4 +23,6 @@ target remote localhost:1234
 #b iso9660_read
 #b *0x10ab62
 #b module/iso9660/main.c:240
-b sys_access
+#b vfs_mount
+#b thread_killThread
+b sys_exec

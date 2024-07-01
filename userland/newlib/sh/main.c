@@ -65,7 +65,7 @@ struct prcInfo {
 	char name[20];
 	int pid;
 };
-bool executeCommand(int argc,char **argv) {
+bool executeCommand(int argc,char **argv,bool wait) {
     // Try to find the file in argv[0]
     char execPath[100];
     // Format the string with given exec pathes.
@@ -94,9 +94,10 @@ bool executeCommand(int argc,char **argv) {
     if (child == 0) {
 	    // Execv
 	    execv(execPath,argv);
+	    perror(argv[0]);
 	    exit(1);
 	} else {
-		waitpid(child,NULL,0);
+		if (wait) {waitpid(child,NULL,0);}
 		return 1;
 	}
     return 0;
@@ -221,8 +222,26 @@ void parse(int argc,char **argv) {
 	    syscall(SYS_ipc,2,'P',2,0,0);
     } else if (!strcmp(argv[0],"clear")) {
 	    ioctl(0,3);
+    } else if (!strcmp(argv[0],"nanox")) {
+	    // Start some nano-X examples!
+	    int test = open("/bin/nanox",O_RDONLY);
+	    if (test < 0) {
+		    perror("Mount please ISO drive, error");
+		    return;
+	    }
+	    close(test);
+	    test = open("/bin/landmine",O_RDONLY);
+	    if (test < 0) {
+		    perror("Landmine failed to find in CD-DRIVE :(\r\n");
+		    return;
+		}
+	    char *ag[] = {"/bin/nanox","-p",NULL};
+	    executeCommand(1,ag,false);
+	    sleep(2);
+	    char *og[] = {"/bin/landmine",NULL};
+	    executeCommand(1,og,false);
     } else {
-	if (!executeCommand(argc,argv)) {
+	if (!executeCommand(argc,argv,true)) {
         	printf("Unknown command: %s\n",argv[0]);
 	}
     }

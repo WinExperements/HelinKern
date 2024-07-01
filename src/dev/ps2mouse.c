@@ -25,7 +25,7 @@ static int mouse_cycle = 0;
 static char mouse_byte[3];
 static int old_x = 800;
 static int old_y = 600;
-static int mice_dev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
+static uint64_t mice_dev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
 static bool mice_dev_isReady(vfs_node_t *node);
 static queue_t *data_queue;
 // dev/fb.c
@@ -147,7 +147,7 @@ void ps2mouse_init() {
 	DEBUG_N("PS/2 Initialization done\r\n");
 }
 
-static int mice_dev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
+static uint64_t mice_dev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 	if (size < 3) return 0;
 	if (data_queue->size == 0) return 0;
 	void *data = dequeue(data_queue);

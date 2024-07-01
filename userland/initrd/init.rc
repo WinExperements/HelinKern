@@ -11,8 +11,8 @@
 #mkdir proc
 #mkdir sys
 #mount devfs /dev /dev
-#insmod /lib/modules/iso9660.mod
 service login 1 /bin/login
 mount /dev /dev devfs
 #mount /dev/satapi0 /mnt iso9660
 #service test 0 /initrd/tests
+#service landmine 0 /mnt/usr/bin/landmine

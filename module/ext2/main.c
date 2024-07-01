@@ -415,7 +415,7 @@ struct dirent *ext2_readdir(struct vfs_node *dir,uint32_t index) {
 	return NULL;
 }
 
-static int ext2_fs_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
+static uint64_t ext2_fs_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 	if (node == NULL || buff == NULL) return 0;
 	kprintf("%s: inode read begin\r\n",__func__);
 	ext2_pr *prv = (ext2_pr *)node->priv_data;

@@ -33,7 +33,7 @@ bool elf_check_file(Elf32_Ehdr *hdr) {
 	}
     return true;
 }
-int elf_get_end_in_memory(vfs_node_t *node) {
+size_t elf_get_end_in_memory(vfs_node_t *node) {
     uint32_t v_end;
     Elf32_Ehdr *hdr = kmalloc(sizeof(Elf32_Ehdr));
     Elf32_Phdr *p_entry = NULL;
@@ -131,7 +131,12 @@ bool elf_load_file(vfs_node_t *node,process_t *caller) {
     memset(p_entry,0,sizeof(Elf32_Phdr));
     for (pe = 0; pe < header->e_phnum; pe++) {
         //Elf32_Phdr *p_entry = (void *)(header->e_phoff + elf_base + pe * header->e_phentsize);
-	vfs_read(node,header->e_phoff + pe * header->e_phentsize,sizeof(Elf32_Phdr),p_entry);
+	if (vfs_read(node,header->e_phoff + pe * header->e_phentsize,sizeof(Elf32_Phdr),p_entry) < 0) {
+		kfree(header);
+		kfree(p_entry);
+		thread_killThread(prc,10);
+		return 1;
+	}
         uint32_t v_begin = p_entry->p_vaddr;
         if (p_entry->p_type == 1) {
             if (p_entry->p_memsz == 0) {
@@ -139,7 +144,11 @@ bool elf_load_file(vfs_node_t *node,process_t *caller) {
             }
             //kprintf("v_begin: 0x%x, how: %d, offset: %d\r\n",v_begin,p_entry->p_filesz,p_entry->p_offset);
             //memcpy((void *) v_begin,(void *)(elf_base + p_entry->p_offset), p_entry->p_filesz);
-	    vfs_read(node,p_entry->p_offset,p_entry->p_filesz,(void *)v_begin); 
+	    if (vfs_read(node,p_entry->p_offset,p_entry->p_filesz,(void *)v_begin) < 0) {
+		    kfree(header);
+		    kfree(p_entry);
+		    thread_killThread(prc,10);
+	    }
             if (p_entry->p_memsz > p_entry->p_filesz)
             {
                 char* p = (char *) p_entry->p_vaddr;
@@ -179,7 +188,7 @@ bool elf_load_file(vfs_node_t *node,process_t *caller) {
 /*
     Because the kernel uses the correct implementation of the VMM and kernel heap, any module required some additional memory space to load the symbols
 */
-int elf_get_module_bytes(vfs_node_t *n) {
+size_t elf_get_module_bytes(vfs_node_t *n) {
     // Read the header
     Elf32_Ehdr header;
     vfs_read(n, 0, sizeof(Elf32_Ehdr), &header);

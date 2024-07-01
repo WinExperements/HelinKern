@@ -1,6 +1,7 @@
 #include <ipc/ipc_manager.h>
 #include <lib/queue.h> // why not.
 #include <ipc/pipe.h>
+#include <ipc/shm.h>
 #include <output.h>
 queue_t *registredIPC;
 void ipc_init() {
@@ -18,6 +19,7 @@ static Ipc *findIPC(int magic) {
 }
 void ipc_init_standard() {
   pipe_init();
+  shm_init();
 }
 int ipc_add(Ipc *ipc) {
   // Check if we not registred it before.

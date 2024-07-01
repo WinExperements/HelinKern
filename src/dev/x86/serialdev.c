@@ -2,8 +2,8 @@
 #include <dev.h>
 #include <output.h>
 #include <mm/alloc.h>
-static int serialdev_write(vfs_node_t *,uint64_t offset,uint64_t how,void *buff);
-static int serialdev_read(vfs_node_t *,uint64_t,uint64_t,void *);
+static uint64_t serialdev_write(vfs_node_t *,uint64_t offset,uint64_t how,void *buff);
+static uint64_t serialdev_read(vfs_node_t *,uint64_t,uint64_t,void *);
 extern void write_serial(char c);
 extern char read_serial();
 void serialdev_init() {
@@ -17,7 +17,7 @@ void serialdev_init() {
 	kprintf("done\r\n");
 }
 
-static int serialdev_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
+static uint64_t serialdev_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 	if (size < 0) return 0;
 	char *b = (char *)buff;
 	for (uint64_t i = 0; i < size; i++) {
@@ -25,7 +25,7 @@ static int serialdev_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *
 	}
 	return size;
 }
-static int serialdev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
+static uint64_t serialdev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 	if (size < 0) return 0;
 	kprintf("Reading from serial device\r\n");
 	char *b = (char *)buff;

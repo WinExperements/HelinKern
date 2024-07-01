@@ -22,13 +22,13 @@ static int ws_row,ws_col;
 static void scroll();
 static int width,height,pitch,addr,fcolor,bcolor;
 static bool enableCursor = true;
-static int fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff);
+static uint64_t fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff);
 static void *fbdev_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
 static dev_t *fbdev;
 static int paddr;
 static char *charBuff;
 static void syncFB(); // draw all characters from charBuff
-static int fb_ioctl(struct vfs_node *node,int request,va_list args);
+static uint64_t fb_ioctl(struct vfs_node *node,int request,va_list args);
 static int GFX_MEMORY = 0;
 extern bool disableOutput;
 /* ==== PSF v1 Support to FBDEV driver ===== */
@@ -212,7 +212,7 @@ static void printCursor(int x,int y) {
 /* Called when the FB need to be mapped to the memory, usually at startup and when creating new process */
 void fb_map() {
     //if (mapped) return;
-    if (addr != NULL) {
+    if (width != 0 && height != 0) {
         GFX_MEMORY = /*0x02800000*/addr;
         // Map the FB
         uint32_t p_address = (uint32_t)addr;
@@ -275,56 +275,39 @@ void fb_disableCursor() {
 void fb_enableCursor() {
     enableCursor = true;
 }
-static int fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff) {
+static uint64_t fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff) {
     // Nothing!
     return size;
 }
 static void *fbdev_mmap(struct vfs_node *node,int _addr,int size,int offset,int flags) {
     // First allocate requested space
+    unsigned long vstart = arch_mmu_query(NULL,USER_MMAP_START,size);
+    if (vstart == -1) {
+	    // No free virtual memory?
+	    return (void *)-1;
+    }
     for (int i = 0; i < size/4096; i++) {
         // Map
         // TODO: Fix  this shit
         int pag = (i*4096);
-        arch_mmu_mapPage(NULL,USER_MMAP_START+pag,paddr+pag,7);
+        arch_mmu_mapPage(NULL,vstart+pag,paddr+pag,7);
     }
-    return (void *)USER_MMAP_START;
+    kprintf("Now found at 0x%x\r\n",arch_mmu_query(NULL,USER_MMAP_START,size));
+    return (void *)vstart;
 }
 void fbdev_init() {
-     fbdev = kmalloc(sizeof(dev_t));
-    memset(fbdev,0,sizeof(dev_t));
-    fbdev->name = "fb0";
-    fbdev->buffer_sizeMax = pitch * height;
-    fbdev->write = fbdev_write;
-    fbdev->mmap = fbdev_mmap;
-    fbdev->ioctl = fb_ioctl;
-    dev_add(fbdev);
-    charBuff = kmalloc(ws_row*ws_col);
-    memset(charBuff,0,ws_row*ws_col);
-    // Намалюємо рамку
-    if (width == 0 || height == 0) return;
-    /*fb_disableCursor();
-    bcolor = 0x0000FF;
-    for (int i = 1; i < ws_row-1; i++) {
-		fb_putchar('|',0,i,fcolor,bcolor);
-		fb_putchar('|',ws_col-1,i,fcolor,bcolor);
-	}
-	for (int i = 0; i < ws_col; i++) {
-		fb_putchar('-',i,0,fcolor,bcolor);
-		fb_putchar('-',i,ws_row-1,fcolor,bcolor);
-	}
-    // Не забуваємо про напис HelinKern!
-    cursor_x = (ws_col / 2)-12;
-    cursor_y = 0;
-    bcolor = 0x0;    
-    char *msg = "HelinKern";
-    int i = 0;
-    while(msg[i]) {
-        fb_putchar(msg[i],cursor_x,cursor_y,fcolor,bcolor);
-        i++;
-        cursor_x++;
-    }
-    fb_enableCursor();*/
-    cursor_x = cursor_y = 0;
+	if (width == 0 || height == 0) return;
+	fbdev = kmalloc(sizeof(dev_t));
+    	memset(fbdev,0,sizeof(dev_t));
+    	fbdev->name = "fb0";
+    	fbdev->buffer_sizeMax = pitch * height;
+    	fbdev->write = fbdev_write;
+    	fbdev->mmap = fbdev_mmap;
+    	fbdev->ioctl = fb_ioctl;
+    	dev_add(fbdev);
+    	charBuff = kmalloc(ws_row*ws_col);
+    	memset(charBuff,0,ws_row*ws_col);
+    	cursor_x = cursor_y = 0;
 }
 int fb_getX() {
     return cursor_x;
@@ -340,7 +323,7 @@ static void syncFB() {
 		}
 	}
 }
-static int fb_ioctl(struct vfs_node *node,int request,va_list args) {
+static uint64_t fb_ioctl(struct vfs_node *node,int request,va_list args) {
     int *arg = va_arg(args,int *);
     switch(request) {
         case 1:

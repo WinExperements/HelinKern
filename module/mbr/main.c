@@ -19,33 +19,33 @@ static char gl_ch = 'a';
 
 static mbr_t m_mbr;
 
-static void mbr_dev_readBlock(vfs_node_t *node,int blockNo,int how,void *buf) {
+static bool mbr_dev_readBlock(vfs_node_t *node,int blockNo,int how,void *buf) {
     DEBUG("MBR read %d sectors\r\n",how/512);
     if (node->device == NULL) {
         kprintf("MBR: %s: no device pointer in inode!\n",node->name);
-        return;
+        return false;
     }
     mbr_dev_t *dev = (mbr_dev_t *)node->device;
-    if (dev->lba_start == 0) return;
+    if (dev->lba_start == 0) return false;
     int off = dev->lba_start;
     kprintf("DEBUG: Reading from sector %d(origin is %d)\r\n",dev->lba_start+blockNo,dev->lba_start);
     off+=blockNo;
-    vfs_readBlock((vfs_node_t *)dev->harddrive_addr,off,how,buf);
+    return vfs_readBlock((vfs_node_t *)dev->harddrive_addr,off,how,buf);
 }
 
-static void mbr_dev_writeBlock(vfs_node_t *node,int blockNo,int how,void *buf) {
+static bool mbr_dev_writeBlock(vfs_node_t *node,int blockNo,int how,void *buf) {
     if (node->device == NULL) {
         kprintf("MBR: %s: no device pointer in inode!\n",node->name);
-        return;
+        return false;
     }
     mbr_dev_t *dev = (mbr_dev_t *)node->device;
     int off = dev->lba_start;
     off+=blockNo;
     DEBUG("MBR: writing %d blocks\r\n",how/512);
-    vfs_writeBlock((vfs_node_t *)dev->harddrive_addr,off,how,buf);
+    return vfs_writeBlock((vfs_node_t *)dev->harddrive_addr,off,how,buf);
 }
 
-static int mbr_dev_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buff) {
+static uint64_t mbr_dev_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buff) {
 	// MBR
 	if (node->device == NULL) return 0;
 	mbr_dev_t *dev = (mbr_dev_t *)node->device;
@@ -54,7 +54,7 @@ static int mbr_dev_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buff
 	kprintf("Reading %d bytes\r\n",how);
 	return vfs_read((vfs_node_t *)dev->harddrive_addr,off+offset,how,buff);
 }
-static int mbr_dev_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buff) {
+static uint64_t mbr_dev_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buff) {
 	if (node->device == NULL) return 0;
 	mbr_dev_t *dev = (mbr_dev_t *)node->device;
 	uint64_t off = dev->lba_start*512;
@@ -157,17 +157,6 @@ static void mbr_parseMbr(vfs_node_t *harddrive,uint32_t extPartSector,mbr_t mbr)
 }
 
 bool mbr_parttab_scan(vfs_node_t *hard) {
-	// Read the mbr from harddrive
-	kprintf("Just experement....");
-	mbr_t *test = kmalloc(512);
-	vfs_read(hard,0,512,test);
-	if (test->signature[0] != 0x55 && test->signature[1] != 0xAA) {
-		kprintf("Even after that, signature invalid. Got: 0x%x and 0x%x\r\n",test->signature[0],
-											test->signature[1]);
-	} else {
-		kprintf("Mbr pointer points to valid MBR structure\r\n");
-	}
-	kfree(test);
 	memset(&m_mbr,0,512);
 	m_mbr.signature[0] = 0xAB;
 	vfs_read(hard,0,512,&m_mbr);

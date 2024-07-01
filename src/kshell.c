@@ -26,7 +26,7 @@ static bool exit = false;
 static void start_module();
 static void load_m(void *);
 static void th_m();
-static int testdev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer);
+static uint64_t testdev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer);
 static void *elf_buffer = NULL;
 // Signal testing.
 void sighand(int signal) {
@@ -413,7 +413,7 @@ static void th_m() {
 	kprintf("Done\n");
 	thread_killThread(thread_getThread(thread_getCurrent()),0);
 }
-static int testdev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
+static uint64_t testdev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
 	if (elf_buffer == NULL) {
 		return 0;
 	}

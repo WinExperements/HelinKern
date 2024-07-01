@@ -9,18 +9,19 @@
 typedef struct dev {
     char *name;
     int buffer_sizeMax;
-    int (*write)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
-    int (*read)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+    uint64_t (*write)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+    uint64_t (*read)(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
     void *(*mmap)(struct vfs_node *node,int addr,int size,int offset,int flags);
-    void (*readBlock)(struct vfs_node *node,int blockNo,int how,void *buf);
-    void (*writeBlock)(struct vfs_node *node,int blockNo,int how,void *buf);
-    int (*ioctl)(struct vfs_node *node,int request,va_list args);
+    bool (*readBlock)(struct vfs_node *node,int blockNo,int how,void *buf);
+    bool (*writeBlock)(struct vfs_node *node,int blockNo,int how,void *buf);
+    uint64_t (*ioctl)(struct vfs_node *node,int request,va_list args);
     bool (*isReady)(struct vfs_node *node); // select syscall
     // Power device type functions. Can be ignored.
     bool (*poweroff)(struct vfs_node *node);
     bool (*poweron)(struct vfs_node *node);
     void *device;
     int type;
+    int mode;
     vfs_node_t *devNode;
     struct dev *next;
     struct dev *prev;

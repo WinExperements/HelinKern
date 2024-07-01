@@ -3,7 +3,7 @@
 #include <debug.h>
 #include <lib/string.h>
 #include <mm/alloc.h>
-
+#include <arch/mmu.h>
 static vfs_fs_t *cpio_fs;
 static vfs_node_t *root;
 static vfs_node_t *d;
@@ -14,7 +14,7 @@ static vfs_node_t *new_node(const char *name,struct cpio_hdr *hdr,size_t sz,size
     struct cpio *child_cpio = kmalloc(sizeof(struct cpio));
     memset(child_cpio,0,sizeof(struct cpio));
     node->size = sz;
-    node->uid = node->guid = 0;
+    node->uid = node->gid = 0;
     node->fs = cpio_fs;
     node->name = strdup(name);
     node->mount_flags = VFS_MOUNT_RO;
@@ -95,6 +95,8 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
         data_offset += hdr.namesize + (hdr.namesize % 2);
 	//kprintf("%s: data offset: %d, size: %d\r\n",__func__,data_offset,size);
         vfs_node_t *node = new_node(name,&hdr,size,data_offset,ino_index);
+	// Adjust the file permissions.
+	node->mask = hdr.mode;
         vfs_node_t *parent = dir != NULL ? vfs_find(dir) : root;
         parent->flags = VFS_DIRECTORY;
         new_child_node(parent,node);
@@ -107,7 +109,7 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
     return true;
 }
 
-static int cpio_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
+static uint64_t cpio_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
    if ((size_t)offset >= (uint64_t)node->size) return 0;
     how = min(how,node->size - offset);
     struct cpio *p = node->priv_data;
@@ -115,16 +117,30 @@ static int cpio_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *bu
     vfs_read(d,p->data + offset,how,buf);
     return how;
 }
-static int cpio_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {return 0;}
-
+static uint64_t cpio_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {return 0;}
 struct vfs_node *cpio_finddir(struct vfs_node *di,char *name) {
+    char *krnName = strdup(name);
+    void *curSpace = arch_mmu_getAspace();
+    process_t *prc = thread_getThread(thread_getCurrent());
+    void *prcSpace = prc->aspace;
+    void *switchTo = arch_mmu_getKernelSpace();
+    prc->aspace = switchTo;
+    arch_mmu_switch(switchTo);
     struct cpio *p = (struct cpio *)di->priv_data;
     for (; p != NULL; p = p->child) {
+	    if ((int)p->node >= KERN_HEAP_END) continue;
+	    if ((int)p->child >= KERN_HEAP_END) continue;
 	    if (p->node == NULL && p->child != NULL) continue; // looks like root
-	    if (strcmp(p->node->name,name)) {
+	    if (strcmp(p->node->name,krnName)) {
+		    prc->aspace = prcSpace;
+		    arch_mmu_switch(curSpace);
+		    kfree(krnName);
 		    return p->node;
 		}
 	}
+    prc->aspace = prcSpace;
+    arch_mmu_switch(curSpace);
+    kfree(krnName);
     return NULL;
 }
 static struct dirent find_d;
@@ -162,7 +178,23 @@ static void cpio_close(vfs_node_t *n) {}
 void cpio_load(void *initrd,int dev_size) {
     
 }
-
+vfs_node_t *cpio_creat(vfs_node_t *in,char *name,int flags) {
+	// Yes.
+	if (flags != 3) {
+		kprintf("cpio: only UNIX sockets can be created :)\r\n");
+		return NULL;
+	}
+	vfs_node_t *node = kmalloc(sizeof(vfs_node_t));
+	memset(node,0,sizeof(vfs_node_t));
+	node->name = strdup(name);
+	node->fs = cpio_fs;
+	struct cpio *cp = kmalloc(sizeof(struct cpio));
+	memset(cp,0,sizeof(struct cpio));
+	cp->node = node;
+	node->priv_data = cp;
+	new_child_node(in,node);
+	return node;
+}
 void cpio_init() {
     cpio_fs = kmalloc(sizeof(vfs_fs_t));
     memset(cpio_fs,0,sizeof(vfs_fs_t));
@@ -173,6 +205,7 @@ void cpio_init() {
     cpio_fs->finddir = cpio_finddir;
     cpio_fs->readdir = cpio_readdir;
     cpio_fs->close = cpio_close;
+    cpio_fs->creat = cpio_creat;
     vfs_addFS(cpio_fs);
     DEBUG_N("CPIO FS added\r\n");
 }

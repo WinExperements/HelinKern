@@ -57,7 +57,7 @@ static int sys_chdir(char *to);
 static void sys_pwd(char *buff,int len);
 static int sys_opendir(char *path);
 static void sys_closedir(int fd);
-static void *sys_readdir(int fd,int p);
+static int sys_readdir(int fd,int p,void *dirPtr);
 static int sys_mount(char *dev,char *mount_point,char *fs);
 static int sys_waitpid(int pid);
 static int sys_getppid();
@@ -262,6 +262,10 @@ static int sys_open(char *path,int flags) {
     process_t *caller = thread_getThread(thread_getCurrent());
     char *path_copy = strdup(path);
     vfs_node_t *node = vfs_find(path_copy);
+    // Check permissions.
+    if (!vfs_hasPerm(node,PERM_READ,caller->gid,caller->uid)) {
+	    return -13;
+    }
     if (!node && (flags == 7 || flags == 1538)) {
 	    // Before any creation, check if file system isn't read only.
 	    vfs_node_t *where = vfs_getRoot();
@@ -305,6 +309,10 @@ static int sys_read(int _fd,int offset,int size,void *buff) {
 	    kprintf("WARRNING: read: invalid FD passed\n");
 	    return 0;
 	}
+    // Check permissions.
+    if (!vfs_hasPerm(fd->node,PERM_READ,caller->gid,caller->uid)) {
+	    return -13;
+    }
     if (fd->node->flags == 4) {
 	   // kprintf("WARRNING: Redirect from read to recv!\n");
 	    Socket *sock = (Socket *)fd->node->priv_data;
@@ -322,12 +330,14 @@ static int sys_write(int _fd,int offset,int size,void *buff) {
     process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *fd = caller->fds[_fd];
     if (fd == NULL || fd->node == NULL) {
-	    kprintf("WARRNING: write: invalid FD passed\n");
-	    kprintf("Exit from sys_write!\r\n");
 	    return 0;
     }
     if ((fd->node->mount_flags == VFS_MOUNT_RO) == VFS_MOUNT_RO) {
-	    return 30;
+	    return -30;
+    }
+    // Check if we have permissions to do it.
+    if (!vfs_hasPerm(fd->node,PERM_WRITE,caller->gid,caller->uid)) {
+	    return -13;
     }
     if (fd->node->flags == 4) {
 	    //kprintf("WARRNING: redirecting from write to send!\n");
@@ -342,7 +352,6 @@ static int sys_write(int _fd,int offset,int size,void *buff) {
 }
 static void sys_signal(int signal,int handler) {
 	if (signal >= 32) {
-		kprintf("Signal is out of bounds!\r\n");
 		return;
 	}
 	if (handler == 0) {
@@ -399,7 +408,12 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
         return -1;
     }
     process_t *caller = thread_getThread(thread_getCurrent());
+    bool hasPerm = vfs_hasPerm(file,PERM_EXEC,caller->gid,caller->uid);
     if (caller->pid == 0) caller = NULL;
+    if (caller != NULL && !hasPerm) {
+	    // No permission to execute applications.
+	    return 13; //EACCES.
+    }
     arch_cli();
     clock_setShedulerEnabled(false);
     int len = file->size;
@@ -435,8 +449,8 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
 	      	arch_mmu_switch(arch_mmu_getKernelSpace());
         	argc = 1;
     } else {
-        // We need to copy arguments from caller to prevent #PG when process is exitng!
-	      // 14/04/2024: We need to switch to process address space to prevent #PG when process is trying to access it's own arguments.
+	    // We need to copy arguments from caller to prevent #PG when process is exitng!
+	    // 14/04/2024: We need to switch to process address space to prevent #PG when process is trying to access it's own arguments.
 	    // Also required if current platform supports mapping only active page directory(x86,x86_64 for example)
 	    // We need to somehow access argv from ANOTHER address space.
 	    // Need to be optimized.
@@ -450,6 +464,7 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
     //if (caller != NULL )arch_mmu_destroyAspace(original,false);
     DEBUG("Used kheap after exec: %dKB\r\n",alloc_getUsedSize());
     clock_setShedulerEnabled(true);
+    thread_forceSwitch();
     arch_reschedule();
     return prc->pid;
 }
@@ -500,10 +515,18 @@ static int sys_opendir(char *path) {
 static void sys_closedir(int fd) {
     sys_close(fd);
 }
-static void *sys_readdir(int fd,int p) {
+// dirPtr - actual pointer to the directory structure.
+// now used because kernel doesn't allows userspace programs to access
+// kernel mode structures and data anymore.
+static int sys_readdir(int fd,int p,void *dirPtr) {
     process_t *caller = thread_getThread(thread_getCurrent());
     file_descriptor_t *_fd = caller->fds[fd];
-    return vfs_readdir(_fd->node,p);
+    struct dirent *ret = vfs_readdir(_fd->node,p);
+    if (ret == NULL) {
+	    return -1;
+    }
+    memcpy(dirPtr,ret,sizeof(struct dirent));
+    return 0;
 }
 static int sys_mount(char *dev,char *mount_point,char *fs) {
     char *dev_copy = strdup(dev);
@@ -609,13 +632,17 @@ static int sys_tell(int _fd) {
 }
 static void *sys_mmap(int _fd,int addr,int size,int offset,int flags) {
     process_t *caller = thread_getThread(thread_getCurrent());
-    if (_fd == -1) return NULL;
+    if (_fd == -1) return (void *)-1;
     file_descriptor_t *fd = caller->fds[_fd];
     vfs_node_t *node = fd->node;
+    // Check permission.
+    if (!vfs_hasPerm(node,PERM_WRITE,caller->gid,caller->uid)) {
+	    return (void *)-19;
+    }
     if (node != NULL) {
         return vfs_mmap(node,addr,size,offset,flags);
     }
-    return NULL;
+    return (void *)-1;
 }
 static int sys_insmod(char *path) {
     int len = strlen(path);
@@ -784,6 +811,7 @@ static int sys_socket(int domain,int type,int protocol) {
 	memset(n,0,sizeof(vfs_node_t));
 	n->flags = 4; // socket FD instance, destroy at close
 	n->priv_data = s;
+	n->mask = (S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
 	return thread_openFor(thread_getThread(thread_getCurrent()),n);
 }
 static int sys_bind(int sockfd,struct sockaddr *addr,int len) {
@@ -880,14 +908,15 @@ static int sys_fork() {
 	// sys_sbrk
 	child->brk_begin = parent->brk_begin;
  	child->brk_end = parent->brk_end;
-  child->brk_next_unallocated_page_begin = parent->brk_next_unallocated_page_begin;
+  	child->brk_next_unallocated_page_begin = parent->brk_next_unallocated_page_begin;
 	child->parent = parent;
 	parent->child = child;
 	child->state = STATUS_RUNNING; // yeah
-  // Test.
-  arch_mmu_switch(space);
-  fb_map();
+  	// Test.
+  	arch_mmu_switch(space);
+  	fb_map();
 	arch_mmu_switch(orig);
+	thread_forceSwitch();
 	return child->pid;
 }
 
@@ -943,7 +972,10 @@ static int sys_sync(int fd) {
 }
 
 static int sys_munmap(void *ptr,int size) {
-    return -1;
+	// unmap specific area of memory.
+	// TODO: Call unmap specific function if exist.
+	arch_mmu_unmap(NULL,(int)ptr,size);
+	return 0;
 }
 static int sys_umount(char *mountpoint) {
 	// TODO: Add mount table.
@@ -973,7 +1005,16 @@ static int sys_chmod(int fd,int mode) {
 	}
 	vfs_node_t *node = desc->node;
 	// We need some security thinks, but later.
+	if (caller->uid != 0) {
+		// User isn't root, check write access.
+		if (!vfs_hasPerm(node,PERM_WRITE,caller->gid,caller->uid)) {
+			// Caller doesn't have privileges to do this.
+			return 19;
+		}
+	}
 	node->mask = mode;
+	// After changing RAM node, try to change also in-disk data(if available)
+	vfs_writeMetadata(node);
 	return 0;
 }
 static int sys_stat(int fd,struct stat *stat) {
@@ -988,9 +1029,14 @@ static int sys_stat(int fd,struct stat *stat) {
 	// Populate non FS specific information based on VFS node.
 	vfs_node_t *node = dsc->node;
 	stat->st_ino = node->inode;
-	stat->st_mode = (node->flags & VFS_DIRECTORY) == VFS_DIRECTORY ? 40000 : 100000;
+	stat->st_mode = node->mask;
+	if (node->flags & VFS_DIRECTORY) {
+		stat->st_mode |= 40000;
+	} else {
+		stat->st_mode |= 100000;
+	}
 	stat->st_uid = node->uid;
-	stat->st_gid = node->guid;
+	stat->st_gid = node->gid;
 	stat->st_size = node->size;
 	/* Try to call FS specific stat */
 	if (node->fs->stat != NULL) {
@@ -1045,14 +1091,10 @@ static int sys_settime(int clock,struct tm *time) {
 }
 
 static int sys_syslog(int type,char *buff,int len) {
-	/*if (len >= ringBuffSize) {
-		len -= 20;
-	}
-	memcpy(buff,ringBuffPtr,len);*/
 	if (type == 0 && buff == NULL) {
-    return ringBuffPtr;
-  }
-  memcpy(buff,ringBuff,len);
+		return ringBuffPtr;
+  	}
+  	memcpy(buff,ringBuff,len);
 	return 0;
 }
 
@@ -1069,11 +1111,39 @@ int sys_fchdir(int _fd) {
 	caller->workDir = fd->node;
 	return 0;
 }
-int sys_fchown(int fd,int owner,int group) {
-	return 38;
+int sys_fchown(int _fd,int owner,int group) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	file_descriptor_t *fd = caller->fds[_fd];
+	// Check if we have permissions to do so.
+	if (caller->uid != 0) {
+		// User isn't privileged.
+		if (!vfs_hasPerm(fd->node,PERM_WRITE,caller->gid,caller->uid)) {
+			return 19;
+		}
+	}
+	fd->node->uid = owner;
+	fd->node->gid = group;
+	// Sync.
+	vfs_writeMetadata(fd->node);
+	return 0;
 }
 int sys_chown(int mode,char *path,int owner,int group) {
-	return 38;
+	process_t *caller = thread_getThread(thread_getCurrent());
+	vfs_node_t *node = vfs_find(path);
+	if (!node) {
+		return 2;
+	}
+	// Check access.
+	if (caller->uid != 0) {
+		// Not privileged.
+		if (!vfs_hasPerm(node,PERM_WRITE,caller->gid,caller->uid)) {
+			return 19;
+		}
+	}
+	node->uid = owner;
+	node->gid = group;
+	vfs_writeMetadata(node);
+	return 0;
 }
 int sys_rm(int mode,char *path) {
 	// yes

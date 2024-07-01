@@ -113,7 +113,7 @@ int main(int argc,char **argv) {
 			for (service_t *start = globalServiceList; start != NULL; start = start->next) {
 				if (start->pid == diedChild) {
 					if (start->executionRetries >= 4) {
-						printf("Force disabling service %s due to 4 previous failed run attempts!\r\n");
+						printf("Force disabling service %s due to 4 previous failed run attempts!\r\n",start->serviceName);
 						break; // breaks the for loop.
 					} else {
 						// We able to restart this crutical service. Limit reboots to 4.

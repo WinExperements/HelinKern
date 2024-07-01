@@ -78,6 +78,7 @@ void kernel_main(const char *args) {
     }
     arch_init();
     // Hi!
+    //disableOutput = false;
     fb_disableCursor();
     int mem = arch_getMemSize();
     alloc_init(arch_getKernelEnd(),mem);
@@ -143,7 +144,6 @@ void kernel_main(const char *args) {
     // Directly try to mount initrd and run init if it fails then panic like Linux kernel or spawn kshell
     vfs_node_t *initrd = vfs_find("/initrdram");
     if (!initrd) {
-	kprintf(ringBuff);
         PANIC("Cannot find initrd. Pass it as module with initrd.cpio argument");
     }
     vfs_fs_t *cpio = vfs_findFS("cpio");
@@ -156,6 +156,7 @@ void kernel_main(const char *args) {
         PANIC("Failed to mount initrd");
     }
 #if 1
+    kprintf("Detected Memory: %d MB. Used memory: %d(KB)\r\n",alloc_getAllMemory() / 1024 / 1024,alloc_getUsedSize() / 1024);
     /*int (*insmod)(char *) = ((int (*)(char *))syscall_get(30));
     insmod("/initrd/pci.mod");*/
     int (*exec)(char *,int,char **,char **) = ((int (*)(char *,int,char **,char **))syscall_get(13));

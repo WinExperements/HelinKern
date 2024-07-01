@@ -8,11 +8,11 @@ static vfs_node_t *root;
 static vfs_fs_t *rootfs_fs;
 static struct dirent rootfs_dirent;
 static int files = 0;
-static int rootfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
+static uint64_t rootfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
 static struct dirent *rootfs_readdir(vfs_node_t *in,uint32_t index);
 static vfs_node_t *rootfs_finddir(vfs_node_t *root,char *name);
 static vfs_node_t *rootfs_creat(vfs_node_t *node,char *name,int flags);
-static int rootfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
+static uint64_t rootfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
 static void rootfs_truncate(vfs_node_t *in,int size);
 static void rootfs_close(vfs_node_t *in);
 static bool __rootfs_mount(vfs_node_t *,vfs_node_t *mptr,void *);
@@ -39,11 +39,12 @@ void rootfs_init() {
     rootfs_fs->rm = rootfs_rm;
     rootfs_fs->stat = rootfs_stat;
     root->fs = rootfs_fs;
+    root->mask = (S_IXUSR | S_IRWXO | S_IXOTH);
     vfs_addFS(rootfs_fs);
     data = kmalloc(100);
     memset(data,0,100);
 }
-static int rootfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
+static uint64_t rootfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
     if ((node->flags & 0x7) != VFS_DIRECTORY) {
         memcpy(buf,data[node->inode]+offset,how);
     }
@@ -86,7 +87,7 @@ static vfs_node_t *rootfs_creat(vfs_node_t *node,char *name,int flags) {
     newDir->fs = rootfs_fs;
     newDir->next_child = NULL;
     newDir->prev = node;
-    kprintf("0x%x\r\n",newDir->prev);
+    newDir->mask = (S_IXUSR | S_IXGRP | S_IRWXO);
     int i = 1;
     if (node->first_child == NULL) {
         node->first_child = newDir;
@@ -105,7 +106,7 @@ static vfs_node_t *rootfs_creat(vfs_node_t *node,char *name,int flags) {
 void rootfs_mount(char *to) {
     vfs_mount(rootfs_fs,NULL,to);
 }
-static int rootfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
+static uint64_t rootfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
    return 0;
 }
 static void rootfs_truncate(vfs_node_t *node,int size) {

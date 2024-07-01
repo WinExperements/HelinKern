@@ -9,9 +9,9 @@
 
 static dev_t *dev;
 static vfs_node_t *keyboard; // for reading the input
-static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
-static int tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
-static int tty_ioctl(vfs_node_t *node,int request,va_list args);
+static uint64_t tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
+static uint64_t tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff);
+static uint64_t tty_ioctl(vfs_node_t *node,int request,va_list args);
 static bool tty_isReady(vfs_node_t *node);
 struct termios curState;
 extern bool disableOutput;
@@ -40,7 +40,7 @@ void tty_init() {
 	}
 }
 
-static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
+static uint64_t tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 	char *char_buff = (char *)buff;
 	if ((curState.c_lflag & FLAG_ECHO) != FLAG_ECHO) {
 		return size;
@@ -53,12 +53,12 @@ static int tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) 
   	return size;
 }
 
-static int tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
+static uint64_t tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 	if (!keyboard) return 0;
 	return vfs_read(keyboard,offset,size,buff);
 }
 
-static int tty_ioctl(vfs_node_t *node,int request,va_list args) {
+static uint64_t tty_ioctl(vfs_node_t *node,int request,va_list args) {
 	void *arg = va_arg(args,void *);
 	switch(request) {
 		case 1:

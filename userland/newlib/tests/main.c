@@ -10,6 +10,7 @@
 #include <libgen.h>
 #include <sys/ioctl.h>
 #include <string.h>
+#include <sys/ipc.h>
 int main(int argc,char **argv) {
 	int fd = open("/dev/satapi0",O_RDONLY);
 	if (fd < 0) {
@@ -32,6 +33,10 @@ int main(int argc,char **argv) {
 		} else if (!strcmp(argv[i],"close")) {
 			eject = 0;
 			cmd = 0x1a;
+		} else if (!strcmp(argv[1],"ftok")) {
+			key_t key = ftok(argv[0],'A');
+			printf("Key: %d\r\n",key);
+			return 0;
 		}
 	}
 	if (eject) {

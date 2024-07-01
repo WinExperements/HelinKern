@@ -64,4 +64,6 @@ int thread_openFor(process_t *prc,vfs_node_t *node);
 process_t *thread_cloneThread(process_t *parent);
 void thread_recreateStack(process_t *prc,int entryPoint,int isUser);
 void *thread_getThreadList();
+// Forces the scheduler to switch to new task.
+void thread_forceSwitch();
 #endif

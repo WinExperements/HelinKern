@@ -104,6 +104,7 @@ bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
         if (fs_root == NULL) {            
             fs_root = kmalloc(sizeof(vfs_node_t));
             memset(fs_root,0,sizeof(vfs_node_t));
+	    fs_root->mask = (S_IRWXU | S_IRWXG | S_IRWXO);
         }
 	bool root = fs->mount(dev,fs_root,NULL);
         if (!root) {
@@ -167,13 +168,13 @@ vfs_node_t *vfs_find(char *path) {
     }
     return NULL;
 }
-void vfs_readBlock(vfs_node_t *node,int blockN,int how,void *buff) {
-    if (!node || !node->fs || !node->fs->readBlock) return;
-    node->fs->readBlock(node,blockN,how,buff);
+bool vfs_readBlock(vfs_node_t *node,int blockN,int how,void *buff) {
+    if (!node || !node->fs || !node->fs->readBlock) return false;
+    return node->fs->readBlock(node,blockN,how,buff);
 }
-void vfs_writeBlock(vfs_node_t *node,int blockN,int how,void *buff) {
-    if (!node || !node->fs ||  !node->fs->writeBlock) return;
-    node->fs->writeBlock(node,blockN,how,buff);
+bool vfs_writeBlock(vfs_node_t *node,int blockN,int how,void *buff) {
+    if (!node || !node->fs ||  !node->fs->writeBlock) return false;
+    return node->fs->writeBlock(node,blockN,how,buff);
 }
 int vfs_ioctl(vfs_node_t *node,int request,...) {
     if (!node || !node->fs ||  !node->fs->ioctl) return -1;
@@ -259,4 +260,52 @@ bool vfs_umount(vfs_node_t *node) {
 }
 vfs_mount_t *vfs_getMntList() {
 	return vfsmntlst;
+}
+int vfs_writeMetadata(vfs_node_t *node) {
+	// Check if node isn't corrupted and if the FS itself support chmod.
+	if (!node) return -1;
+	if (!node->fs->writeMetadata) {
+		return 0;
+	}
+	return node->fs->writeMetadata(node);
+}
+bool vfs_hasPerm(vfs_node_t *node,int perm,int gr,int us) {
+	if (!node) return false;
+	if (perm == PERM_READ) {
+		// Check if owner has permissions.
+		if ((us == node->uid) && (node->mask & S_IRUSR)) {
+			return true;
+		}
+		// Group of caller.
+		if ((gr == node->gid) && (node->mask & S_IRGRP)) {
+			return true;
+		}
+		// No? Then check if public user can do it.
+		if (node->mask & S_IROTH) {
+			return true;
+		}
+	} else if (perm == PERM_WRITE) {
+		// The same.
+		if ((us == node->uid) && (node->mask & S_IWUSR)) {
+			return true;
+		}
+		if ((gr == node->gid) && (node->mask & S_IWGRP)) {
+			return true;
+		}
+		if (node->mask & S_IWOTH) {
+			return true;
+		}
+	} else if (perm == PERM_EXEC) {
+		if ((us == node->uid) && (node->mask & S_IXUSR)) {
+			return true;
+		}
+		if ((gr == node->gid) && (node->mask & S_IXGRP)) {
+			return true;
+		}
+		// Public user then.
+		if (node->mask & S_IXOTH) {
+			return true;
+		}
+	}
+	return false;
 }

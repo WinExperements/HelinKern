@@ -102,16 +102,16 @@ void *thread_schedule(void *stack) {
      // Priority support
      process_t *nextTask = NULL;
     if (runningTask != NULL) {
-        /*if (runningTask->quota < PROCESS_QUOTA) {
+        if (runningTask->quota < PROCESS_QUOTA) {
 		if (!runningTask->died) {
             		runningTask->quota++;
             		return stack;
 		}
-        }*/
+        }
 	    nextTask = pop_prc();
         if (nextTask == NULL) {
 	        push_prc(idle);
-	        return stack;
+	        nextTask = idle;
         }
     }
     if (nextTask->state == STATUS_CREATING || nextTask->state == -1 || nextTask->state == STATUS_WAITPID) {
@@ -204,7 +204,7 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     th->pid = freePid++;
     th->name = strdup(name);
     th->quota = 10;
-    th->stack = arch_prepareContext(entryPoint,isUser);
+    th->stack = arch_prepareContext((void *)entryPoint,isUser);
     th->arch_info = arch_preapreArchStack(isUser);
     th->aspace = arch_mmu_getKernelSpace();
     th->state = STATUS_RUNNING;
@@ -345,7 +345,11 @@ void thread_killThread(process_t *prc,int code) {
         push_prc(parent);
     }
     if (runningTask != NULL) {
-	    runningTask->quota = PROCESS_QUOTA+1;
+	    if (runningTask == prc) {
+		    runningTask = NULL;
+		} else {
+	    		runningTask->quota = PROCESS_QUOTA+1;
+		}
     }
     DEBUG("Died task %s switches by scheduler: %d\n",prc->name,prc->switches);
     arch_sti();
@@ -412,7 +416,7 @@ void thread_recreateStack(process_t *prc,int entryPoint,int isUser) {
     // caller by elf_load_file to replace caller stack with loadable new
     // Destroy original stack and arch information
     if (prc == NULL || entryPoint == NULL) return;
-    void *new_stack = arch_prepareContext(entryPoint,isUser);
+    void *new_stack = arch_prepareContext((void *)entryPoint,isUser);
     void *arch_info = arch_preapreArchStack(isUser);
     arch_destroyContext(prc->stack);
     arch_destroyArchStack(prc->arch_info);
@@ -433,4 +437,7 @@ void krn_rlimit_init_default() {
 	limitList[0].r_max = -1;
 	limitList[RLIMIT_NOFILE].r_cur = 1024;
 	limitList[RLIMIT_NOFILE].r_max = 4096;
+}
+void thread_forceSwitch() {
+	runningTask->quota = PROCESS_QUOTA+1;
 }

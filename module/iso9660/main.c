@@ -92,7 +92,9 @@ static struct dirent *iso9660_readdir(vfs_node_t *node,unsigned int index) {
 	void *aspace = arch_mmu_getAspace();
 	arch_mmu_switch(arch_mmu_getKernelSpace());
 	for (int i = 0; i < size / CDROM_SECTOR; i++) {
-		vfs_readBlock((vfs_node_t *)node->device,node->inode+i,CDROM_SECTOR,(void *)offset);
+		if (!vfs_readBlock((vfs_node_t *)node->device,node->inode+i,CDROM_SECTOR,(void *)offset)) {
+			return NULL;
+		}
 		offset+=CDROM_SECTOR;
 	}
 	arch_mmu_switch(aspace);
@@ -146,7 +148,9 @@ vfs_node_t *iso9660_finddir(vfs_node_t *node,char *f_name) {
 	void *sectorBuffer = kmalloc(node->size);
 	void *aspace = arch_mmu_getAspace();
 	arch_mmu_switch(arch_mmu_getKernelSpace());
-	vfs_readBlock(node->device,node->inode,node->size,sectorBuffer);
+	if (!vfs_readBlock(node->device,node->inode,node->size,sectorBuffer)) {
+		return NULL;
+	}
 	arch_mmu_switch(aspace);
 	int offset = (int)sectorBuffer;
 	while(1) {
@@ -202,13 +206,14 @@ void iso9660_close(vfs_node_t *node) {
 	kfree(node->name);
 	kfree(node);
 }
-void cdrom_readBlock(vfs_node_t *from,int blockNo,void *buffer) {
+bool cdrom_readBlock(vfs_node_t *from,int blockNo,void *buffer) {
 	void *aspace = arch_mmu_getAspace();
 	arch_mmu_switch(arch_mmu_getKernelSpace());
-	vfs_readBlock(from,blockNo,CDROM_SECTOR,buffer);
+	bool ret = vfs_readBlock(from,blockNo,CDROM_SECTOR,buffer);
 	arch_mmu_switch(aspace);
+	return ret;
 }
-int iso9660_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
+uint64_t iso9660_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
 	//arch_sti();
 	int offsetIndex = offset / CDROM_SECTOR;
 	int remainOffset = offset % CDROM_SECTOR;
@@ -220,7 +225,11 @@ int iso9660_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
 	if (sectors == 0) {
 		void *aspace = arch_mmu_getAspace();
 		arch_mmu_switch(arch_mmu_getKernelSpace());
-		vfs_readBlock((vfs_node_t*)node->device,dataBlock,2048,sector);
+		if (!vfs_readBlock((vfs_node_t*)node->device,dataBlock,2048,sector)) {
+			arch_mmu_switch(aspace);
+			kfree(sector);
+			return -1;
+		}
 		arch_mmu_switch(aspace);
 		memcpy(buffer,sector+remainOffset,size);
 		kfree(sector);
@@ -228,7 +237,10 @@ int iso9660_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
 	}
 	vfs_node_t *from = (vfs_node_t *)node->device;
 	if (remainOffset != 0) {
-		cdrom_readBlock(from,dataBlock,sector);
+		if (!cdrom_readBlock(from,dataBlock,sector)) {
+			kfree(sector);
+			return -1;
+		}
 		int scopy = remainOffset;
 		if (scopy == 0) {
 			scopy = CDROM_SECTOR;
@@ -256,7 +268,10 @@ int iso9660_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
 		}
 	}
 	while(sectors != 0) {
-		cdrom_readBlock(from,dataBlock,sector);
+		if (!cdrom_readBlock(from,dataBlock,sector)) {
+			kfree(sector);
+			return -1;
+		}
 		memcpy(buffer,sector,CDROM_SECTOR);
 		dataBlock++;
 		sectors--;
@@ -264,7 +279,9 @@ int iso9660_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
 		size-=CDROM_SECTOR;
 	}
 	if (remain != 0) {
-		cdrom_readBlock(from,dataBlock,sector);
+		if (!cdrom_readBlock(from,dataBlock,sector)) {
+			return -1;
+		}
 		void *sectorRem = sector+remainOffset;
 		//kprintf("Remain copying into 0x%x from 0x%x with size %d, offset: %d\r\n",buffer,sectorRem,size,remainOffset);
 		memcpy(buffer,sectorRem,size);
@@ -277,7 +294,10 @@ int iso9660_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
 				dataBlock++;
 				buffer+=how;
 				size-=how;
-				cdrom_readBlock(from,dataBlock,sector);
+				if (!cdrom_readBlock(from,dataBlock,sector)) {
+					kfree(sector);
+					return -1;
+				}
 				memcpy(buffer,sector,size);
 			}
 		}
@@ -289,7 +309,10 @@ int iso9660_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
 bool iso9660_mount(vfs_node_t *dev,vfs_node_t *mountPoint,void *parameters) {
 	PrimVolumeDesc *desc = kmalloc(sizeof(PrimVolumeDesc));
 	memset(desc,0,sizeof(PrimVolumeDesc));
-	vfs_readBlock(dev,0x10,1,desc);
+	if (!vfs_readBlock(dev,0x10,1,desc)) {
+		kprintf("Target device I/O error\r\n");
+		return false;
+	}
 	if (desc->type != 0x1) {
 		kprintf("iso9660: currently only Primary Volume Descriptor supported\r\n");
 		kfree(desc);

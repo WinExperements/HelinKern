@@ -26,6 +26,7 @@ typedef struct _dir {
     int _fd;
     int _pos;
     struct dirent *pointer;
+    struct _helin_dirent *native_ptr;
 } DIR;
 
 // linux/sys/dirent.h

@@ -10,11 +10,12 @@
 #include <tty.h> // TTY!!!
 #include <lib/queue.h>
 #include <arch.h>
+#include <syscall.h>
 static void *keyboard_handler(void *);
 static bool shift,ctrl = false;
 static void keyboard_keyHandler(char key);
 static dev_t *keyboard_dev;
-static int keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+static uint64_t keyboard_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
 static bool keyboard_isReady(struct vfs_node *node);
 static void readers_foreach(clist_head_t *element,va_list args);
 static int setBit(int n, int k);
@@ -61,6 +62,11 @@ void keyboard_init() {
 static void *keyboard_handler(void *stack) {
     uint8_t key = inb(0x60);
     if (key < 0x80) {
+	    if (key == 0x1) {
+		    int (*sys_reboot)(int) = (int (*)(int))syscall_get(14);
+		    sys_reboot(0xfffc04);
+		    kprintf("kbdev: kernel poweroff failure\r\n");
+	    }
 	    if ((tty_getFlags() & FLAG_RAW) == FLAG_RAW) {
 		    enqueue(keys,(void *)(int)key);
 		    return stack;
@@ -99,7 +105,7 @@ static void keyboard_keyHandler(char key) {
 		  output_putc(key);
     }
 }
-static int keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, void *buf) {
+static uint64_t keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, void *buf) {
     if (how <= 0 || buf == NULL)
         return -1;
 

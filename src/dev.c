@@ -9,12 +9,12 @@
 /* Since 30.01.2024 this is now a completlly independ DEVFS(must be mounted by init) */
 static dev_t *device;
 static vfs_fs_t *fs;
-static int devfs_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
-static int devfs_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+static uint64_t devfs_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
+static uint64_t devfs_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf);
 static void *devfs_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
-static void devfs_readBlock(struct vfs_node *node,int blockN,int how,void *buff);
-static void devfs_writeBlock(struct vfs_node *node,int blockN,int how,void *buff);
-static int devfs_ioctl(struct vfs_node *node,int request,va_list args);
+static bool devfs_readBlock(struct vfs_node *node,int blockN,int how,void *buff);
+static bool devfs_writeBlock(struct vfs_node *node,int blockN,int how,void *buff);
+static uint64_t devfs_ioctl(struct vfs_node *node,int request,va_list args);
 static bool devfs_isReady(struct vfs_node *node);
 static vfs_node_t *devfs_finddir(struct vfs_node *in,char *name);
 static struct dirent *devfs_readdir(struct vfs_node *dir,uint32_t index);
@@ -53,6 +53,8 @@ void dev_add(dev_t *dev) {
     fil->fs = fs;
     fil->device = dev->device;
     fil->priv_data = dev;
+    fil->mask = dev->mode;
+    fil->mask |= (S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
     dev->devNode = fil;
     if (!device) {
         device = dev;
@@ -79,7 +81,7 @@ dev_t *dev_find(char *name) {
     return NULL;
 }
 void dev_remove(int id) {}
-static int devfs_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
+static uint64_t devfs_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
     if (node != NULL) {
         dev_t *d = (dev_t *)node->priv_data;
         if (d->read != NULL) {
@@ -88,7 +90,7 @@ static int devfs_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *b
     }
     return 0;
 }
-static int devfs_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
+static uint64_t devfs_write(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
     if (node != NULL) {
         dev_t *d = (dev_t *)node->priv_data;
         if (d->write != NULL) {
@@ -104,23 +106,25 @@ static void *devfs_mmap(struct vfs_node *node,int addr,int size,int offset,int f
     }
     return NULL;
 }
-static void devfs_readBlock(struct vfs_node *node,int blockN,int how,void *buff) {
+static bool devfs_readBlock(struct vfs_node *node,int blockN,int how,void *buff) {
     if (node != NULL) {
         dev_t *d = (dev_t *)node->priv_data;
         if (d->readBlock != NULL) {
-        	d->readBlock(node,blockN,how,buff);
+        	return d->readBlock(node,blockN,how,buff);
         }
     }
+    return false;
 }
-static void devfs_writeBlock(struct vfs_node *node,int blockN,int how,void *buff) {
+static bool devfs_writeBlock(struct vfs_node *node,int blockN,int how,void *buff) {
     if (node != NULL) {
         dev_t *d = (dev_t *)node->priv_data;
         if (d->writeBlock != NULL) {
-        	d->writeBlock(node,blockN,how,buff);
+        	return d->writeBlock(node,blockN,how,buff);
         }
     }
+    return false;
 }
-static int devfs_ioctl(struct vfs_node *node,int request,va_list args) {
+static uint64_t devfs_ioctl(struct vfs_node *node,int request,va_list args) {
     if (node != NULL) {
         dev_t *d = (dev_t *)node->priv_data;
         if (!d) return -1;

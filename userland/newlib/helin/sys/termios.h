@@ -185,11 +185,13 @@ struct termios {
 #define TREPRINT_DEF _CTRL('r') /* ^R */
 #define TLNEXT_DEF   _CTRL('v') /* ^V */
 #define TDISCARD_DEF _CTRL('o') /* ^O */
-
 // Functions
 int tcgetattr(int fd, struct termios* tio);
 int tcsetattr(int fd,int type,const struct termios* tio);
-
+speed_t cfgetispeed(const struct termios *);
+speed_t cfgetospeed(const struct termios *);
+int     cfsetispeed(struct termios *, speed_t);
+int     cfsetospeed(struct termios *, speed_t);
 #ifdef __cplusplus
 }
 #endif
