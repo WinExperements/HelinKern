@@ -41,6 +41,7 @@ static void new_child_node(vfs_node_t *parent,vfs_node_t *child) {
 	    inform->child = child_cpio;
 	    child_cpio->root = parent;
    }
+    child->prev = parent;
     ((struct cpio*)parent->priv_data)->dirSize++;
 }
 
@@ -48,8 +49,10 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
     DEBUG("Loading CPIO initrd from %s\r\n",dev->name);
     // HACK!
     process_t *me = thread_getThread(thread_getCurrent());
+    if (me == NULL) goto cont;
     vfs_node_t *home = me->workDir;
     struct cpio_hdr hdr;
+cont:
     int offset = 0;
     int size = 0;
     root = mountpoint;
@@ -59,7 +62,7 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
     memset(p,0,sizeof(struct cpio));
     root->priv_data = p;
     int dev_size = dev->size;
-    me->workDir = mountpoint;
+    if (me != NULL) me->workDir = mountpoint;
     if (dev->size == 0) {
 	    kprintf("cpio: device size is zero! Device: %s\r\n",dev->name);
 	    return false;
@@ -70,7 +73,7 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
         vfs_read(dev,data_offset,sizeof(struct cpio_hdr),&hdr);
         if (hdr.magic != CPIO_MAGIC) {
             kprintf("cpiofs: Invalid magic(0x%x)\r\n",hdr.magic);
-            me->workDir = home;
+            if (me != NULL) me->workDir = home;
             return false;
         }
         size = hdr.filesize[0] * 0x10000 + hdr.filesize[1];
@@ -105,7 +108,7 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
     mountpoint->fs = cpio_fs;
     mountpoint->priv_data = p;
     mountpoint->mount_flags = VFS_MOUNT_RO;
-    me->workDir = home;
+    if (me != NULL) me->workDir = home;
     return true;
 }
 
@@ -122,24 +125,33 @@ struct vfs_node *cpio_finddir(struct vfs_node *di,char *name) {
     char *krnName = strdup(name);
     void *curSpace = arch_mmu_getAspace();
     process_t *prc = thread_getThread(thread_getCurrent());
+    if (prc == NULL) {
+	    arch_mmu_switch(arch_mmu_getKernelSpace());
+	    goto search;
+	}
     void *prcSpace = prc->aspace;
     void *switchTo = arch_mmu_getKernelSpace();
     prc->aspace = switchTo;
     arch_mmu_switch(switchTo);
+search:
     struct cpio *p = (struct cpio *)di->priv_data;
     for (; p != NULL; p = p->child) {
-	    if ((int)p->node >= KERN_HEAP_END) continue;
-	    if ((int)p->child >= KERN_HEAP_END) continue;
+	    if ((paddr_t)p->node >= KERN_HEAP_END) continue;
+	    if ((paddr_t)p->child >= KERN_HEAP_END) continue;
 	    if (p->node == NULL && p->child != NULL) continue; // looks like root
 	    if (strcmp(p->node->name,krnName)) {
-		    prc->aspace = prcSpace;
-		    arch_mmu_switch(curSpace);
+		    if (prc != NULL) {
+			prc->aspace = prcSpace;
+		    	arch_mmu_switch(curSpace);
+		    }
 		    kfree(krnName);
 		    return p->node;
 		}
 	}
-    prc->aspace = prcSpace;
-    arch_mmu_switch(curSpace);
+    if (prc != NULL) {
+    	prc->aspace = prcSpace;
+    	arch_mmu_switch(curSpace);
+    }
     kfree(krnName);
     return NULL;
 }

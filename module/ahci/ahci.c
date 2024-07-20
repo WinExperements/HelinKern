@@ -336,8 +336,9 @@ static bool ahci_vdev_writeBlock(vfs_node_t *node,int blockNo,int how,void *buf)
 static uint64_t ahci_vdev_write(vfs_node_t *node,uint64_t blockNo,uint64_t how, void *buf);
 void registerDev(struct sata_info *inf);
 void* align_addr(void* address,int al);
-void *ahci_handler(void *regs);
+uintptr_t ahci_handler(uintptr_t regs);
 char datBuff[16384] __attribute__((aligned(1024)));
+uintptr_t datBuffPhys = 0;
 bool identifyDisk(HBA_PORT *port,HBA_MEM *abar,int type);
 int AHCI_BASE;
 static struct glob *gl_dat;
@@ -376,14 +377,14 @@ static void PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
     info.subclass = PciRead8(id, PCI_CONFIG_SUBCLASS);
     info.classCode = PciRead8(id, PCI_CONFIG_CLASS_CODE);
     if (((info.classCode << 8) | info.subclass) == PCI_STORAGE_SATA) {
-        int addr = PciRead32(id,PCI_CONFIG_BAR5);
-	    PciWrite16(id,PCI_CONFIG_COMMAND,PciRead16(id,PCI_CONFIG_COMMAND) | 0x0002 | 0x0004);
-	    ctrl_data = (HBA_MEM *)(addr & ~0xf);
+        uintptr_t addr = PciRead32(id,PCI_CONFIG_BAR5);
+	PciWrite16(id,PCI_CONFIG_COMMAND,PciRead16(id,PCI_CONFIG_COMMAND) | 0x0002 | 0x0004);
+	ctrl_data = (HBA_MEM *)(addr & ~0xf);
         // Map the space
         int pages = (sizeof(HBA_MEM))+1;
         for (int page = 0; page < pages; page++) {
             int align = page*4096;
-            arch_mmu_mapPage(NULL,addr+align,addr+align,7);
+            arch_mmu_mapPage(NULL,addr+align,addr+align,3);
         }
         ctrl_id = id;
       controllerID = id;
@@ -534,6 +535,8 @@ void ahci_init() {
     memset(datBuff,0,512);
     void *a = arch_mmu_getAspace();
     arch_mmu_switch(arch_mmu_getKernelSpace());
+    // Get physical address of the datBuff.
+    datBuffPhys = (uintptr_t)arch_mmu_getPhysical(datBuff);
     // Scan each BUS to find the SATA controller
     for (unsigned int bus = 0; bus < 256; ++bus)
     {
@@ -691,7 +694,7 @@ bool identifyDisk(HBA_PORT *port,HBA_MEM *abar,int type) {
 	HBA_CMD_TBL *cmdtbl = (HBA_CMD_TBL *)(cmd->ctba);
 	memset(cmdtbl, 0, sizeof(HBA_CMD_TBL) +
  		(cmd->prdtl-1)*sizeof(HBA_PRDT_ENTRY));
-	cmdtbl->prdt_entry[0].dba = (uint32_t)datBuff;
+	cmdtbl->prdt_entry[0].dba = (uint32_t)datBuffPhys;
 	cmdtbl->prdt_entry[0].dbc = sizeof(ata_identify_t);
 	cmdtbl->prdt_entry[0].i = 0;
 	FIS_REG_H2D *cmdfis = (FIS_REG_H2D*)(&cmdtbl->cfis);
@@ -758,14 +761,14 @@ static uint8_t rw_sata(struct sata_info *pdata, uint64_t lba, uint32_t count,cha
     	int i = 0;
 	for (i=0; i<cmdheader->prdtl-1; i++)
 	{
-		cmdtbl->prdt_entry[i].dba = (uint32_t) buf;
+		cmdtbl->prdt_entry[i].dba = (uint32_t) (uintptr_t)buf;
 		cmdtbl->prdt_entry[i].dbc = 8*1024-1;	// 8K bytes (this value should always be set to 1 less than the actual value)
 		cmdtbl->prdt_entry[i].i = 1;
 		buf += 4*1024;	// 4K words
 		count -= 16;	// 16 sectors
 	}
 	// Last entry
-	cmdtbl->prdt_entry[i].dba = (uint32_t) buf;
+	cmdtbl->prdt_entry[i].dba = (uint32_t)(uintptr_t)buf;
 	if (pdata->type == AHCI_DEV_SATAPI) {
 		cmdtbl->prdt_entry[i].dbc = (count * 2048) -1;
 	} else {
@@ -866,10 +869,15 @@ static bool ahci_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf)
 	// Make sure we working in kernel space.
 	void *curSpace = arch_mmu_getAspace();
 	process_t *prc = thread_getThread(thread_getCurrent());
+	if (prc == NULL) {
+		arch_mmu_switch(arch_mmu_getKernelSpace());
+		goto read;
+	}
 	void *prcSpace = prc->aspace;
 	void *switchTo = arch_mmu_getKernelSpace();
 	prc->aspace = switchTo;
 	arch_mmu_switch(switchTo);
+read:
 	bool ret = false;
 	arch_sti();
 	for (int i = 0; i < 1; i++) {
@@ -877,7 +885,7 @@ static bool ahci_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf)
     		if (blocks == 0) {
         		blocks = 1;
     		}
-    		if (!rw_sata(inf,blockNo,blocks,datBuff,true,false)) {
+    		if (!rw_sata(inf,blockNo,blocks,(void *)datBuffPhys,true,false)) {
 			goto clean;
 		}
     		memcpy(buf,datBuff,blocks*block_size);
@@ -885,6 +893,7 @@ static bool ahci_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf)
 	ret = true;
 clean:
 	// Switch back.
+	if (prc == NULL) return ret;
 	arch_mmu_switch(curSpace);
 	prc->aspace = prcSpace;
 	return ret;
@@ -896,6 +905,10 @@ static uint64_t ahci_vdev_read(vfs_node_t *node,uint64_t offset,uint64_t how,voi
     bool reqSwitch = (arch_mmu_getAspace() == arch_mmu_getKernelSpace() ? false : true);
     process_t *prc = thread_getThread(thread_getCurrent());
     void *curSpace = arch_mmu_getAspace();
+    if (prc == NULL) {
+	    arch_mmu_switch(arch_mmu_getKernelSpace());
+	    goto read;
+	}
     void *orig = prc->aspace;
     void *prcOrig = prc->aspace;
     bool curProcIsnt = false;
@@ -905,6 +918,7 @@ static uint64_t ahci_vdev_read(vfs_node_t *node,uint64_t offset,uint64_t how,voi
     }
     prc->aspace = arch_mmu_getKernelSpace();
     arch_mmu_switch(prc->aspace);
+read:
     int remain = how % 512;
     int realSize = how - remain;
     int blocks = realSize / 512;
@@ -917,7 +931,7 @@ static uint64_t ahci_vdev_read(vfs_node_t *node,uint64_t offset,uint64_t how,voi
 	    }
 	    arch_mmu_switch(curSpace);
 	    memcpy(buffer,datBuff+realOffset,how);
-	    prc->aspace = prcOrig;
+	    if (prc != NULL) prc->aspace = prcOrig;
 	    arch_mmu_switch(curSpace);
 	    return how;
 	}
@@ -934,7 +948,7 @@ static uint64_t ahci_vdev_read(vfs_node_t *node,uint64_t offset,uint64_t how,voi
 		    int howCopy = i+32 > blocks ? (blocks-i)*512 : 16384;
 		    memcpy(buffer,datBuff,howCopy);
 		    buffer += howCopy;
-		    arch_mmu_switch(prc->aspace);
+		    if (prc != NULL) arch_mmu_switch(prc->aspace);
 	}
    } else {
 	   if (!ahci_vdev_readBlock(node,start,realSize,datBuff)) {
@@ -944,7 +958,7 @@ static uint64_t ahci_vdev_read(vfs_node_t *node,uint64_t offset,uint64_t how,voi
 	   arch_mmu_switch(curSpace);
 	   memcpy(buffer,datBuff,realSize);
 	   buffer += realSize;
-	   arch_mmu_switch(prc->aspace);
+	   if (prc != NULL) arch_mmu_switch(prc->aspace);
    }
     if (remain > 0) {
 	    // Read remain
@@ -952,8 +966,9 @@ static uint64_t ahci_vdev_read(vfs_node_t *node,uint64_t offset,uint64_t how,voi
 	    ahci_vdev_readBlock(node,blocks+1,512,datBuff);
 	    arch_mmu_switch(curSpace);
 	    memcpy(buffer,datBuff,remain);
-	    arch_mmu_switch(prc->aspace);
+	    if (prc != NULL) arch_mmu_switch(prc->aspace);
   }
+    if (prc == NULL) return how;
     prc->aspace = orig;
     if (reqSwitch) {
 	    prc->aspace = prcOrig;
@@ -998,13 +1013,13 @@ void registerDev(struct sata_info *inf) {
     dev_add(dev);
 }
 
-void *ahci_handler(void *regs) {
+uintptr_t ahci_handler(uintptr_t stack) {
     // Switch to kernel address space
     void *aspace = arch_mmu_getAspace();
     arch_mmu_switch(arch_mmu_getKernelSpace());
     int inter_pending = ctrl_data->is & ctrl_data->pi;
     if (inter_pending == 0) {
-        return regs;
+        return stack;
     }
     int found = 0;
     // check ports
@@ -1029,7 +1044,7 @@ void *ahci_handler(void *regs) {
 	    kprintf("AHCI: Strange IRQ received\r\n");
     }
     arch_mmu_switch(aspace);
-    return regs;
+    return stack;
 }
 int
 fls(unsigned mask)
@@ -1115,20 +1130,22 @@ static void sendCommand(int cmd,HBA_PORT *port,HBA_MEM *mem,int type,uint8_t *at
 	if (cmdslot == -1) {
 		return;
 	}
+	// Map it.
+	extern uint64_t krnVirtualOffset;
 	HBA_CMD_HEADER *cmdhdr = (HBA_CMD_HEADER *)port->clb;
 	cmdhdr+=cmdslot;
 	cmdhdr->cfl =  sizeof(FIS_REG_H2D)/sizeof(uint32_t);
         //cmdhdr->p = 1;
         cmdhdr->prdtl = 1;
 	bool copyAlign = false;
-	if ((int)buffer % 1024 != 0) {
+	if ((uintptr_t)buffer % 1024 != 0) {
 		copyAlign = true;
 	}
 	HBA_CMD_TBL *cmdtbl = (HBA_CMD_TBL *)(cmdhdr->ctba);
 	memset(cmdtbl, 0, sizeof(HBA_CMD_TBL) +
                 (cmdhdr->prdtl-1)*sizeof(HBA_PRDT_ENTRY));
 	if (buffer!= NULL) {
-		cmdtbl->prdt_entry[0].dba = copyAlign ? (uint32_t)datBuff : (uint32_t)buffer;
+		cmdtbl->prdt_entry[0].dba = copyAlign ? (uint32_t)(uintptr_t)datBuffPhys : (uint32_t)(uintptr_t)buffer;
 		cmdtbl->prdt_entry[0].dbc = buffSize - 1;
 		cmdtbl->prdt_entry[0].i = 0;
 	}
@@ -1203,7 +1220,8 @@ uint64_t ahci_vdev_ioctl(vfs_node_t *node,int request,va_list args) {
 	process_t *prc = thread_getThread(thread_getCurrent());
 	struct sata_info *info = (struct sata_info *)node->device;
 	void *aspace = arch_mmu_getAspace();
-	va_list args_orig = args; // Yes.
+	va_list args_orig; // Yes.
+	va_copy(args_orig,args);
 	arch_mmu_switch(arch_mmu_getKernelSpace());
 	prc->aspace = arch_mmu_getKernelSpace();
 	arch_sti();
@@ -1255,26 +1273,32 @@ end:
 	return 0;
 }
 static void ahci_mapPort(HBA_PORT *port) {
-	int begin = (int)port;
+	vaddr_t begin = (vaddr_t)port;
         for (int i = 0; i < 2; i++) {
-               int mem = begin + (i * 4096);
-                arch_mmu_mapPage(NULL,mem,mem,7);
+               vaddr_t mem = begin + (i * 4096);
+                arch_mmu_mapPage(NULL,mem,mem,3);
         }
 }
 static bool ahci_vdev_poweroff(vfs_node_t *node) {
 	// Currently only kernel code has access to power managment functions.
 	// But for any case switch to kernel address space.
 	process_t *prc = thread_getThread(thread_getCurrent());
+	if (prc == NULL) {
+		goto poweroff;
+	}
 	void *aspace = prc->aspace;
 	void *krnSpace = arch_mmu_getKernelSpace();
 	arch_mmu_switch(krnSpace);
 	// Now we can call sendCommand
+poweroff:
 	struct sata_info *info = node->device;
+	//ahci_mapPort(info->port);
 	if (info->type == AHCI_DEV_SATAPI) {
 		sendCommand(0x1c,info->port,info->abar,info->type,NULL,NULL,0);
 	} else {
 		sendCommand(0xE0,info->port,info->abar,info->type,NULL,NULL,0);
 	}
+	if (prc == NULL) return true;
 	//kprintf("executed,switch....");
 	arch_mmu_switch(aspace);
 	//kprintf("ok");
@@ -1283,13 +1307,19 @@ static bool ahci_vdev_poweroff(vfs_node_t *node) {
 static bool ahci_vdev_poweron(vfs_node_t *node) {
 	// like ahci_vdev_poweroff.
 	process_t *prc = thread_getThread(thread_getCurrent());
+	if (prc == NULL) {
+		arch_mmu_switch(arch_mmu_getKernelSpace());
+		goto poweroff;
+	}
 	void *aspace = prc->aspace;
 	void *krnSpace = arch_mmu_getKernelSpace();
 	prc->aspace = krnSpace;
 	arch_sti();
 	arch_mmu_switch(krnSpace);
+poweroff:
 	struct sata_info *info = node->device;
 	sendCommand(0xE1,info->port,info->abar,info->type,NULL,NULL,0);
+	if (prc == NULL) return true;
 	prc->aspace = aspace;
 	arch_mmu_switch(aspace);
 	return true;

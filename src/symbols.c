@@ -5,7 +5,9 @@
 #include<lib/string.h>
 #include <lib/queue.h>
 #include <mm/alloc.h>
+#ifdef USE_INTERNAL_SYMS
 #include <../userland/ksymbols.h>
+#endif
 Elf32_Shdr *symtab;
 Elf32_Shdr *strtab;
 queue_t *module_symbols;
@@ -34,6 +36,10 @@ Elf32_Shdr *symbols_findSection(multiboot_info_t *inf,char *name) {
         return NULL;
 }
 void symbols_init(multiboot_info_t *inf) {
+#ifdef USE_INTERNAL_SYMS
+	useInternal = true;
+	goto initStructures;
+#endif
 	if (inf->flags == 0x454c494e) {
 		// HelinBoot!
 		kprintf("%s: helinboot boot protocol detected!\r\n",__func__);
@@ -52,31 +58,35 @@ initStructures:
         // initialize map for kernel drivers
         module_symbols = queue_new();
 }
-char *symbols_findName(int value) {
-	uint32_t symbol_value = 0;
-    	char *name = 0;
+char *symbols_findName(uintptr_t value) {
+	uintptr_t symbol_value = 0;
+    	char *name = "notfnd";
+	uintptr_t bestMatch = 0;
+#ifdef USE_INTERNAL_SYMS
 	if (useInternal) {
 		for (int i = 0; i < KERN_SYM_COUNT; i++) {
-			if (kernel_syms[i].val == value) {
-				return kernel_syms[i].name;
+			if (kernel_syms[i].val < value && kernel_syms[i].val > bestMatch) {
+				name = kernel_syms[i].name;
+				bestMatch = kernel_syms[i].val;
 			}
 		}
-		return NULL;
+		return name;
 	}
+#endif
 	char *strtab_addr = (char *)strtab->sh_addr;
         Elf32_Sym *symbols = (Elf32_Sym *)symtab->sh_addr;
         for (Elf32_Word i = 0; i < symtab->sh_size / sizeof(Elf32_Sym); i++) {
                 Elf32_Sym *can = symbols + i;
-		            if (can->st_value >= value) {
-				if ((can->st_info & STT_FUNC) != STT_FUNC) continue;
-				//kprintf("can->st_value: 0x%x, st_size: 0x%x\r\n",can->st_value,can->st_size);
-				// Not working.
-				return 0;
-			}
+		if ((can->st_info & STT_FUNC) != STT_FUNC) continue;
+		if (can->st_value < value && can->st_value > bestMatch) {
+			name = (char *)strtab_addr + can->st_name;
+			bestMatch = can->st_value;
+		}
         }
-	return "ntfnd";
+	return name;
 }
 int symbols_findValue(char *f_name) {
+#ifdef USE_INTERNAL_SYMS
 	if (useInternal) {
 		for (int i = 0; i < KERN_SYM_COUNT; i++) {
 			if (strcmp(kernel_syms[i].name,f_name)) {
@@ -85,6 +95,7 @@ int symbols_findValue(char *f_name) {
 		}
 		return NULL;
 	}
+#endif
 	char *strtab_addr = (char *)strtab->sh_addr;
         Elf32_Sym *symbols = (Elf32_Sym *)symtab->sh_addr;
         for (Elf32_Word i = 0; i < symtab->sh_size / sizeof(Elf32_Sym); i++) {

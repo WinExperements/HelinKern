@@ -1,6 +1,7 @@
 #include <arch/x86/io.h>
 #include <output.h>
 #include <dev/fb.h>
+#include <thread.h>
 //#define PORT 0x3f8
 static int PORT = 0x3f8;
 static bool fbUsed = false;
@@ -16,6 +17,10 @@ static uint16_t vga_getPos();
 static void update_cursor(int x, int y);
 static void disable_cursor();
 static bool disableCursor = false;
+void x86_serial() {
+	vgaUsed = false;
+	fbUsed = false;
+}
 void output_uart_init() {
    // Prepare UART output before primary output is begin initialized
    outb(PORT + 1, 0x00);
@@ -46,10 +51,10 @@ int is_transmit_empty() {
 }
  
 void write_serial(char a) {
-    if (fbUsed) {
+   /* if (fbUsed) {
         fb_putc(a);
         return;
-    }
+    }*/
    while (is_transmit_empty() == 0);
  
    outb(PORT,a);

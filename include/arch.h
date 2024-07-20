@@ -25,7 +25,7 @@ void arch_poweroff();
 /* Get framebuffer information(if available). Return NULL if platform doesn't support it, if NULL returned, kernel fallback to the serial console */
 bool arch_getFBInfo(fbinfo_t *info);
 /* Get total amount of installed memory */
-int arch_getMemSize();
+uintptr_t arch_getMemSize();
 /* Switch context of process */
 void arch_switchContext(void *prSt);
 /* Prepare process context */
@@ -55,7 +55,8 @@ void arch_sysinfo();
 /* Put user space process arguments for target architecture */
 void arch_putArgs(process_t *prc,int argc,char **argv,char **environ);
 /* trace panic addresses */
-void arch_trace();
+/* 0 in stackPtr means current stack */
+void arch_trace(uintptr_t stackPtr);
 /* Prepare arch specific information for process, or newly created stack, whatever required for target architecture, can be empty body function */
 void arch_prepareProcess(process_t *prc);
 /* Save FPU context for target process(if available) */
@@ -63,7 +64,7 @@ void arch_fpu_save(void *to);
 /* Restore FPU context for target process(if available) */
 void arch_fpu_restore(void *from);
 /* Actually get syscall caller return address */
-int arch_syscall_getCallerRet();
+uintptr_t arch_syscall_getCallerRet();
 /* Arch specific code for forking processes */
 void arch_forkProcess(process_t *parent,process_t *child);
 /* Get architecture name */
@@ -76,6 +77,11 @@ void arch_switchToUserMode();
  * REQUIRED BY:
  * POSIX signals implementation.
 */
-void arch_processSignal(process_t *prc,int address,...);
+void arch_processSignal(process_t *prc,uintptr_t address,...);
 void arch_exitSignal(process_t *prc);
+/* Soooo 😔, this function is required only if the kernel is loaded not at the start of available memory.
+ * If it starts in start of free memory then return kernel end adddress otherwise
+ * return address when the allocation of physical memory can actually begin.
+*/
+uintptr_t arch_getMemStart();
 #endif

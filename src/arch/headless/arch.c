@@ -20,6 +20,7 @@ void arch_entry_point(void *arg) {
 }
 void arch_pre_init() {}
 void arch_init() {
+	disableOutput = false;
 	kprintf("HelinOS Headless architecture init code, builded by GCC: ");
 	kprintf(__VERSION__);
 	kprintf("\r\n");
@@ -45,7 +46,7 @@ int arch_getMemSize() {
 void arch_switchContext(void *prSt) {
 	// We don't have a MMU......how we able even have multitasking on this platform?
 }
-void *arch_prepareContext(int entry,bool isUser) {
+void *arch_prepareContext(void* entry,bool isUser) {
 	// i don't listen youuuu
 	return NULL;
 }
@@ -54,12 +55,12 @@ void *arch_preapreArchStack(bool isUser) {
 	return NULL;
 }
 void arch_syscall_init() {}
-int arch_getModuleAddress() {
+uint64_t arch_getModuleAddress() {
 	// The bootloader doesn't support it :(
 	return 0;
 }
-int arch_getKernelEnd() {
-	return (int)kernel_end;
+uint64_t arch_getKernelEnd() {
+	return (uint64_t)kernel_end;
 }
 void arch_destroyContext(void *context) {
 	// I SAY: Destroy yourself! Watch, he doesn't listen me....so i can't do it
@@ -83,7 +84,7 @@ void arch_detect() {
 void arch_sysinfo() {
 	// This method not even is called anymore in the kernel, so it's useless now.
 }
-void arch_putArgs(process_t *prc,int argc,char **argv) {
+void arch_putArgs(process_t *prc,int argc,char **argv,char **environ) {
 	// Bereh i kladeh tudi, cho ne zrozymilo?
 }
 void arch_trace() {
@@ -100,7 +101,7 @@ void arch_fpu_restore(void *from) {
 	// Who are you?
 }
 /* Actually get syscall caller return address */
-int arch_syscall_getCallerRet() {
+uintptr_t arch_syscall_getCallerRet() {
 	// It's hard to explain why i am lazzy to implement this.....
 	return 0;
 }
@@ -116,5 +117,5 @@ bool arch_elf_check_header(Elf32_Ehdr *hdr) {
 	return false;
 }
 /* New HelinOS functions */
-void arch_processSignal(process_t *prc,int address,...) {}
+void arch_processSignal(process_t *prc,uintptr_t address,...) {}
 void arch_exitSignal(process_t *prc) {}

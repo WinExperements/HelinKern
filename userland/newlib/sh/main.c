@@ -44,6 +44,7 @@ int main() {
         fflush(stdout);
         fgets(line,100,stdin);
         line[strcspn(line,"\n")] = 0;
+	if (line[0] == '#') continue;
         if (!strcmp(line,"exit")) {
             exit = true;
             break;
@@ -240,6 +241,17 @@ void parse(int argc,char **argv) {
 	    sleep(2);
 	    char *og[] = {"/bin/landmine",NULL};
 	    executeCommand(1,og,false);
+    } else if (!strcmp(argv[0],"kill")) {
+	    if (argc < 2) {
+		    printf("kill <pid> <sig>, if <sig> not specified, sigkill used\r\n");
+		    return;
+		}
+	    int pid = atoi(argv[1]);
+	    int sig = 9;
+	    if (argc > 2) {
+		    sig = atoi(argv[2]);
+		}
+	    kill(pid,sig);
     } else {
 	if (!executeCommand(argc,argv,true)) {
         	printf("Unknown command: %s\n",argv[0]);

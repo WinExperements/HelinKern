@@ -154,9 +154,21 @@ void vfs_truncate(vfs_node_t *node,int size) {
 }
 vfs_node_t *vfs_find(char *path) {
     if (path[0] == '/') {
-        return vfs_find_impl(vfs_getRoot(),path);
+	    vfs_node_t *rootDir = vfs_getRoot();
+	    process_t *caller = thread_getThread(thread_getCurrent());
+	    if (caller != NULL) {
+		    rootDir = caller->root;
+		}
+        	return vfs_find_impl(vfs_getRoot(),path);
     } else {
-        vfs_node_t *workDir = thread_getThread(thread_getCurrent())->workDir;
+        vfs_node_t *workDir = NULL;
+	process_t *curPRC = thread_getThread(thread_getCurrent());
+	if (curPRC == NULL) {
+		workDir = fs_root;
+		goto search;
+	} else {
+		workDir = curPRC->workDir;
+	}
         if (!workDir) {
             kprintf("vfs_find: Seems your process are broken, cannot find work dir\n");
             return NULL; // return
@@ -164,6 +176,7 @@ vfs_node_t *vfs_find(char *path) {
         if (strcmp(path,"..")) {
             return workDir->prev;
         }
+search:
         return vfs_find_impl(workDir,path);
     }
     return NULL;
@@ -208,6 +221,13 @@ void vfs_node_path(vfs_node_t *node,char *path,int size) {
         vfs_node_t *n = node;
         int char_index = 127;
         while (n != NULL) {
+		if (n->name == NULL) {
+			// Maybe root?
+			char_index-=1;
+			target_path[char_index] = '/';
+			n = n->prev;
+			continue;
+		}
             int len = strlen(n->name);
             char_index-=len;
             if (char_index < 2) {

@@ -17,7 +17,22 @@
 #define IRQ13 45
 #define IRQ14 46
 #define IRQ15 47
-
+#if defined(__x86_64__)
+// X86_64 Has differences.
+typedef struct registers {
+	uintptr_t ds;
+	uint64_t r15,r14,r13,r12,r11,r10,r9,r8;
+	uint64_t rbp,rdi,rsi,rdx,rcx,rbx,rax;
+	// Pushed by irq_common_stub.
+	uint64_t int_no,error_code;
+	// Pushed by the CPU itself.
+	uint64_t rip;
+	uint64_t cs;
+	uint64_t eflags;
+	uint64_t useresp;
+	uint64_t ss;
+} __attribute__((packed)) registers_t;
+#else
 typedef struct registers
 {
   uint32_t ds;                  // Data segment selector
@@ -36,6 +51,7 @@ typedef struct registers
   uint32_t useresp;
   uint32_t ss;
 } __attribute__((packed))  registers_t;
+#endif
 typedef struct brdM {
     int eip;
     int ebx,esi,edi,ebp,edx,ecx,eax;

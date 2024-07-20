@@ -118,7 +118,6 @@ void rootfs_insertModuleData(vfs_node_t *node,int size,char *addr) {
 	node->size = size;
 }
 static bool __rootfs_mount(vfs_node_t *to,vfs_node_t *mp,void *params) {
-	mp->name = "/";
     mp->flags = VFS_DIRECTORY;
     mp->fs = rootfs_fs;
     return true;

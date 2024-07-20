@@ -32,5 +32,5 @@ struct stat {
 };
 // Syscall specific includes.
 void syscall_init();
-int syscall_get(int n);
+uintptr_t syscall_get(int n);
 #endif

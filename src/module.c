@@ -37,7 +37,7 @@ void *module_get_section_addr(module_t *mod,unsigned n) {
 	for (seg = mod->seg; seg; seg = seg->next) {
 		if (seg->section == n) {
            		if (n == 1) {
-				mod->load_address = (int)seg->addr;
+				mod->load_address = (uintptr_t)seg->addr;
 			}
 			return seg->addr;
 		}
@@ -158,7 +158,7 @@ bool module_resolve_symbols(module_t *mod,Elf32_Ehdr *e) {
 				sym->st_value += sh_hdr->sh_addr;
 			} break;
 			case STT_FUNC:
-			sym->st_value += (Elf32_Addr) module_get_section_addr(mod,sym->st_shndx);
+			sym->st_value += (paddr_t) module_get_section_addr(mod,sym->st_shndx);
 			if (bind != STB_LOCAL) {
 				symbols_registerSymbolFromModule(name,sym->st_value);
 			}
@@ -168,7 +168,7 @@ bool module_resolve_symbols(module_t *mod,Elf32_Ehdr *e) {
 			}
 			break;
 			case STT_SECTION:
-			sym->st_value += (Elf32_Addr) module_get_section_addr(mod,sym->st_shndx);
+			sym->st_value += (paddr_t) module_get_section_addr(mod,sym->st_shndx);
 			break;
 			case STT_FILE:
 			sym->st_value = 0;

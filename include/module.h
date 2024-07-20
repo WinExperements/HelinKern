@@ -5,7 +5,7 @@
 typedef struct module {
     char *name;
     int ref_count;
-    int load_address;
+    uintptr_t load_address;
     struct module_segment *seg;
     Elf32_Sym *symtab;
     void (*init)(struct module *);
@@ -16,7 +16,7 @@ typedef struct module_segment
 {
     struct module_segment *next;
     void *addr;
-    uint32_t size;
+    size_t size;
     unsigned section;
 } module_segment_t;
 

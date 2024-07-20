@@ -17,7 +17,7 @@
 #include <symbols.h>
 // Pthreads structure that passed to newlib thread_entry
 typedef struct _pthread_str {
-	int entry;
+	uintptr_t entry;
 	void *arg;
 } pthread_str;
 
@@ -73,7 +73,7 @@ static void sys_setgid(int gid);
 static int sys_getgid();
 static void *sys_sbrk(int increment);
 static int sys_dup(int oldfd,int newfd);
-static int sys_clone(int entryPoint,int arg1,int arg2); // pthread support, yay
+static int sys_clone(void *entryPoint,uintptr_t arg1,uintptr_t arg2); // pthread support, yay
 static int sys_truncate(int fd,int newsize);
 // HelinOS specific
 static void sys_waitForStart(int pid); // waits for thread begin started, automatically enabled the interrupts
@@ -115,81 +115,81 @@ static int sys_getrlimit(int resID,rlimit_t *to);
 static int sys_setrlimit(int resID,rlimit_t *to);
 static int sys_getrusage(int resID,void *to);
 static void *kmalloc_user(process_t *prc,int size);
-int syscall_table[74] = {
-    (int)sys_default,
-    (int)sys_print,
-    (int)sys_exit,
-    (int)sys_kill,
-    (int)sys_getpid,
-    (int)sys_stat,
-    (int)sys_unlink,
-    (int)sys_open,
-    (int)sys_close,
-    (int)sys_read,
-    (int)sys_write,
-    (int)sys_signal,
-    (int)sys_sigexit,
-    (int)sys_exec,
-    (int)sys_reboot,
-    (int)sys_default,
-    (int)sys_pwd,
-    (int)sys_chdir,
-    (int)sys_opendir,
-    (int)sys_closedir,
-    (int)sys_readdir,
-    (int)sys_mount,
-    (int)sys_waitpid,
-    (int)sys_getppid,
-    (int)sys_sync,
-    (int)sys_getuid,
-    (int)sys_setuid,
-    (int)sys_seek,
-    (int)sys_tell,
-    (int)sys_mmap,
-    (int)sys_insmod,
-    (int)sys_rmmod,
-    (int)sys_ioctl,
-    (int)sys_setgid,
-    (int)sys_getgid,
-    (int)sys_sbrk,
-    (int)sys_dup,
-    (int)sys_clone,
-    (int)sys_waitForStart,
-    (int)sys_usleep,
-    (int)sys_truncate,
-    (int)sys_socket,
-    (int)sys_bind,
-    (int)sys_listen,
-    (int)sys_accept,
-    (int)sys_connect,
-    (int)sys_send,
-    (int)sys_recv,
-    (int)sys_ready,
-    (int)sys_fork,
-    (int)sys_uname,
-    (int)sys_sethostname,
-    (int)sys_gethostname,
-    (int)sys_creat,
-    (int)sys_munmap,
-    (int)sys_umount,
-    (int)sys_access,
-    (int)sys_chmod,
-    (int)sys_gettime,
-    (int)sys_settime,
-    (int)sys_syslog,
-    (int)sys_chroot,
-    (int)sys_fchdir,
-    (int)sys_fchown,
-    (int)sys_chown,
-    (int)sys_rm,
-    (int)sys_getpgid,
-    (int)sys_nice,
-    (int)sys_symlink,
-    (int)sys_ipc,
-    (int)sys_getfsstat,
-    (int)sys_getrlimit,
-    (int)sys_setrlimit,
-    (int)sys_getrusage,
+uintptr_t syscall_table[74] = {
+    (uintptr_t)sys_default,
+    (uintptr_t)sys_print,
+    (uintptr_t)sys_exit,
+    (uintptr_t)sys_kill,
+    (uintptr_t)sys_getpid,
+    (uintptr_t)sys_stat,
+    (uintptr_t)sys_unlink,
+    (uintptr_t)sys_open,
+    (uintptr_t)sys_close,
+    (uintptr_t)sys_read,
+    (uintptr_t)sys_write,
+    (uintptr_t)sys_signal,
+    (uintptr_t)sys_sigexit,
+    (uintptr_t)sys_exec,
+    (uintptr_t)sys_reboot,
+    (uintptr_t)sys_default,
+    (uintptr_t)sys_pwd,
+    (uintptr_t)sys_chdir,
+    (uintptr_t)sys_opendir,
+    (uintptr_t)sys_closedir,
+    (uintptr_t)sys_readdir,
+    (uintptr_t)sys_mount,
+    (uintptr_t)sys_waitpid,
+    (uintptr_t)sys_getppid,
+    (uintptr_t)sys_sync,
+    (uintptr_t)sys_getuid,
+    (uintptr_t)sys_setuid,
+    (uintptr_t)sys_seek,
+    (uintptr_t)sys_tell,
+    (uintptr_t)sys_mmap,
+    (uintptr_t)sys_insmod,
+    (uintptr_t)sys_rmmod,
+    (uintptr_t)sys_ioctl,
+    (uintptr_t)sys_setgid,
+    (uintptr_t)sys_getgid,
+    (uintptr_t)sys_sbrk,
+    (uintptr_t)sys_dup,
+    (uintptr_t)sys_clone,
+    (uintptr_t)sys_waitForStart,
+    (uintptr_t)sys_usleep,
+    (uintptr_t)sys_truncate,
+    (uintptr_t)sys_socket,
+    (uintptr_t)sys_bind,
+    (uintptr_t)sys_listen,
+    (uintptr_t)sys_accept,
+    (uintptr_t)sys_connect,
+    (uintptr_t)sys_send,
+    (uintptr_t)sys_recv,
+    (uintptr_t)sys_ready,
+    (uintptr_t)sys_fork,
+    (uintptr_t)sys_uname,
+    (uintptr_t)sys_sethostname,
+    (uintptr_t)sys_gethostname,
+    (uintptr_t)sys_creat,
+    (uintptr_t)sys_munmap,
+    (uintptr_t)sys_umount,
+    (uintptr_t)sys_access,
+    (uintptr_t)sys_chmod,
+    (uintptr_t)sys_gettime,
+    (uintptr_t)sys_settime,
+    (uintptr_t)sys_syslog,
+    (uintptr_t)sys_chroot,
+    (uintptr_t)sys_fchdir,
+    (uintptr_t)sys_fchown,
+    (uintptr_t)sys_chown,
+    (uintptr_t)sys_rm,
+    (uintptr_t)sys_getpgid,
+    (uintptr_t)sys_nice,
+    (uintptr_t)sys_symlink,
+    (uintptr_t)sys_ipc,
+    (uintptr_t)sys_getfsstat,
+    (uintptr_t)sys_getrlimit,
+    (uintptr_t)sys_setrlimit,
+    (uintptr_t)sys_getrusage,
 };
 int syscall_num = 74;
 extern char *ringBuff;
@@ -220,7 +220,7 @@ void syscall_init() {
     // redirect to arch specific init code
     arch_syscall_init();
 }
-int syscall_get(int n) {
+uintptr_t syscall_get(int n) {
 	if (n > syscall_num) return 0;
 	DEBUG("Get syscall %d from %s\r\n",n,thread_getThread(thread_getCurrent())->name);
 	return syscall_table[n];
@@ -231,7 +231,10 @@ static void sys_exit(int exitCode) {
 }
 static void sys_kill(int pid,int sig) {
 	if (sig == 9 || sig == 0) {
-		thread_killThread(thread_getThread(pid),-9);
+		// Well, the previous code has no check if the thread_getThread will return 0.
+		process_t *thToKill = thread_getThread(pid);
+		if (thToKill == NULL || thToKill->pid == 0) return; //non existing process or idle.
+		thread_killThread(thToKill,-9);
 		arch_reschedule();
 		return;
 	}
@@ -246,11 +249,10 @@ static void sys_kill(int pid,int sig) {
 	}
 	queue_t *que = (queue_t *)prc->signalQueue;
 	enqueue(que,(void *)sig);
-  if (prc->state != STATUS_RUNNING && prc->state != STATUS_CREATING) {
-    kprintf("sys_kill: Perfoming process unlock\r\n");
-    prc->state = STATUS_RUNNING;
-    push_prc(prc);
-  }
+  	if (prc->state != STATUS_RUNNING && prc->state != STATUS_CREATING) {
+		prc->state = STATUS_RUNNING;
+		push_prc(prc);
+  	}
 	arch_reschedule();
 }
 static int sys_getpid() {
@@ -408,11 +410,13 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
         return -1;
     }
     process_t *caller = thread_getThread(thread_getCurrent());
-    bool hasPerm = vfs_hasPerm(file,PERM_EXEC,caller->gid,caller->uid);
-    if (caller->pid == 0) caller = NULL;
-    if (caller != NULL && !hasPerm) {
-	    // No permission to execute applications.
-	    return 13; //EACCES.
+    if (caller != NULL) {
+    	bool hasPerm = vfs_hasPerm(file,PERM_EXEC,caller->gid,caller->uid);
+    	if (caller->pid == 0) caller = NULL;
+    	if (caller != NULL && !hasPerm) {
+	    	// No permission to execute applications.
+	    	return 13; //EACCES.
+    	}
     }
     arch_cli();
     clock_setShedulerEnabled(false);
@@ -420,7 +424,7 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
     int environSize = 0;
     aspace_t *realSpace = arch_mmu_getAspace();
     while(environ[environSize]) {
-      int space = (int)arch_mmu_getPhysical(environ[environSize]);
+      uintptr_t space = (uintptr_t)arch_mmu_getPhysical(environ[environSize]);
       if (space == 0 || space < 0x1000) {
         break; // corupted.
       }
@@ -430,7 +434,12 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
     arch_mmu_switch(arch_mmu_getKernelSpace());
     if (caller != NULL )caller->aspace = arch_mmu_newAspace();
     arch_sti();
-    elf_load_file(file,caller);
+    if (!elf_load_file(file,caller)) {
+	    if (caller != NULL) {
+		    thread_killThread(caller,1);
+		}
+	    return -1;
+    }
     arch_cli();
     arch_mmu_switch(arch_mmu_getKernelSpace());
     process_t *prc = (caller != NULL ? caller : thread_getThread(thread_getNextPID()-1));
@@ -615,6 +624,7 @@ static void sys_setuid(int uid) {
 }
 static int sys_seek(int _fd,int type,int how) {
     process_t *caller = thread_getThread(thread_getCurrent());
+    if (caller == NULL) return -1;
     file_descriptor_t *fd = caller->fds[_fd];
     if (type == 0) {
         fd->offset = how;
@@ -731,6 +741,7 @@ static int sys_dup(int oldfd,int newfd) {
 		file_descriptor_t *nefd = prc->fds[newfd];
 		// replace vfs node of oldfd to vfs node of newfd
 		fd->node = nefd->node;
+		kfree(copy);
 		return oldfd;
 	}
 	// We don't clear memory because we gonna copy it
@@ -741,7 +752,7 @@ static int sys_dup(int oldfd,int newfd) {
 	prc->fds[fd_id] = copy;
 	return fd_id;
 }
-static int sys_clone(int entryPoint,int arg1,int arg2) {
+static int sys_clone(void *entryPoint,uintptr_t arg1,uintptr_t arg2) {
     process_t *caller = thread_getThread(thread_getCurrent());
     // Acording to the wiki, we need just to create an process with the same VM space
     process_t *thread = thread_create("thread",entryPoint,true);
@@ -765,7 +776,7 @@ static int sys_clone(int entryPoint,int arg1,int arg2) {
     // by mapping, the arg1 is actual entry point, and arg2 is an argument to thread function
     st->entry = arg1;
     st->arg = (void *)arg2;
-    arch_putArgs(thread,1,(char **)(int)st,NULL); // Only test
+    arch_putArgs(thread,1,(char **)(uintptr_t)st,NULL); // Only test
     return thread->pid;
 }
 
@@ -890,8 +901,11 @@ static int sys_fork() {
 	// Clone!
  	aspace_t *orig = arch_mmu_getAspace();
 	arch_mmu_switch(arch_mmu_getKernelSpace());
-	process_t *child =  thread_create(parent->name,arch_syscall_getCallerRet(),true);
+	process_t *child =  thread_create(parent->name,(void *)arch_syscall_getCallerRet(),true);
 	child->state = STATUS_CREATING;
+	// Clone the parent root and work directories.
+	child->workDir = parent->workDir;
+	child->root = parent->root;
 	aspace_t *space = arch_mmu_newAspace();
 	arch_mmu_duplicate(orig,space);
 	// Arch specific code for fork
@@ -974,7 +988,7 @@ static int sys_sync(int fd) {
 static int sys_munmap(void *ptr,int size) {
 	// unmap specific area of memory.
 	// TODO: Call unmap specific function if exist.
-	arch_mmu_unmap(NULL,(int)ptr,size);
+	arch_mmu_unmap(NULL,(vaddr_t)ptr,size);
 	return 0;
 }
 static int sys_umount(char *mountpoint) {
@@ -1099,7 +1113,16 @@ static int sys_syslog(int type,char *buff,int len) {
 }
 
 int sys_chroot(char *path) {
-	return 38;
+	process_t *caller = thread_getThread(thread_getCurrent());
+	if (caller == NULL) return -1;
+	char *pth = strdup(path);
+	vfs_node_t *to = vfs_find(pth);
+	kfree(pth);
+	if (!to) {
+		return 2;
+	}
+	caller->root = to;
+	return 0;
 }
 
 int sys_fchdir(int _fd) {
@@ -1224,8 +1247,8 @@ int sys_getfsstat(struct statfs *buf,long bufsize,int mode) {
 		if (root->device == NULL) {
 			strcpy(buf[i].f_mntfromname,"none");
 		} else {
-			//vfs_node_path(root->device,buf[i].f_mntfromname,90);
-			strcpy(buf[i].f_mntfromname,root->device->name);
+			vfs_node_path(root->device,buf[i].f_mntfromname,90);
+	//		strcpy(buf[i].f_mntfromname,root->device->name);
 		}
 		strcpy(buf[i].f_mnttoname,root->target_path);
 		strcpy(buf[i].f_fstypename,root->fs->fs_name);

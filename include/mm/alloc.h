@@ -16,8 +16,8 @@ extern int USER_MMAP_START;
 extern int MEMORY_END;
 
 #define KMALLOC_MINSIZE		16
-void alloc_init(int kernel_end,int high_mem);
-int alloc_getPage();
+void alloc_init(uintptr_t kernel_end,uintptr_t high_mem);
+paddr_t alloc_getPage();
 // Kernel heap
 
 struct MallocHeader

@@ -24,10 +24,11 @@ typedef unsigned long long int uint64_t;
 typedef __SIZE_TYPE__                 size_t;
 typedef int s32;
 typedef char s8;
-typedef unsigned int            uintptr_t;
-typedef uintptr_t addr_t;
-typedef uintptr_t vaddr_t;
-typedef uintptr_t paddr_t;
+typedef __SIZE_TYPE__            uintptr_t;
+typedef size_t addr_t;
+typedef size_t vaddr_t;
+typedef size_t paddr_t;
+typedef __PTRDIFF_TYPE__ ssize_t;
 typedef unsigned short tcflag_t;
 typedef unsigned int speed_t;
 typedef enum {false,true} bool;
@@ -38,13 +39,15 @@ typedef enum {false,true} bool;
 static inline size_t strlen(const char* str) 
 {
 	size_t len = 0;
-	while (str[len])
+	while (*str != '\0') {
 		len++;
+		str++;
+	}
 	return len;
 }
 typedef uint16_t Elf32_Half;	// Unsigned half int
-typedef uint32_t Elf32_Off;	// Unsigned offset
-typedef uint32_t Elf32_Addr;	// Unsigned address
+typedef size_t Elf32_Off;	// Unsigned offset
+typedef size_t Elf32_Addr;	// Unsigned address
 typedef uint32_t Elf32_Word;	// Unsigned int
 typedef int32_t  Elf32_Sword;	// Signed int
 #define PSF_FONT_MAGIC 0x864ab572

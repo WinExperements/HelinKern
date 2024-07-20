@@ -1,9 +1,12 @@
 #ifndef X86_MMU_H
 #define X86_MMU_H
 #include <typedefs.h>
-
+#if defined(__x86_64__)
+#define CHANGE_PD(pd) asm("mov %0, %%rax ;mov %%rax, %%cr3":: "m"(pd))
+#else
 #define CHANGE_PD(pd) asm("mov %0, %%eax ;mov %%eax, %%cr3":: "m"(pd))
-#define INVALIDATE(v_addr) asm("invlpg %0"::"m"(v_addr))
+#endif
+#define INVALIDATE(v_addr) asm("invlpg (%0)"::"r"(v_addr))
 
 #define	KERN_PAGE_DIRECTORY			0x00001000
 
@@ -21,5 +24,12 @@
 #define	RAM_AS_4K_PAGES		0x100000
 #define	RAM_AS_4M_PAGES		1024
 #define PAGE_COUNT(bytes)       (((bytes-1) / PAGESIZE_4K) + 1)
-
+// x86_64 support code.
+#define PG_READ				1
+#define PG_ACCESSED			5
+#if defined(__x86_64__)
+typedef struct pgel {
+	uint64_t	entries[512];
+} PgEl __attribute__((aligned(4096)));
+#endif
 #endif

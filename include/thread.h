@@ -30,6 +30,7 @@ typedef struct process {
     int quota;
     bool reschedule;
     vfs_node_t *workDir;
+    vfs_node_t *root;
     bool died;
     // Memory information
     uint32_t brk_begin,brk_end,brk_next_unallocated_page_begin; // 64-bit support :)
@@ -43,13 +44,13 @@ typedef struct process {
     int switches;
     bool userProcess;	// maximum arch independ code.
     /* Signal specific information */
-    int signal_handlers[NSIGNALS]; // static
+    uintptr_t signal_handlers[NSIGNALS]; // static
     void *signalQueue;		// void pointer because of lib/queue.h dependies
 } process_t;
 void thread_init();
-process_t *thread_create(char *name,int entryPoint,bool isUser);
-void *thread_schedule(); // interrupt handler
-void *clock_handler(void *stack);
+process_t *thread_create(char *name,void* entryPoint,bool isUser);
+uintptr_t thread_schedule(uintptr_t stack); // interrupt handler
+uintptr_t clock_handler(uintptr_t stack);
 void kwait(int ms);
 int clock_getUptimeSec();
 int clock_getUptimeMsec();

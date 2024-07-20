@@ -37,7 +37,7 @@ void emergExit(); // exit on unrecoverable error.
 // Yes. Like shell commands, but parsed by internal parser.
 
 // Service control structure.
-
+int serialdev_fd = 0;
 typedef struct serv {
 	char *serviceName;
 	char *execPath;
@@ -104,6 +104,14 @@ int main(int argc,char **argv) {
 	}
 	free(cmd_argv);
 	close(rc_fd);
+	printf("init[1]: Creating init command file....");
+	fflush(stdout);
+	int cmdfd = creat("/mnt/initcmd",(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
+	if (cmdfd < 0) {
+		printf("failure\r\n");
+	} else {
+		printf("done\r\n");
+	}
 	printf("End of init system. Monitoring for system services.....bzzz......\r\n");
 	// Main loop!
 	while(1) {
@@ -112,6 +120,7 @@ int main(int argc,char **argv) {
 		if (diedChild > 0) {
 			for (service_t *start = globalServiceList; start != NULL; start = start->next) {
 				if (start->pid == diedChild) {
+					if (start->priority == 0) break; // we don't actually care.
 					if (start->executionRetries >= 4) {
 						printf("Force disabling service %s due to 4 previous failed run attempts!\r\n",start->serviceName);
 						break; // breaks the for loop.
@@ -119,6 +128,7 @@ int main(int argc,char **argv) {
 						// We able to restart this crutical service. Limit reboots to 4.
 						// Debug
 						printf("init[1]: Restarting service %s.",start->serviceName);
+						fflush(stdout);
 						int restarted = fork(); // required to execute new processrs.
 						if (restarted == 0) {
 							execv(start->execPath,start->prc_argv);
@@ -194,13 +204,40 @@ void parseCommand(int argc,char **argv) {
 			fprintf(stderr,"init: insmod require the module path!\r\n");
 			return;
 		}
-#ifndef TARGET_LINUX
+#if !defined(__linux__)
 		if (syscall(SYS_insmod,(int)argv[1],0,0,0,0) < 0) {
 			fprintf(stderr,"init: insmod fail.\r\n");
 			return;
 		}
 #else
-		printf("init[1]: not available\r\n");
+		int fd = open(argv[1],O_RDONLY);
+		if (fd < 0) {
+			perror("Failed to open module");
+			return;
+		}
+		struct stat st;
+		if (fstat(fd,&st) < 0) {
+			close(fd);
+			perror("Stat");
+			return;
+		}
+		void *mdimg = malloc(st.st_size);
+		if (!mdimg) {
+			close(fd);
+			perror("Failed to load module into memory(alloc)");
+			return;
+		}
+		if (read(fd,mdimg,st.st_size) != st.st_size) {
+			close(fd);
+			free(mdimg);
+			perror("Failed to read the module");
+			return;
+		}
+		close(fd);
+		if (syscall(SYS_init_module,mdimg,st.st_size,"") < 0) {
+			perror("Insmod fail");
+		}
+		free(mdimg);
 #endif
 	} else if (!strcmp(argv[0],"mount")) {
 		if (argc < 4) {
@@ -217,11 +254,10 @@ void sigint_handler(int sig) {
   printf("Shutting down system services....");
   fflush(stdout);
   for (service_t *srv = globalServiceList; srv != NULL; srv = srv->next) {
+	  if (srv->pid <= 0) continue;
 	printf("%s ",srv->serviceName);
 	fflush(stdout);
 	kill(srv->pid,SIGKILL);
-	printf("Waiting for PID %d...");
-	fflush(stdout);
 	waitpid(srv->pid,NULL,0);
   }
   printf("\r\nDone, unmounting all removable file systems...");

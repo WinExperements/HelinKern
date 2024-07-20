@@ -39,7 +39,7 @@ bool unix_create(Socket *socket) {
 	UnixSocketData *data = (UnixSocketData *)kmalloc(sizeof(UnixSocketData));
 	memset(data,0,sizeof(UnixSocketData));
 	// Check if allocation is successfull
-	if (data == NULL || (int)data < 0) return false;
+	if (data == NULL || (vaddr_t)data < 0) return false;
 	data->data = queueSize_create(500*1024);
 	// Now fill up the given socket structure
 	socket->domain = PF_UNIX;

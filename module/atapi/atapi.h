@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ATAPI_H
+#define ATAPI_H
 #include<typedefs.h>
 // Global ATA structures
 typedef struct {
@@ -38,3 +39,4 @@ typedef struct {
 #define ATAPI_CMD_EJECT      0x1B
 void atapi_init();
 void ata_convertIdentify(ata_identify_t *ident);
+#endif

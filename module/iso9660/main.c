@@ -88,7 +88,7 @@ static struct dirent *iso9660_readdir(vfs_node_t *node,unsigned int index) {
 	int i = 0;
 	int size = (node->size > 0 ? node->size : CDROM_SECTOR);
 	void *sectorBuffer = kmalloc(size);
-	int offset = (int)sectorBuffer;
+	vaddr_t offset = (vaddr_t)sectorBuffer;
 	void *aspace = arch_mmu_getAspace();
 	arch_mmu_switch(arch_mmu_getKernelSpace());
 	for (int i = 0; i < size / CDROM_SECTOR; i++) {
@@ -102,11 +102,11 @@ static struct dirent *iso9660_readdir(vfs_node_t *node,unsigned int index) {
 		ret_dirent = sbrk(thread_getThread(thread_getCurrent()),sizeof(struct dirent));
 		memset(ret_dirent,0,sizeof(struct dirent));
 	}
-	offset = (int)sectorBuffer;
+	offset = (vaddr_t)sectorBuffer;
 	while(1) {
 		DirectoryRecord *rec = (DirectoryRecord *)offset;
 		if (rec->length == 0) {
-			if ((offset - (int)sectorBuffer) < node->size) {
+			if ((offset - (vaddr_t)sectorBuffer) < node->size) {
 				offset += 1;
 				goto retry;
 			}
@@ -136,7 +136,7 @@ static struct dirent *iso9660_readdir(vfs_node_t *node,unsigned int index) {
 search:
 		offset += rec->length;
 retry:
-		if ((offset - (int)sectorBuffer) >= node->size) {break;}
+		if ((offset - (vaddr_t)sectorBuffer) >= node->size) {break;}
 	}
 	kfree(sectorBuffer);
 	return NULL;
@@ -152,11 +152,11 @@ vfs_node_t *iso9660_finddir(vfs_node_t *node,char *f_name) {
 		return NULL;
 	}
 	arch_mmu_switch(aspace);
-	int offset = (int)sectorBuffer;
+	vaddr_t offset = (vaddr_t)sectorBuffer;
 	while(1) {
 		DirectoryRecord *rec = (DirectoryRecord *)offset;
 		if (rec->length == 0) {
-			if ((offset - (int)sectorBuffer) < node->size) {
+			if ((offset - (vaddr_t)sectorBuffer) < node->size) {
 				offset += 1;
 				goto retry;
 			}
@@ -188,6 +188,7 @@ vfs_node_t *iso9660_finddir(vfs_node_t *node,char *f_name) {
 			ret->fs = iso9660_fs;
 			ret->device = node->device;
 			ret->fs_mountOptions = (void *)10;
+			ret->mask = ((S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH));
 			if (!(rec->flags & 0x02)) {
 				ret->flags = VFS_DIRECTORY;
 			}
@@ -196,13 +197,13 @@ vfs_node_t *iso9660_finddir(vfs_node_t *node,char *f_name) {
 search:
 		offset += rec->length;
 retry:
-		if ((offset - (int)sectorBuffer) >= node->size) {break;}
+		if ((offset - (vaddr_t)sectorBuffer) >= node->size) {break;}
 	}
 	kfree(sectorBuffer);
 	return NULL;
 }
 void iso9660_close(vfs_node_t *node) {
-	if ((int)node->fs_mountOptions != 10) return;
+	if ((uintptr_t)node->fs_mountOptions != 10) return;
 	kfree(node->name);
 	kfree(node);
 }

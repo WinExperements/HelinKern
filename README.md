@@ -31,7 +31,7 @@ Then change cross-compiler path in Makefile(you can leave it empty, so it can be
 
 Then do there commands:
 ```console
-# This commands will generate the X86 image.
+# This commands will generate the X86 image. To generate X86_64 image do: ```mv Makefile Makefile_x86 && mv Makefile_x86_64 Makefile && make```
 gcc scripts/sym_exp.c -o scripts/smexp -lelf # Before doing this command install libelf headers.
 cd scripts && ./smexp && cd ..
 make # Build project
@@ -43,6 +43,9 @@ make run # Run via QEMU
 - 486+ CPU for base system, Pentium Pro+ for newlib applications
 - 20M of memory to boot base system
 - If the system doesn't boot in graphical mode, then disable UI mode [here](src/arch/x86/boot.s), and set `dontFB` [here](src/arch/x86/arch.c) to `true` and the system must boot in VGA text mode
+## For X86_64:
+    - Minimum 256M of RAM.
+    - Any x86_64 compatable CPU.
 
 # Userland
 See [this file](scripts/README.md)
@@ -52,4 +55,4 @@ See [this file](scripts/README.md)
 # Supported architectures:
 - [x86](https://en.wikipedia.org/wiki/X86)(main project architecture)
 - [RISC-V](https://en.wikipedia.org/wiki/RISC-V)(planned, interrupts implemented, MMU and context switch is required)
-- x86_64(require proper switch to long mode before starting actual port)
+- [x86_64](https://en.wikipedia.org/wiki/X86-64)(first 64 bit port for kernel, have some perfomence issues in FB driver, also need to build the userland toolchain yourself)

@@ -13,7 +13,7 @@ struct gdt_entry_struct
 typedef struct gdt_entry_struct gdt_entry_t;
 struct gdt_ptr_struct {
 	uint16_t limit;
-	uint32_t base;
+	uintptr_t base;
 } __attribute__((packed));
 typedef struct gdt_ptr_struct gdt_ptr_t;
 // now TSS
@@ -53,7 +53,10 @@ void gdt_init();
 void gdt_set_gate(s32,uint32_t,uint32_t,uint8_t,uint8_t);
 void tss_write(s32 num,uint32_t ss0,uint32_t esp0);
 void tss_set_stack(uint32_t,uint32_t);
-extern void gdt_flush(int);
+extern void gdt_flush(uintptr_t);
 extern void tss_flush();
 struct tss_entry_struct *tss_getTSS();
+#if defined(__x86_64__)
+void tss_set_stack64(uint64_t stack,uint64_t softIRQ);
+#endif
 #endif

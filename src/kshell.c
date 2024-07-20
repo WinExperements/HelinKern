@@ -32,7 +32,10 @@ static void *elf_buffer = NULL;
 void sighand(int signal) {
 	kprintf("Signal handled!!\r\n");
 }
+extern void x86_serial();
 void kshell_main() {
+//	clock_setShedulerEnabled(false);
+//    x86_serial();
     kprintf("KShell V0.1\r\n");
     kprintf("Please not that you are running in the kernel address space\r\n");
 	//output_changeToFB();
@@ -48,7 +51,11 @@ void kshell_main() {
     vfs_node_t *devM = vfs_find("/dev");
     if (!devM) {
         kprintf("No /dev found!\n");
-        return;
+	devM = vfs_creat(vfs_getRoot(),"dev",VFS_DIRECTORY);
+	if (!devM) {
+		kprintf("Failed to create /dev!\r\n");
+		while(1) {}
+	}
     }
     if (!vfs_mount(devfs,devM,"/dev")) {
         kprintf("pre-init: failed to mount /dev\n");
@@ -109,14 +116,25 @@ static void parseCommand(int argc,char *cmd[]) {
     } else if (strcmp(cmd[0],"exit")) {
         exit = true;
     } else if (strcmp(cmd[0],"execm")) {
-        start_module();
-        // waitpid
-        void (*waitpid)(int) = ((void (*)(int))syscall_get(22));
-        waitpid(thread_getNextPID()-1);
+        if (argc < 2) {
+		kprintf("Please give the executable path\r\n");
+		return;
+	}
+	process_t *me = thread_getThread(thread_getCurrent());
+	if (me->fds[0] == NULL) {
+		vfs_node_t *tty = vfs_find("/dev/tty");
+		if (!tty) return;
+		thread_openFor(me,tty);
+		thread_openFor(me,tty);
+		thread_openFor(me,tty);
+	}
+	int (*exec)(char *,int,char **,char **) = ((int (*)(char *,int,char **,char **))syscall_get(13));
+    	char *environ[] = {NULL};
+	exec(cmd[1],0,NULL,environ);
     } else if (strcmp(cmd[0],"syms")) {
         symbols_print();
     } else if (strcmp(cmd[0],"loadm")) {
-        start_module();
+	    arch_trace(0);
     } else if (strcmp(cmd[0],"clear")) {
         fb_clear(BLACK);
     } else if (strcmp(cmd[0],"mount")) {
@@ -250,7 +268,7 @@ static void parseCommand(int argc,char *cmd[]) {
 		}
 	    kprintf("Socket created, creating client\n");
 	    serv->listen(serv,0,0);
-	    thread_create("ss",(int)th_m,false);
+	    thread_create("ss",th_m,false);
 	    int r = serv->accept(serv,0,a,NULL);
 	    kprintf("A: %d\n",r);
 	    process_t *c = thread_getThread(1);
@@ -265,29 +283,11 @@ static void parseCommand(int argc,char *cmd[]) {
 	    serv->destroy(serv);
 	    kfree(serv);
 	    kprintf("Currently, test finished\n");
-    #ifdef X86
+    #if defined(X86)
     } else if (strcmp(cmd[0],"findacp")) {
-        kprintf("Okay, finding ACPI\n");
-        void *ptr = acpiGetRSDPtr();
-        if (ptr != NULL) {
-            kprintf("AAAjr\n");
-        } else {
-            kprintf("ACPI didn't found on this system\n");
-        }
-	kprintf("Acer Aspire M1935 test\n");
-	unsigned int startAddressOfACPI = 0xda5db000;
-	unsigned int realACPIAddress = 0xda5be000;
-	kprintf("Counting steps to reach 0x%x\n",realACPIAddress);
-	int step = 0;
-	for (unsigned int a = startAddressOfACPI; a < 0xda5dffff; a+=4) {
-		if (a >= realACPIAddress) {
-			kprintf("Step is %d, finded address 0x%x\n",step,a);
-			break;
+	    while(1) {
+		    kprintf("SCHEDULER TEST\r\n");
 		}
-		step++;
-	}
-	kprintf("All steps ended\n");
-	kprintf("0x%x, 0x%x\n",realACPIAddress,startAddressOfACPI+118784);
     #endif
     } else if (strcmp(cmd[0],"hdd")) {
     	dev_t *hdd = dev_find("hda");
@@ -337,19 +337,29 @@ static void parseCommand(int argc,char *cmd[]) {
 	    kprintf("GID -> %d		priority -> %d\r\n",prc->gid,prc->priority);
 	    kprintf("Number of switches -> %d	signal queue -> 0x%x\r\n",prc->switches,prc->signalQueue);
     } else if (strcmp(cmd[0],"signal")) {
-	    kprintf("sending signal 3 to myself\r\n");
-	    process_t *prc = thread_getThread(1);
-	    if (!prc) {
-		    kprintf("Failed to retrive myself. Strange\r\n");
-		    return;
-	    }
-	    if (prc->signal_handlers[3] == 0) {
-		    kprintf("Installing signal 3 handler\r\n");
-		    prc->signal_handlers[3] = (int)sighand;
-	    }
-	    queue_t *signalQueue = (queue_t *)prc->signalQueue;
-	    enqueue(signalQueue,(void *)3);
-	    kprintf("done\r\n");
+#if defined(__x86_64__)
+	    extern void usermode_test();
+	    thread_create("usermodetest",usermode_test,true);
+#endif
+    } else if (strcmp(cmd[0],"fb")) {
+	    fb_clear(0xffffff);
+    } else if (strcmp(cmd[0],"uname")) {
+	    kprintf("HelinOS kernel version %s running on %s\r\n",OS_VERSION,arch_getName());
+	    arch_sysinfo();
+    } else if (strcmp(cmd[0],"mmu")) {
+	    kprintf("Allocating new MMU PML4\r\n");
+	    void *aspace = arch_mmu_newAspace();
+	    void *cur = arch_mmu_getAspace();
+	    arch_cli();
+	    //arch_mmu_duplicate(cur,aspace);
+	    arch_mmu_switch(aspace);
+	    arch_mmu_switch(cur);
+	    arch_sti();
+	    kprintf("Maybe replicated\r\n");
+    } else if (strcmp(cmd[0],"vaddr")) {
+	    kprintf("Virtual address of cmd -> 0x%x\r\n",cmd);
+	    void *phys = arch_mmu_getPhysical(cmd);
+	    kprintf("Physical address of cmd -> 0x%x\r\n",phys);
     } else {
         kprintf("Unknown commmand: %s\r\n",cmd[0]);
     }

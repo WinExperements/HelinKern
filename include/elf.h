@@ -135,13 +135,13 @@ typedef struct {
 	Elf32_Off		p_offset;
 	Elf32_Addr		p_vaddr;
 	Elf32_Addr		p_paddr;
-	Elf32_Word		p_filesz;
-	Elf32_Word		p_memsz;
-	Elf32_Word		p_flags;
-	Elf32_Word		p_align;
+	size_t			p_filesz;
+	size_t			p_memsz;
+	size_t			p_flags;
+	size_t			p_align;
 } Elf32_Phdr;
 static inline Elf32_Shdr *elf_sheader(Elf32_Ehdr *hdr) {
-	return (Elf32_Shdr *)((int)hdr + hdr->e_shoff);
+	return (Elf32_Shdr *)(hdr + hdr->e_shoff);
 }
  
 static inline Elf32_Shdr *elf_section(Elf32_Ehdr *hdr, int idx) {

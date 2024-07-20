@@ -28,11 +28,12 @@ void output_writeInt(int u) {
         }
 	output_write(c2);
 }
-void output_printHex(int num) {
-    uint32_t tmp;
+void output_printHex(uintptr_t num) {
+    	uintptr_t tmp;
 	char noZeroes = 1;
-	int i;
-	for (i = 28; i > 0; i-=4) {
+	uintptr_t i;
+	int howMany = sizeof(num) == 8 ? 56 : 28;
+	for (i = howMany; i > 0; i-=4) {
 		tmp = (num >> i) & 0xF;
 		if (tmp == 0 && noZeroes != 0) continue;
 		if (tmp >= 0xA) {

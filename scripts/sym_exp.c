@@ -48,7 +48,7 @@ int main() {
 		perror("failed to open output file");
     return 1;
 	}
-	fprintf(out,"#pragma once\r\ntypedef struct ksm {char *name; int val;} kernel_sym_t;\r\n");
+	fprintf(out,"#pragma once\r\ntypedef struct ksm {char *name; __SIZE_TYPE__ val;} kernel_sym_t;\r\n");
 	while((scn = elf_nextscn(elf,scn)) != NULL) {
 		GElf_Shdr shdr;
 		if (!gelf_getshdr(scn,&shdr)) {

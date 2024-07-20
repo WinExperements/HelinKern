@@ -19,39 +19,40 @@ static int end_address;
 static int numAllocs = 0; // debug only!
 static int lastAlloc = 0;
 static unsigned long usedPhysMem = 0;
-static uintptr_t kernelEndForBitmap = 0;
-static uintptr_t notMappedPageIndx = 0;
-static uintptr_t allocStart = 0;
 void alloc_init(uintptr_t kernel_end,uintptr_t high_mem) {
     if (high_mem == 0) {
       kprintf("Headless platform detected, %s not possible\r\n",__func__);
       return;
     }
-    kernelEndForBitmap = kernel_end;
     output_write(__func__);
     output_write(" kernel ");
     output_printHex(high_mem);
     output_write("\r\n");
     // Place map at the end of kernel address
-    phys_map = (uint8_t *)arch_getMemStart();
-    allocStart = arch_getMemStart();
+    phys_map = (uint8_t *)kernel_end;
     // Clean the map
     total_pages = (high_mem)/4096;
     total_pages *= 1024;
-    //total_pages *= 1024;
     if (total_pages < 0) {
 	    kprintf("Something went really WRONG. HIGH MEM(%d,0x0%x). MN: %d, DEL: %d\r\n",high_mem,high_mem,high_mem*1024,(high_mem*1024)/4096);
 	    PANIC("WHAAHAHAHAH");
 	}
+    int pg = 0;
     kernel_endAddress = (int)kernel_end;
+    for (pg = 0; pg < total_pages / 8; ++pg) {
+        phys_map[pg] = 0x0;
+    }
+    int bitmapSize = total_pages*sizeof(uint16_t);
+    for (pg = 0; pg < (int)(PAGE_INDEX_4K(kernel_end+bitmapSize)); ++pg) {
+        SET_PAGEFRAME_USED(phys_map,pg);
+    }
     end_address = kernel_end+(total_pages*8);
-    notMappedPageIndx = PAGE_INDEX_4K((uintptr_t)phys_map+(total_pages*8))+10;
     kprintf("Kernel end address: 0x%x, allocation start address: 0x%x\n",kernel_end,end_address);
 }
 paddr_t alloc_getPage() {
     if (!mapped) {
         pagesUsedBeforeMapping++;
-        return (notMappedPageIndx+pagesUsedBeforeMapping) * PAGESIZE_4K; 
+        return end_address+(pagesUsedBeforeMapping*PAGESIZE_4K);
     }
     int byte, bit;
     uint32_t page = -1;
@@ -66,7 +67,7 @@ paddr_t alloc_getPage() {
                     page = 8 * byte + bit;
                     SET_PAGEFRAME_USED(phys_map, page);
 		    usedPhysMem+=4096;
-                    return allocStart+(page * PAGESIZE_4K);
+                    return (page * PAGESIZE_4K);
                 }
             }
         }
@@ -101,7 +102,7 @@ void *ksbrk_page(int n) {
 			PANIC("A");
 			return (void *)-1;
 		}
-		arch_mmu_mapPage(NULL,(size_t)m_kheap,p_addr,3);
+		arch_mmu_mapPage(NULL,(int)m_kheap,p_addr,3);
 		m_kheap+= PAGESIZE_4K;
 	}
 	chunk->size = PAGESIZE_4K * n;
@@ -131,13 +132,13 @@ void *kmalloc(int size) {
 		prev = chunk;
 		chunk = (MallocHeader *)((char *)chunk + chunk->size);
 		if (chunk == (struct MallocHeader *)m_kheap) {
-			if ((size_t)(ksbrk_page((realsize/PAGESIZE_4K) + 2)) < 0) {
+			if ((int)(ksbrk_page(realsize/PAGESIZE_4K + 1)) < 0) {
                			 kprintf("Attempt to allocate %d bytes\r\n",size);
 				//PANIC("Out of kernel memory!");
 				return NULL;
 			}
 		} else if (chunk > (struct MallocHeader *)m_kheap) {
-			kprintf("kmalloc: chunk is out of limit!(chunk at 0x%x, m_kheap at 0x%x)\r\n",chunk,m_kheap);
+			kprintf("kmalloc: chunk is out of limit!\r\n");
 			PANIC("Kernel heap limit");
 			return NULL;
 		}
@@ -161,7 +162,7 @@ void kfree(void *addr) {
         return;
     }
     struct MallocHeader *chunk,*other;
-    chunk = (struct MallocHeader *)((size_t)addr-sizeof(struct MallocHeader));
+    chunk = (struct MallocHeader *)((uint32_t)addr-sizeof(struct MallocHeader));
     //kprintf("kfree: address: 0x%x, chunk address: 0x%x\r\n",addr,chunk);    
     if (!chunk->used) {
         DEBUG("0x%x isn't allocated\r\n",addr);
@@ -249,7 +250,6 @@ void *krealloc(void *p,int size) {
     return newchunk;
 }
 void alloc_freePage(int addr) {
-	addr-=allocStart;
 	SET_PAGEFRAME_UNUSED(phys_map,addr);
 	usedPhysMem-=4096;
 }
@@ -257,27 +257,13 @@ int alloc_getBitmapSize() {
     return total_pages*sizeof(uint16_t);
 }
 void alloc_mapItself() {
-	int pages = alloc_getBitmapSize() / 4096;
-    for (int i = 0; i < (pages)+10; i++) {
-	    vaddr_t pgAd = (vaddr_t)phys_map + (i*4096);
+    for (int i = 0; i < (alloc_getBitmapSize() / 4096)+1; i++) {
+	    int pgAd = (int)phys_map + (i*4096);
 	    arch_mmu_mapPage(NULL,pgAd,pgAd,3);
 	}
-    /*
-     * Why? Well, some bootloaders and protocols doesn't really give us access to the memory map
-     * after boot, because it's isn't mapped whitin the bootloaders TLB buffers.
-     */
-    int pg = 0;
-     for (pg = 0; pg < total_pages / 8; ++pg) {
-        phys_map[pg] = 0x0;
-    }
-    int bitmapSize = total_pages*sizeof(uint16_t);
-    for (pg = 0; pg < (int)(PAGE_INDEX_4K(bitmapSize)+10); ++pg) {
-        SET_PAGEFRAME_USED(phys_map,pg);
-    }
     mapped = true;
     int page = PAGE_INDEX_4K(kernel_endAddress+alloc_getBitmapSize());
-    for (int i = notMappedPageIndx; i < pagesUsedBeforeMapping; i++) {
-	    if (i >= total_pages) break;
+    for (int i = page; i < pagesUsedBeforeMapping; i++) {
         SET_PAGEFRAME_USED(phys_map,i);
     }
 }
@@ -286,7 +272,6 @@ int alloc_getEnd() {
 }
 
 void alloc_reserve(int start,int end) {
-	if (!mapped) return;
 	// Generally used by MMU code
 	for (int i = PAGE_INDEX_4K(start); i <  PAGE_INDEX_4K(end); i++) {
 		SET_PAGEFRAME_USED(phys_map,i);

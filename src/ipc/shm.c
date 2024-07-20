@@ -18,7 +18,7 @@ struct shm_obj {
 	int id;
 	int key;
 	int size;
-	int pageBegin;	// Address of first page that is allocated for this shared-memory object.
+	paddr_t pageBegin;	// Address of first page that is allocated for this shared-memory object.
 	int atCnt;	// Track count of attaches. If it's value will be zero and the shmdt will be called, then the kernel
 			// will free the resources.
 	bool destroyed;
@@ -121,14 +121,14 @@ int shm_command(process_t *caller,int cmd,void *args) {
 				  // Now find the SHM object.
 				  queue_for(sh,shmQueue) {
 					  struct shm_obj *shobj = (struct shm_obj *)sh->value;
-					  if (shobj->pageBegin == (int)phys_addr) {
+					  if (shobj->pageBegin == (paddr_t)phys_addr) {
 						  obj = shobj;
 						  break;
 					  }
 				   }
 				  if (obj == NULL) return -1;
 				  obj->atCnt--;
-				  arch_mmu_unmap(NULL,(int)args,(obj->size/4096)+1);
+				  arch_mmu_unmap(NULL,(vaddr_t)args,(obj->size/4096)+1);
 				  if (obj->atCnt < 0) {
 					  kprintf("[shm]: Freeing resources used by this SHM segment\r\n");
 					  for (int i = 0; i < (obj->size/4096)+1; i++) {

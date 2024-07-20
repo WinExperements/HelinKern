@@ -9,6 +9,7 @@
 #include <debug.h>
 #include <dev.h>
 #include <dev/fb.h>
+#include <arch.h>
 static vfs_node_t *keyboard = NULL;
 bool elf_check_file(Elf32_Ehdr *hdr) {
     if (!hdr) {
@@ -34,7 +35,7 @@ bool elf_check_file(Elf32_Ehdr *hdr) {
     return true;
 }
 size_t elf_get_end_in_memory(vfs_node_t *node) {
-    uint32_t v_end;
+    size_t v_end;
     Elf32_Ehdr *hdr = kmalloc(sizeof(Elf32_Ehdr));
     Elf32_Phdr *p_entry = NULL;
 
@@ -46,7 +47,7 @@ size_t elf_get_end_in_memory(vfs_node_t *node) {
         return 0;
     }
 
-    uint32_t result = 0;
+    size_t result = 0;
 
     for (int pe = 0; pe < hdr->e_phnum; pe++)
     {
@@ -66,7 +67,7 @@ size_t elf_get_end_in_memory(vfs_node_t *node) {
     kfree(hdr);
     kfree(p_entry);
     //kprintf("%s: reporting %d....\r\n",__func__,result);
-    return (int)result;
+    return result;
 }
 bool elf_load_file(vfs_node_t *node,process_t *caller) {
     /*void *addr = kmalloc(node->size);
@@ -97,19 +98,20 @@ bool elf_load_file(vfs_node_t *node,process_t *caller) {
     aspace_t *space = arch_mmu_getAspace();
     arch_mmu_switch(arch_mmu_getKernelSpace());
     // create process
-    process_t *prc = (caller != NULL ? caller : thread_create("ELF",header->e_entry,true));
+    process_t *prc = (caller != NULL ? caller : thread_create("ELF",(void *)header->e_entry,true));
     if (!prc) {
         kprintf("Failed to create process!\r\n");
         return false;
     }
     if (caller != NULL) {
         arch_mmu_switch(prc->aspace);
+	arch_cli();
         thread_recreateStack(prc,header->e_entry,true);
 	arch_mmu_switch(space);
     }
     prc->state = STATUS_CREATING;
     /*size_t elf_base = (size_t)addr; */
-    uint32_t memEnd = elf_get_end_in_memory(node);
+    size_t memEnd = elf_get_end_in_memory(node);
     // Switch to the new process memory map
     if (caller == NULL) {
 	    // clone kernel address space
@@ -137,7 +139,7 @@ bool elf_load_file(vfs_node_t *node,process_t *caller) {
 		thread_killThread(prc,10);
 		return 1;
 	}
-        uint32_t v_begin = p_entry->p_vaddr;
+        uintptr_t v_begin = p_entry->p_vaddr;
         if (p_entry->p_type == 1) {
             if (p_entry->p_memsz == 0) {
                 continue; // skip
@@ -183,6 +185,7 @@ bool elf_load_file(vfs_node_t *node,process_t *caller) {
     kfree(header);
     kfree(p_entry);
     prc->state = STATUS_RUNNING;
+    arch_sti();
     return true;
 }
 /*

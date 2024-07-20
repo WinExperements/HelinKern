@@ -23,14 +23,15 @@ forced to be within the first 8 KiB of the kernel file.
 .long 0
 .long 0
 .long 0 # Set to 0 to enable framebuffer by default, 1 to disable
-.long 1024  # Number of horizontal pixels
-.long 768 # Number of vertical pixels
+.long 640  # Number of horizontal pixels
+.long 480 # Number of vertical pixels
 .long 32 # Bit depth
 .section .bss
 .align 16
 
 stack_bottom:
 .skip 16384 # 16 KiB
+.global stack_top
 stack_top:
  
 
@@ -38,9 +39,9 @@ stack_top:
 .global _start
 .type _start, @function
 _start:
-	mov $0,%ebx
-	mov $stack_top, %esp
-	pushl %ebx
+	movq $0,%rbp
+	movq $stack_top, %rsp
+	movq %rbx,%rdi
 	call arch_entry_point
 1:
 	jmp 1b

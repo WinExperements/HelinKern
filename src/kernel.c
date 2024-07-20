@@ -30,6 +30,7 @@
 #include <socket/unix.h>
 #ifdef X86
 #include <pci/pci.h>
+#include <arch/x86/idt.h>
 #endif
 #ifdef HWCLOCK
 #include <dev/clock.h>
@@ -48,9 +49,9 @@ void *memset(void *dest,char val,int count) {
 void panic(char *file,int line,char *msg) {
     arch_cli();
     disableOutput = false;
+    arch_trace(0);
     kprintf("Sorry, but the OS seems crashed by unknown reason. Send the information above to the system administrator for help.\r\n");
     kprintf("PANIC: %s:%d %s\r\n",file,line,msg);
-    arch_trace();
     clock_setShedulerEnabled(false);
     kprintf("Rebooting in 5 seconds....");
     //arch_sti();
@@ -68,19 +69,19 @@ void kernel_main(const char *args) {
     if (arch_getFBInfo(&fb)) {
         fb_init(&fb);
         fb_enable();
-        fb_addr = (int)fb.addr;
+        fb_addr = (size_t)fb.vaddr;
         fb_clear(0xffffff);
         // Pre-boot framebuffer
         output_changeToFB(); // important!
-        //disableOutput= false;
+        disableOutput= false;
         kprintf("Pre-Boot Platform Framebuffer. This buffer doesn't support scrolling outwise the MMU doesn't be initialized by arch-specific code\r\n");
-        disableOutput = true; // change to false if you want to run it on an Lumia device with the provided in tree bootloader.
+        //disableOutput = true; // change to false if you want to run it on an Lumia device with the provided in tree bootloader.
     }
     arch_init();
     // Hi!
     //disableOutput = false;
     fb_disableCursor();
-    int mem = arch_getMemSize();
+    uintptr_t mem = arch_getMemSize();
     alloc_init(arch_getKernelEnd(),mem);
     arch_mmu_init();
     alloc_mapItself();
@@ -91,6 +92,8 @@ void kernel_main(const char *args) {
     ringBuff = (char *)kmalloc(1<<CONF_RING_SIZE);
     kprintf("HelinOS kernel compiled by GCC %s on %s\r\n",__VERSION__,__DATE__);
     kprintf("%s: begin of parsing kernel arguments!\n",__func__);
+    // Make sure the args is accessable.
+    //arch_mmu_mapPage(NULL,(vaddr_t)args,(paddr_t)args,3);
     char *begin = strtok(args," ");
     while(begin != NULL) {
     	if (strcmp(begin,"-v")) {
@@ -142,6 +145,8 @@ void kernel_main(const char *args) {
     clock_setShedulerEnabled(true);
     arch_detect();
     // Directly try to mount initrd and run init if it fails then panic like Linux kernel or spawn kshell
+    // Disable this chunk of code if you want to test your arch specific context switch code.
+#if 1
     vfs_node_t *initrd = vfs_find("/initrdram");
     if (!initrd) {
         PANIC("Cannot find initrd. Pass it as module with initrd.cpio argument");
@@ -150,11 +155,14 @@ void kernel_main(const char *args) {
     if (!cpio) {
         PANIC("Cannot find CPIO FS in kernel!");
     }
-    vfs_mount(cpio,initrd,"/");
+    if (!vfs_mount(cpio,initrd,"/")) {
+	    PANIC("Failed to mount initrd");
+	}
     vfs_node_t *mounted = vfs_getRoot();
     if (!mounted || !strcmp(mounted->fs->fs_name,"cpio")) {
-        PANIC("Failed to mount initrd");
+        PANIC("Mounted filesystem name mismatch");
     }
+#endif
 #if 1
     kprintf("Detected Memory: %d MB. Used memory: %d(KB)\r\n",alloc_getAllMemory() / 1024 / 1024,alloc_getUsedSize() / 1024);
     /*int (*insmod)(char *) = ((int (*)(char *))syscall_get(30));
@@ -166,8 +174,11 @@ void kernel_main(const char *args) {
         PANIC("Failed to execute init");
    }
 #else
-	  thread_create("kshell",(int)kshell_main,false);
+	thread_create("kshell",kshell_main,false);
+	//kshell_main();
+	//testTask();
 #endif
     arch_sti();
+    while(1) {}
 }
 

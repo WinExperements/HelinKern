@@ -203,12 +203,15 @@ syscall_irq:
  	push 128
  	jmp irq_common_stub
 [GLOBAL scheduler_irq]
+[extern interrupt_sendEOI]
 extern process_schedule
 scheduler_irq:
     push dword 0
     push dword 32
     ; Check if runningTask isn't zero
     jmp irq_common_stub
+    ;call interrupt_sendEOI
+    ;iret
 [global x86_switchContext]
 [extern runningTask]
 x86_switchContext:
@@ -307,3 +310,24 @@ copy_page_physical:
     popf                  ; Pop EFLAGS back.
     pop ebx               ; Get the original value of EBX back.
     ret
+
+[extern x86_test_switch]
+x86_test_switch:
+	; Load the arguments.
+	mov edi,[esp+4]
+	push dword [edi+56]
+	push dword [edi+52]
+	push dword [edi+48]
+	push dword [edi+44]
+	push dword [edi+40]
+	push dword [edi+36]
+	push dword [edi+32]
+	push dword [edi+28]
+	push dword [edi+24]
+	push dword [edi+20]
+	push dword [edi+16]
+	push dword [edi+12]
+	push dword [edi+8]
+	push dword [edi+4]
+	push dword [edi+0]
+	jmp irq_handler_exit

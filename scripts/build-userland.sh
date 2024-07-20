@@ -4,7 +4,7 @@ hostDir="$(pwd)/hostbin"
 pseudoGcc="/home/user/gcc-i686/bin"
 sysrootPath="$(pwd)/sysroot"
 helinroot="$(pwd)/helinroot"
-
+TARGET="${TARGET:=i686-helin}"
 echo This script will build the userland only for i386!
 
 if [ "$1" = "download" ]; then
@@ -58,7 +58,7 @@ elif [ "$1" = "build-binutils" ]; then
 	$hostDir/bin/automake
 	cd ..
 	cd ../build
-	../src/configure --target=i686-helin --prefix=$helinroot --with-sysroot=$sysrootPath --disable-werror
+	../src/configure --target=$TARGET --prefix=$helinroot --with-sysroot=$sysrootPath --disable-werror
 	gmake -j$(nproc)
 	gmake install
 elif [ "$1" = "build-newlib" ]; then
@@ -100,20 +100,20 @@ elif [ "$1" = "build-newlib" ]; then
 	autoreconf
 	cd ../../../../../build
 	export PATH="$toA/../gcc-i686/bin:$PATH"
-	../src/configure --target=i686-helin --prefix=/usr
+	../src/configure --target=$TARGET --prefix=/usr
 	gmake
 	echo If build failed, please remove latest symbols in $toA/newlib/build/i686-helin/newlib/libc/sys/helin/Makefile, then enter bash $0 retry-newlib
-elif [ $1 = "retry-newlib" ]; then
+elif [ "$1" = "retry-newlib" ]; then
 	toA=$(pwd)
 	echo Retrying build of newlib!
 	export PATH="$toA/bin/bin:$PATH"
 	export PATH="$toA/../gcc-i686/bin:$PATH"
 	cd newlib/build
-	gmake -C i686-helin/newlib/libc/sys/helin
-	gmake -C i686-helin/newlib/libc/sys
+	gmake -C $TARGET/newlib/libc/sys/helin
+	gmake -C $TARGET/newlib/libc/sys
 	gmake -j$(nproc)
 	gmake DESTDIR=$sysrootPath install
-elif [ $1 = "build-gcc" ]; then
+elif [ "$1" = "build-gcc" ]; then
 	# Here we do a GCC like stuff
 	# We need to build autoconf and automake specific versions for the GCC
 	mkdir gcc
@@ -150,11 +150,11 @@ elif [ $1 = "build-gcc" ]; then
 	# We in src folder
 	cd ../build
 	export PATH=/home/user/gcc-i686/bin:$PATH
-	cp -r $sysrootPath/usr/i686-helin $helinroot/
-	../src/configure --target=i686-helin --prefix=$helinroot --with-sysroot=$sysrootPath --enable-languages=c,c++ --with-newlib
+	cp -r $sysrootPath/usr/$TARGET $helinroot/
+	../src/configure --target=$TARGET --prefix=$helinroot --with-sysroot=$sysrootPath --enable-languages=c,c++ --with-newlib
 	gmake all-gcc all-target-libgcc -j$(nproc)
 	gmake all-target-libstdc++-v3 -j$(nproc)
 	gmake install-gcc install-target-libgcc install-target-libstdc++-v3
 else
-	echo Script debug! hostDir: $hostDir sysroot path: $sysrootPath root of all: $helinroot
+	echo Script debug! hostDir: $hostDir sysroot path: $sysrootPath root of all: $helinroot. Target: $TARGET
 fi

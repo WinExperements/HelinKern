@@ -58,7 +58,7 @@ void mouse_wait(uint8_t a_type) {
 	}
 }
 
-static void *mouse_intr(void *st) {
+static uintptr_t mouse_intr(uintptr_t st) {
 	uint8_t status = inb(MOUSE_STATUS);
 	while(status & MOUSE_BBIT) {
 		uint8_t mouse_in = inb(MOUSE_PORT);

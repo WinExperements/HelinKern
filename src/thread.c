@@ -90,31 +90,31 @@ void thread_init() {
     for (int i = 0; i < MAX_PRIORITY; i++) {
 	    priority[i] = filo_new(1000);
     }
-    idle = thread_create("idle",(int)idle_main,false);
+    idle = thread_create("idle",idle_main,false);
     dequeue(task_list);
     idle->state = -1;
     runningTask = idle;
     krn_rlimit_init_default();
 }
 /* Допоможіть :( */
-void *thread_schedule(void *stack) {
+uintptr_t thread_schedule(uintptr_t stack) {
      // scheduler v1, code optimized for performance
      // Priority support
      process_t *nextTask = NULL;
     if (runningTask != NULL) {
-        if (runningTask->quota < PROCESS_QUOTA) {
+	if (runningTask->quota < PROCESS_QUOTA) {
 		if (!runningTask->died) {
             		runningTask->quota++;
             		return stack;
 		}
         }
-	    nextTask = pop_prc();
+    }
+	nextTask = pop_prc();
         if (nextTask == NULL) {
 	        push_prc(idle);
 	        nextTask = idle;
         }
-    }
-    if (nextTask->state == STATUS_CREATING || nextTask->state == -1 || nextTask->state == STATUS_WAITPID) {
+    if (nextTask == NULL || nextTask->state == STATUS_CREATING || nextTask->state == -1 || nextTask->state == STATUS_WAITPID) {
 	    //kprintf("Finding next usable process\r\n");
 	    // Check if the process doesn't receive any signals.
 	    if (((queue_t*)nextTask->signalQueue)->size != 0) {
@@ -166,12 +166,14 @@ switchTask:
 	}
     //kprintf("Switch to %s\n",nextTask->name);
     // switch the address space
-    arch_fpu_save(runningTask->fpu_state);
+    if (runningTask != NULL) {
+    	arch_fpu_save(runningTask->fpu_state);
+    }
     arch_fpu_restore(nextTask->fpu_state);
     arch_mmu_switch(nextTask->aspace);
     queue_t *prcSignals = nextTask->signalQueue;
     if (prcSignals->size > 0) {
-	    int num = (int)dequeue(prcSignals);
+	    uintptr_t num = (uintptr_t)dequeue(prcSignals);
 	    if (num >= 32) {
 		    kprintf("Process %s got unknown signal to process!\r\n",nextTask->name);
 	    } else {
@@ -188,15 +190,14 @@ switchTask:
     }
 }
 actualSwitch:
-    /*if (strcmp(nextTask->name,"suka")) {
-        kprintf("signal software scheduling %d as PID, %s\r\n",nextTask->pid,runningTask->name);
-    }*/
+    //kprintf("switching to %s\r\n",nextTask->name);
     nextTask->switches++;
+  //  interrupt_sendEOI();
     arch_switchContext(nextTask);
     // If we here, then the x86 switch code works -_-
     return stack;
 }
-process_t *thread_create(char *name,int entryPoint,bool isUser) {
+process_t *thread_create(char *name,void* entryPoint,bool isUser) {
     // Allocate the process
     process_t *th = (process_t *)kmalloc(sizeof(process_t));
     memset(th,0,sizeof(process_t));
@@ -204,12 +205,13 @@ process_t *thread_create(char *name,int entryPoint,bool isUser) {
     th->pid = freePid++;
     th->name = strdup(name);
     th->quota = 10;
-    th->stack = arch_prepareContext((void *)entryPoint,isUser);
+    th->stack = arch_prepareContext(entryPoint,isUser);
     th->arch_info = arch_preapreArchStack(isUser);
     th->aspace = arch_mmu_getKernelSpace();
     th->state = STATUS_RUNNING;
     th->reschedule = true;
     th->workDir = vfs_getRoot();
+    th->root = vfs_getRoot();
     th->parent = runningTask;
     th->child = NULL;
     th->died = false;
@@ -232,7 +234,7 @@ static int num_clocks = 0;
 static bool schedulerEnabled = true;
 //static int seconds;
 //static int nextClocks = 0;
-void *clock_handler(void *stack) {
+uintptr_t clock_handler(uintptr_t stack) {
     num_clocks++;
     if (schedulerEnabled) {
         return thread_schedule(stack);
@@ -346,7 +348,8 @@ void thread_killThread(process_t *prc,int code) {
     }
     if (runningTask != NULL) {
 	    if (runningTask == prc) {
-		    runningTask = NULL;
+		    runningTask = idle;
+		    idle->quota = PROCESS_QUOTA+1;
 		} else {
 	    		runningTask->quota = PROCESS_QUOTA+1;
 		}
@@ -439,5 +442,6 @@ void krn_rlimit_init_default() {
 	limitList[RLIMIT_NOFILE].r_max = 4096;
 }
 void thread_forceSwitch() {
+	if (runningTask == NULL) return;
 	runningTask->quota = PROCESS_QUOTA+1;
 }

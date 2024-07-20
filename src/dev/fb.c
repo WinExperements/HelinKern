@@ -20,7 +20,8 @@ static void printCursor(int x,int y);
 static bool mapped;
 static int ws_row,ws_col;
 static void scroll();
-static int width,height,pitch,addr,fcolor,bcolor;
+static int width,height,pitch,fcolor,bcolor;
+static paddr_t addr;
 static bool enableCursor = true;
 static uint64_t fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *buff);
 static void *fbdev_mmap(struct vfs_node *node,int addr,int size,int offset,int flags);
@@ -29,22 +30,19 @@ static int paddr;
 static char *charBuff;
 static void syncFB(); // draw all characters from charBuff
 static uint64_t fb_ioctl(struct vfs_node *node,int request,va_list args);
-static int GFX_MEMORY = 0;
+static uintptr_t GFX_MEMORY = 0;
 extern bool disableOutput;
+static uintptr_t fontAddr = (uintptr_t)&_binary_font_psf_start;
 /* ==== PSF v1 Support to FBDEV driver ===== */
-typedef struct {
-	uint16_t magic;
-	uint8_t mode;
-	uint8_t glp_size;
-} Psf1;
+
 void fb_init(fbinfo_t *fb) {
     if (!fb) return;
     psf_init();
     width = fb->width;
     height = fb->height;
     pitch = fb->pitch;
-    addr = (uint32_t)fb->addr;
-    paddr = addr;
+    addr = (size_t)fb->vaddr;
+    paddr = (size_t)fb->paddr;
     ws_row = height/16;
     ws_col = width/9;
     output_write("FB initialized\r\n");
@@ -72,13 +70,13 @@ void fb_putchar(
     int fg, int bg)
 {
     /* cast the address to PSF header struct */
-    PSF_font *font = (PSF_font*)&_binary_font_psf_start;
+    PSF_font *font = (PSF_font*)fontAddr;
     /* we need to know how many bytes encode one row */
     int bytesperline=(font->width+7)/8;
     /* get the glyph for the character. If there's no
        glyph for a given character, we'll display the first glyph. */
     unsigned char *glyph =
-     (unsigned char*)&_binary_font_psf_start +
+     (unsigned char*)fontAddr +
      font->headersize +
      (c>0&&c<font->numglyph?c:0)*font->bytesperglyph;
     /* calculate the upper left corner on screen where we want to display.
@@ -88,20 +86,25 @@ void fb_putchar(
         (cx * (font->width+1) * 4);
     /* finally display pixels according to the bitmap */
     uint32_t x,y, line,mask;
-    for(y=0;y<font->height;y++){
+    int fnt_height = font->height;
+    int fnt_width = font->width;
+    uintptr_t limit = pitch * width;
+    for(y=0;y<fnt_height;y++){
         /* save the starting position of the line */
         line=offs;
-        mask=1<<(font->width-1);
+        mask=1<<(fnt_width-1);
         /* display a row */
-        for(x=0;x<font->width;x++)
+        for(x=0;x<fnt_width;x++)
         {
             if (c == 0)
             {
                 *((uint32_t*)((uint8_t*)addr + line)) = bg;
             }
             else if (c != 0)
-            {
+	    {
+		if (line >= limit) continue;
                 *((uint32_t*)((uint8_t*)addr + line)) = ((int)*glyph) & (mask) ? fg : bg;
+		//*((uint32_t*)((uint8_t*)addr + line)) = 0xff0000;
             }
 
             /* adjust to the next pixel */
@@ -138,7 +141,7 @@ static void psf_init()
       font->numglyph * font->bytesperglyph
     );
     /* allocate memory for translation table */
-    while((int)s>_binary_font_psf_end) {
+    while((size_t)s>_binary_font_psf_end) {
         uint16_t uc = s[0];
         if(uc == 0xFF) {
             glyph++;
@@ -167,6 +170,7 @@ static void psf_init()
 }
 void fb_putc(char ch) {
     // Handle a backspace, by moving the cursor back one space
+    //arch_cli();
   if (ch == 0x08 && cursor_x)
     {
       fb_putchar(' ',cursor_x,cursor_y,0xffffff,BLACK);
@@ -205,6 +209,7 @@ void fb_putc(char ch) {
     }
     scroll();
     printCursor(cursor_x,cursor_y);
+    //arch_sti();
 }
 static void printCursor(int x,int y) {
     if (enableCursor)fb_putchar(' ',x,y,bcolor,fcolor);
@@ -215,15 +220,15 @@ void fb_map() {
     if (width != 0 && height != 0) {
         GFX_MEMORY = /*0x02800000*/addr;
         // Map the FB
-        uint32_t p_address = (uint32_t)addr;
+	    uint32_t p_address = (uint32_t)paddr;
 	    uint32_t v_address = (uint32_t)GFX_MEMORY;
-	    uint32_t size = pitch * width;
-	    uint32_t pages = size / PAGESIZE_4K;
-	    for (uint32_t i = 0; i < pages; i++) {
-		    uint32_t offset = i * PAGESIZE_4K;
+	    uintptr_t size = pitch * width;
+	    uintptr_t pages = size / PAGESIZE_4K;
+	    for (uintptr_t i = 0; i < pages; i++) {
+		    uintptr_t offset = i * PAGESIZE_4K;
 		    arch_mmu_mapPage(NULL,v_address + offset,p_address + offset,7);
 	    }
-	    addr = GFX_MEMORY;
+	    addr = v_address;
 	    mapped = true;
 	    if (!mapped) cursor_x = cursor_y = 0; // why not?
     }
@@ -253,9 +258,13 @@ void fb_clear(int color) {
     }
 }
 static void scroll() {
+	if (cursor_y >= ws_row-1 && charBuff == NULL) {
+		cursor_x = cursor_y = 0;
+		return;
+	}
     if (charBuff == NULL) return;
     if (cursor_y >= ws_row-1) {
-	for (int i = 1; i < ws_row*(ws_col-1); i++) {
+	for (int i = 0; i < ws_row*(ws_col-1); i++) {
 		charBuff[i] = charBuff[i+ws_col];
 	}
     for (int i = (ws_row-2)*ws_col; i < ws_row*ws_col-1; i++) {

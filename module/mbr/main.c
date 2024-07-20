@@ -63,7 +63,7 @@ static uint64_t mbr_dev_write(vfs_node_t *node,uint64_t offset,uint64_t how,void
 static void mbr_registerDevice(vfs_node_t *harddrive,int lba_start,uint64_t sectors) {
     mbr_dev_t *dev = kmalloc(sizeof(mbr_dev_t));
     memset(dev,0,sizeof(mbr_dev_t));
-    dev->harddrive_addr = (int)harddrive;
+    dev->harddrive_addr = (vaddr_t)harddrive;
     dev->part_index = 0;
     dev->lba_start = lba_start;
     dev->sectors = sectors;

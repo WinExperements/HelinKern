@@ -129,7 +129,7 @@ static char ata_cdrom_char = 'a';
 static uint64_t next_lba = 0;
 static char atapiBuffer[2048];
 static ata_device_t *inter_ata;
-void *ata_irq_handler(void *stack);
+uintptr_t ata_irq_handler(uintptr_t stack);
 void ata_io_wait(ata_device_t *dev) {
 	inb(dev->base+ATA_REG_ALTSTATUS);
 	inb(dev->base+ATA_REG_ALTSTATUS);
@@ -613,7 +613,7 @@ void parseATAStatus(uint8_t status) {
     kprintf("ERR (Error) - Additional error information: 0x%x\n", status & 0x03);
 }
 
-void *ata_irq_handler(void *stack) {
+uintptr_t ata_irq_handler(uintptr_t stack) {
 	// ATA specifications
 	//kprintf("ATA IRQ! 0x%x 0x%x\r\n",inter_ata->base,inter_ata);
 	//uint8_t stat = inb(inter_ata->base+ATA_REG_STATUS);

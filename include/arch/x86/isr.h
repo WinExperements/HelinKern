@@ -7,6 +7,17 @@
 #define PIC_SLAVE_DATA 0xA1
 
 // @ Define : The Interrupt Gate
+#if defined(__x86_64__)
+struct idt_entry_struct {
+	uint16_t offset1;
+	uint16_t sel;
+	uint8_t ist;
+	uint8_t flags;
+	uint16_t offset2;
+	uint32_t offset3;
+	uint32_t zero;
+} __attribute((packed));
+#else
 struct idt_entry_struct
 {
   uint16_t base_lo;             // The lower 16 bits of the address to jump to when this interrupt fires.
@@ -15,21 +26,22 @@ struct idt_entry_struct
   uint8_t  flags;               // More flags. See documentation.
   uint16_t base_hi;             // The upper 16 bits of the address to jump to.
 } __attribute((packed));
+#endif
 typedef struct idt_entry_struct idt_entry_t;
 
 // @ Define : The Pointer to the Interrupt Gate
 struct idt_ptr_struct
 {
   uint16_t limit;
-  uint32_t base;
+  uintptr_t base;
 } __attribute((packed));
 typedef struct idt_ptr_struct idt_ptr_t;
 
 // @ Functions
 // @ Task : Load the IDT , Defined in IDT.s
-extern void idt_flush(uint32_t);
+extern void idt_flush(uintptr_t);
 void init_idt();
-void idt_set_gate(uint8_t,uint32_t,uint16_t,uint8_t);
+void idt_set_gate(uint8_t,uintptr_t,uint16_t,uint8_t);
 extern int isr0();
   extern int isr1();
   extern int isr2();

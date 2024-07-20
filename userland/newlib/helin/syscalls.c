@@ -40,7 +40,7 @@ typedef struct _pthread_str {
 
 static int globalMask = 0;
 // TODO: Need to be rewritten as arch-specific code.
-int helin_syscall(int num,int p1,int p2,int p3,int p4,int p5) {
+int helin_syscall(int num,uintptr_t p1,uintptr_t p2,uintptr_t p3,uintptr_t p4,uintptr_t p5) {
     // use asm macro for it
     int ret = 0;
     asm volatile("int %1\n"
@@ -55,6 +55,9 @@ int helin_syscall(int num,int p1,int p2,int p3,int p4,int p5) {
                 : "cc", "memory");
     return ret;
 }
+void (*prep_forkHandler)(void);
+void (*parent_forkHandler)(void);
+void (*child_forkHandler)();
 void _exit() {
     helin_syscall(2,0,0,0,0,0);
 }
@@ -71,11 +74,21 @@ int execve(char *name, char **argv, char **env) {
         num_args++;
     }
     // We are UNIX system. In this space exec() is replacing caller.
-    errno = helin_syscall(13, (int)name, num_args, (int)argv, (int)env, 0);
+    errno = helin_syscall(13, (uintptr_t)name, num_args, (uintptr_t)argv, (uintptr_t)env, 0);
     return -1;
 }
 int fork() {
-    return helin_syscall(49,0,0,0,0,0);
+	if (prep_forkHandler != NULL) {
+		prep_forkHandler();
+	}
+    	int ret = helin_syscall(49,0,0,0,0,0);
+	if (ret == 0) {
+		if (child_forkHandler != NULL) {
+			child_forkHandler();
+		}
+	} else if (parent_forkHandler != NULL) {
+		parent_forkHandler();
+	}
 }
 struct kernelStat {
 	int           	st_dev;
@@ -114,7 +127,7 @@ static void convertKrnStat(struct kernelStat *from,struct stat *to) {
 }
 int fstat(int file, struct stat *st) {
     struct kernelStat krnStat;
-    errno = helin_syscall(SYS_stat,file,(int)&krnStat,0,0,0);
+    errno = helin_syscall(SYS_stat,file,(uintptr_t)&krnStat,0,0,0);
     if (errno > 0) {
 	return -1;
     }
@@ -135,7 +148,7 @@ int kill(int pid, int sig){
     return 0;
 }
 int link(char *old, char *new){
-	errno = helin_syscall(SYS_link,(int)old,(int)new,0,0,0);
+	errno = helin_syscall(SYS_link,(uintptr_t)old,(uintptr_t)new,0,0,0);
 	if (errno > 0) {
 		return -1;
 	}
@@ -145,7 +158,7 @@ int lseek(int file, int ptr, int dir){
     return helin_syscall(27,file,dir,ptr,0,0);
 }
 int open(const char *name, int flags, ...){
-	int ret = helin_syscall(SYS_open,(int)name,flags,0,0,0);
+	int ret = helin_syscall(SYS_open,(uintptr_t)name,flags,0,0,0);
 	if (ret < 0) {
 		errno = ret * -1;
 		return -1;
@@ -153,7 +166,7 @@ int open(const char *name, int flags, ...){
 	return ret;
 }
 int read(int file, char *ptr, int len){
-	int how = helin_syscall(9,file,0,len,(int)ptr,0);
+	int how = helin_syscall(9,file,0,len,(uintptr_t)ptr,0);
 	if (how < 0) {
 		errno = how * -1;
 		return -1;
@@ -169,7 +182,7 @@ int stat(const char *file, struct stat *st){
 		return -1;
 	}
 	struct kernelStat krnStat;
-	int ret = helin_syscall(SYS_stat,fd,(int)&krnStat,0,0,0);
+	int ret = helin_syscall(SYS_stat,fd,(uintptr_t)&krnStat,0,0,0);
 	if (ret > 0) {
 		errno = ret;
 		return -1;
@@ -180,7 +193,7 @@ int stat(const char *file, struct stat *st){
 }
 clock_t times(struct tms *buf){}
 int unlink(char *name){
-	errno = helin_syscall(SYS_unlink,(int)name,0,0,0,0);
+	errno = helin_syscall(SYS_unlink,(uintptr_t)name,0,0,0,0);
 	if (errno > 0) {
 		return -1;
 	}
@@ -190,7 +203,7 @@ int wait(int *status){
   return waitpid(-1,&status,0);
 }
 int write(int file, char *ptr, int len){
-    int how = helin_syscall(10,file,0,len,(int)ptr,0);
+    int how = helin_syscall(10,file,0,len,(uintptr_t)ptr,0);
     if (how < 0) {
 	    errno = how * -1;
 	    return -1;
@@ -202,15 +215,15 @@ int gettimeofday(struct timeval *__restrict __p,
 int ioctl(int fd,unsigned long request,...) {
     va_list args;
     va_start(args,request);
-    int ret = helin_syscall(32,fd,request,(int)args,0,0);
+    int ret = helin_syscall(32,fd,request,(uintptr_t)args,0,0);
     va_end(args);
     return ret;
 }
 void *mmap(void *addr,size_t len,int prot,int flags,int fd,off_t offset) {
-    return (void *)helin_syscall(29,fd,(int)addr,len,offset,flags);
+    return (void *)helin_syscall(29,fd,(uintptr_t)addr,len,offset,flags);
 }
 DIR *opendir(const char *path) {
-    int fd = helin_syscall(18,(int)path,0,0,0,0);
+    int fd = helin_syscall(18,(uintptr_t)path,0,0,0,0);
     if (fd < 0) {
         return NULL;
     }
@@ -228,7 +241,7 @@ DIR *opendir(const char *path) {
 struct dirent *readdir(DIR *d) {
     if (!d) return NULL;
     // get platform specific dirent then convert it to system
-    int ret = helin_syscall(20,d->_fd,d->_pos,(int)d->native_ptr,0,0);
+    int ret = helin_syscall(20,d->_fd,d->_pos,(uintptr_t)d->native_ptr,0,0);
     if (ret == -1) {
 	    return NULL;
     }
@@ -253,7 +266,7 @@ int closedir(DIR *dir) {
     return 0;
 }
 int chdir (const char *path) {
-    return helin_syscall(17,(int)path,0,0,0,0);
+    return helin_syscall(17,(uintptr_t)path,0,0,0,0);
 }
 int getgid (void) {
     return helin_syscall(34,0,0,0,0,0);
@@ -265,13 +278,13 @@ int setuid(int uid) {
     helin_syscall(SYS_setuid,uid,0,0,0,0);
 }
 char *getcwd (char *__buf, size_t __size) {
-    return (char *)helin_syscall(16,(int)__buf,__size,0,0,0);
+    return (char *)helin_syscall(16,(uintptr_t)__buf,__size,0,0,0);
 }
 
 int mount(const char *source,const char *target,
               const char *filesystemtype,unsigned long mountflags,
               const void *data) {
-    int ret = helin_syscall(21,(int)source,(int)target,(int)filesystemtype,mountflags,(int)data);
+    int ret = helin_syscall(21,(uintptr_t)source,(uintptr_t)target,(uintptr_t)filesystemtype,mountflags,(uintptr_t)data);
     if (ret == -1) {
     	errno = ENOENT;
     } else if (ret == -2) {
@@ -285,7 +298,7 @@ int mount(const char *source,const char *target,
     return ret;
 }
 int getfsstat(struct statfs *buf,long bufsize,int mode) {
-	int ret = helin_syscall(SYS_getfsstat,(int)buf,(int)bufsize,mode,0,0);
+	int ret = helin_syscall(SYS_getfsstat,(uintptr_t)buf,(uintptr_t)bufsize,mode,0,0);
 	return ret;
 }
 // waitpid
@@ -308,7 +321,7 @@ int execv(const char *path, char *const argv[]) {
 }
 int pipe(int pipefd[2]) {
   // Use IPC manager API.
-  return helin_syscall(SYS_ipc,1,0x50,0,(int)pipefd,0);
+  return helin_syscall(SYS_ipc,1,0x50,0,(uintptr_t)pipefd,0);
 }
 void thread_entry(pthread_str *data) {
 	// stderr,stdout,stdin are automatically is openned for us
@@ -325,7 +338,7 @@ int pthread_equal(pthread_t t1, pthread_t t2) {
 int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
                    void* (*start_routine)(void*), void* arg)
 {
-	int pid = helin_syscall(37,(int)thread_entry,(int)start_routine,(int)arg,0,0);
+	int pid = helin_syscall(37,(uintptr_t)thread_entry,(uintptr_t)start_routine,(uintptr_t)arg,0,0);
 	if (pid > 0) {
 		*thread = pid;
 	}
@@ -353,7 +366,7 @@ int sleep(int sec) {
 
 int tcgetattr(int fd,struct termios* tio) {
 	// Return success
-	ioctl(fd,1,(int)tio);
+	ioctl(fd,1,(uintptr_t)tio);
 	return 0;
 }
 int     tcsetattr(int fd, int type, const struct termios *term) {
@@ -361,12 +374,12 @@ int     tcsetattr(int fd, int type, const struct termios *term) {
 		errno = ENOSYS;
 		return -1;
 	}
-	ioctl(fd,2,(int)term);
+	ioctl(fd,2,(uintptr_t)term);
 	return 0;
 }
 
 int access(const char *pathname,int mode) {
-	return helin_syscall(SYS_access,(int)pathname,mode,0,0,0);
+	return helin_syscall(SYS_access,(uintptr_t)pathname,mode,0,0,0);
 }
 
 
@@ -413,11 +426,11 @@ int utime(const char *filename, const struct utimbuf *times) {
 }
 
 int chown(const char *pathname, uid_t owner, gid_t group) {
-	return helin_syscall(SYS_chown,2,(int)pathname,owner,group,0);
+	return helin_syscall(SYS_chown,2,(uintptr_t)pathname,owner,group,0);
 }
 
 int rmdir(const char *pathname) {
-	return helin_syscall(SYS_rm,2,(int)pathname,0,0,0);
+	return helin_syscall(SYS_rm,2,(uintptr_t)pathname,0,0,0);
 }
 
 
@@ -453,11 +466,11 @@ int sigaction(int signum, const struct sigaction *act,
 
 int gethostname(char *name, size_t len) {
 	if (name == NULL || len == 0) return -1;
-	return helin_syscall(52,(int)name,len,0,0,0);
+	return helin_syscall(52,(uintptr_t)name,len,0,0,0);
 }
 
 int sethostname(char *name,size_t len) {
-	return helin_syscall(51,(int)name,len,0,0,0);
+	return helin_syscall(51,(uintptr_t)name,len,0,0,0);
 }
 
 uid_t geteuid(void) {
@@ -589,10 +602,10 @@ pid_t setsid(void) {
 	return -1;
 }
 int mkdir(const char *path, mode_t mode) {
-	return helin_syscall(53,(int)path,mode,0,0,0);
+	return helin_syscall(53,(uintptr_t)path,mode,0,0,0);
 }
 int creat(const char *path, mode_t mode) {
-	int ret = helin_syscall(SYS_creat,(int)path,mode,0,0,0);
+	int ret = helin_syscall(SYS_creat,(uintptr_t)path,mode,0,0,0);
 	if (ret > 0) {
 		errno = ret;
 		return -1;
@@ -634,7 +647,7 @@ int execlp(const char *file, const char *arg, ...) {
 
 int munmap(void* addr, size_t len) {
 	// Насправді, ядро на даний момент не підтримує функцію "arch_mmu_unmap", тому ми повернемо позитивний результат нічого не роблючи
-	errno = helin_syscall(SYS_munmap,(int)addr,len,0,0,0);
+	errno = helin_syscall(SYS_munmap,(uintptr_t)addr,len,0,0,0);
 	if (errno > 0) {
 		return -1;
 	}
@@ -700,7 +713,7 @@ pid_t vfork() {
 }
 
 int umount(char *target) {
-    return helin_syscall(56,(int)target,0,0,0,0);
+    return helin_syscall(56,(uintptr_t)target,0,0,0,0);
 }
 
 int reboot(int reason) {
@@ -711,7 +724,7 @@ int reboot(int reason) {
 		errno = helin_syscall(14,0,0,0,0,0);
 		return -1;
 	} else {
-		errno = -ENOSYS;
+		errno = ENOSYS;
 		return -1;
 	}
 	return 0;
@@ -722,7 +735,7 @@ int uname(struct utsname *name) {
 		errno = EFAULT;
 		return -1;
 	}
-	return helin_syscall(50,(int)name,0,0,0,0);
+	return helin_syscall(50,(uintptr_t)name,0,0,0,0);
 }
 int execl(const char *path, const char *arg, ...) {
     // Count the number of arguments passed
@@ -752,12 +765,12 @@ int execl(const char *path, const char *arg, ...) {
 typedef void (*sighandler_t)(int);
 sighandler_t signal(int signum,sighandler_t handler) {
 	// Because i erased this build, rewrite!
-	helin_syscall(11,signum,(int)handler,0,0,0);
+	helin_syscall(11,signum,(uintptr_t)handler,0,0,0);
 }
 // Timer functions.
 int clock_gettime(clockid_t clock_id, struct timespec *tp) {
 	struct tm time;
-	errno = helin_syscall(SYS_gettime,clock_id,(int)&time,0,0,0);
+	errno = helin_syscall(SYS_gettime,clock_id,(uintptr_t)&time,0,0,0);
 	if (errno > 0) {
 		return -1;
 	}
@@ -778,7 +791,7 @@ int killpg(int grID,int sig) {
 	return -1;
 }
 int getrlimit(int resource, struct rlimit *rlp) {
-	int ret = helin_syscall(SYS_getrlimit,resource,(int)rlp,0,0,0);
+	int ret = helin_syscall(SYS_getrlimit,resource,(uintptr_t)rlp,0,0,0);
 	if (ret > 0) {
 		errno = ret;
 		return -1;
@@ -786,7 +799,7 @@ int getrlimit(int resource, struct rlimit *rlp) {
 	return 0;
 }
 int setrlimit(int resource, const struct rlimit *rlp) {
-	int ret = helin_syscall(SYS_setrlimit,resource,(int)rlp,0,0,0);
+	int ret = helin_syscall(SYS_setrlimit,resource,(uintptr_t)rlp,0,0,0);
 	if (ret > 0) {
 		errno = ret;
 		return -1;
@@ -796,7 +809,7 @@ int setrlimit(int resource, const struct rlimit *rlp) {
 int getrusage(int resID,struct rusage *to) {
 	// Make sure that the structure is clean by itself.
 	memset(to,0,sizeof(struct rusage));
-	int ret = helin_syscall(SYS_getrusage,resID,(int)to,0,0,0);
+	int ret = helin_syscall(SYS_getrusage,resID,(uintptr_t)to,0,0,0);
 	if (ret > 0) {
 		errno = ret;
 		return -1;
@@ -804,7 +817,7 @@ int getrusage(int resID,struct rusage *to) {
 	return 0;
 }
 int chroot(const char *to) {
-	errno =  helin_syscall(SYS_chroot,(int)to,0,0,0,0);
+	errno =  helin_syscall(SYS_chroot,(uintptr_t)to,0,0,0,0);
 	if (errno > 0) {
 		return -1;
 	}
@@ -1023,9 +1036,11 @@ int pause() {
 	errno = 38;
 	return -1;
 }
-int pthread_atfork(void (*p1)(void), void (*p2)(void), void (*p3)(void)) {
-	errno = 38;
-	return -1;
+int pthread_atfork(void (*prep)(void), void (*parent)(void), void (*child)(void)) {
+	prep_forkHandler = prep;
+	parent_forkHandler = parent;
+	child_forkHandler = child;
+	return 0;
 }
 int pipe2(int pipefd[2],int flags) {
 	errno = 38;
@@ -1147,7 +1162,7 @@ void sync() {
 	helin_syscall(SYS_sync,0,0,0,0,0);
 }
 int symlink(const char *__name1, const char *__name2) {
-	errno = helin_syscall(SYS_symlink,(int)__name1,(int)__name2,0,0,0);
+	errno = helin_syscall(SYS_symlink,(uintptr_t)__name1,(uintptr_t)__name2,0,0,0);
 	if (errno > 0) {
 		return -1;
 	}
@@ -1222,7 +1237,7 @@ int   shmget(key_t key, size_t size, int shmflags) {
 	cmd->key = key;
 	cmd->size = size;
 	cmd->flags = shmflags;
-	int ret = syscall(SYS_ipc,1,'S',0,(int)cmd,0);
+	int ret = syscall(SYS_ipc,1,'S',0,(uintptr_t)cmd,0);
 	free(cmd);
 	return ret;
 }
@@ -1232,19 +1247,19 @@ void *shmat(int shmid, const void *to, int flags) {
 	cmd->key = shmid;
 	cmd->flags = flags;
 	cmd->mapAddr = to;
-	int ret = syscall(SYS_ipc,2,'S',2,(int)cmd,0);
+	int ret = syscall(SYS_ipc,2,'S',2,(uintptr_t)cmd,0);
 	free(cmd);
 	return ret;
 }
 int shmdt(const void *ptr) {
-	return syscall(SYS_ipc,2,'S',3,(int)ptr,0);
+	return syscall(SYS_ipc,2,'S',3,(uintptr_t)ptr,0);
 }
 int shmctl(int shmid,int cmd,struct shmid_ds *buf) {
 	struct shm_cmd *pcmd = (struct shm_cmd *)malloc(sizeof(struct shm_cmd));
 	memset(pcmd,0,sizeof(struct shm_cmd));
 	pcmd->key = shmid;
 	pcmd->mapAddr = buf;
-	int ret = syscall(SYS_ipc,2,'S',cmd,(int)pcmd,0);
+	int ret = syscall(SYS_ipc,2,'S',cmd,(uintptr_t)pcmd,0);
 	free(pcmd);
 	return ret;
 }

@@ -11,7 +11,7 @@
 #include <lib/queue.h>
 #include <arch.h>
 #include <syscall.h>
-static void *keyboard_handler(void *);
+static uintptr_t keyboard_handler(uintptr_t stack);
 static bool shift,ctrl = false;
 static void keyboard_keyHandler(char key);
 static dev_t *keyboard_dev;
@@ -59,7 +59,7 @@ void keyboard_init() {
     dev_add(keyboard_dev);
 }
 
-static void *keyboard_handler(void *stack) {
+static uintptr_t keyboard_handler(uintptr_t stack) {
     uint8_t key = inb(0x60);
     if (key < 0x80) {
 	    if (key == 0x1) {
@@ -118,7 +118,8 @@ static uint64_t keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t h
     arch_sti();
     if (how == 1) 
     {
-	    char key = (int)dequeue(keys);
+	    /* 64 bit kernel hack */
+	    char key = (char)((uintptr_t)dequeue(keys) & 0xFF);
 	    if (key > 0) {
 		    buff[0] = key;
 	    	    return 1;
@@ -128,7 +129,7 @@ static uint64_t keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t h
     while (i < (how - 1)) {
         while (keys->size == 0);
 
-        char c = (int)dequeue(keys);
+        char c = (char)((uintptr_t)dequeue(keys) & 0xFF);
 
         if (c >= 8 && c <= 0x7e) {
             buff[i] = c;

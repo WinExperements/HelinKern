@@ -1,6 +1,7 @@
 #include <typedefs.h>
 #include <dev.h>
 #include <output.h>
+#include <arch.h>
 #include <mm/alloc.h>
 static uint64_t serialdev_write(vfs_node_t *,uint64_t offset,uint64_t how,void *buff);
 static uint64_t serialdev_read(vfs_node_t *,uint64_t,uint64_t,void *);
@@ -13,6 +14,7 @@ void serialdev_init() {
 	serialdev->name = "serial";
 	serialdev->write = serialdev_write;
 	serialdev->read = serialdev_read;
+	serialdev->buffer_sizeMax = 100;
 	dev_add(serialdev);
 	kprintf("done\r\n");
 }
@@ -21,21 +23,41 @@ static uint64_t serialdev_write(vfs_node_t *node,uint64_t offset,uint64_t size,v
 	if (size < 0) return 0;
 	char *b = (char *)buff;
 	for (uint64_t i = 0; i < size; i++) {
-		putc(b[i]);
+		write_serial(b[i]);
 	}
 	return size;
 }
 static uint64_t serialdev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 	if (size < 0) return 0;
-	kprintf("Reading from serial device\r\n");
 	char *b = (char *)buff;
+	arch_sti();
 	uint64_t i;
 	for (i = 0; i < size; i++) {
 		char c = read_serial();
-		output_putc(c);
+		write_serial(c);
 		b[i] = c;
-		if (c == '\n') {
-			break;
+		if (c == '\r') {
+			write_serial('\n');
+			b[i] = '\n';
+			i++;
+			b[i] = 0;
+			return i;
+		} else if (c == 127) {
+			if (i > 2) {
+				write_serial('\b');
+				write_serial(' ');
+				i-=2;
+				b[i] = 0;
+			} else if (i > 0) {
+				b[i] = 0;
+				i--;
+				b[i] = 0;
+				write_serial('\b');
+				write_serial(' ');
+			} else {
+				write_serial('\b');
+				b[0] = 0;
+			}
 		}
 	}
 	return i;

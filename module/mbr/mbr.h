@@ -54,7 +54,7 @@ typedef struct {
 mbr_t *mbr_getMBR();
 
 typedef struct mbr_dev {
-	int harddrive_addr;
+	vaddr_t harddrive_addr;
 	int part_index;
 	int lba_start;
     int sectors;
