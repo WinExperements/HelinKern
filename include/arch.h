@@ -84,4 +84,10 @@ void arch_exitSignal(process_t *prc);
  * return address when the allocation of physical memory can actually begin.
 */
 uintptr_t arch_getMemStart();
+/*
+ * POSIX thread support
+ * Clone last saved process context to another process. 
+ * NOTE: The new process MUST be started in separate stack!
+*/
+void arch_clone_current(process_t *prc,void *newStack,uintptr_t stackSize);
 #endif

@@ -57,6 +57,7 @@ void kshell_main() {
 		while(1) {}
 	}
     }
+    vfs_creat(vfs_getRoot(),"mnt",VFS_DIRECTORY);
     if (!vfs_mount(devfs,devM,"/dev")) {
         kprintf("pre-init: failed to mount /dev\n");
         return;

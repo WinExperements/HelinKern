@@ -44,4 +44,5 @@ void alloc_reserve(int start,int end); // reserve there address space
 unsigned long alloc_getUsedPhysMem(); // get used physical memory
 unsigned long alloc_getAllMemory(); // get all available amount of memory
 int alloc_alignAddress(int address,int aligment);
+uintptr_t alloc_getKernelHeapPages();
 #endif

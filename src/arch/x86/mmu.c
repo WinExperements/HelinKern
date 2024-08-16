@@ -319,7 +319,7 @@ size_t arch_mmu_map(aspace_t *aspace,vaddr_t base,size_t size,uint32_t flags) {
     int s = PAGE_INDEX_4K(base);
     for (size_t i = 0; i < (size/PAGESIZE_4K)+1; i++) {
         // Bro WTF?
-            add_page_to_pd((void *)base+(i*4096),alloc_getPage(),flags);
+            add_page_to_pd((void *)base+(i*4096),(paddr_t)base+(i*4096),flags);
     }
     return 1;
 #endif

@@ -222,7 +222,7 @@ void idt_init() {
   idt_entries[32].ist = 1;
   idt_entries[33].ist = 1;
   idt_entries[0x80].ist = 2;
-  idt_entries[14].ist = 2;
+  idt_entries[14].ist = 1;
 #endif
   idt_flush((uintptr_t)&idt_ptr);
   memset(interrupt_handlers,0,256);
@@ -325,10 +325,11 @@ uintptr_t x86_irq_handler(uintptr_t regsAddr) {
         }
         //arch_poweroff();
         if (regs->cs == 0x1b) {
-            kprintf("%s in %s(%d)\r\n",exception_names[int_no],thread_getThread(thread_getCurrent())->name,thread_getCurrent());
+            kprintf("%s in %s(%d) at 0x%x\r\n",exception_names[int_no],thread_getThread(thread_getCurrent())->name,thread_getCurrent(),whereIs);
 	    //arch_sti();
             thread_killThread(thread_getThread(thread_getCurrent()),18198);
             //arch_reschedule(); // never return?
+	    kprintf("Kill failed\r\n");
          }
         kprintf("Exception: %s, halt, CS: 0x%x, where: 0x%x\r\n",exception_names[int_no],regs->cs,whereIs);
 	uintptr_t traceStack = 0;
@@ -337,7 +338,8 @@ uintptr_t x86_irq_handler(uintptr_t regsAddr) {
 #else
 	traceStack = regs->ebp;
 #endif
-	arch_trace(traceStack);
+	//arch_trace(traceStack);
+
         // Halt
         while(1) {}
     }

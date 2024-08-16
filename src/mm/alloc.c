@@ -22,6 +22,7 @@ static unsigned long usedPhysMem = 0;
 static uintptr_t kernelEndForBitmap = 0;
 static uintptr_t notMappedPageIndx = 0;
 static uintptr_t allocStart = 0;
+static uintptr_t kheap_pages = 0;
 void alloc_init(uintptr_t kernel_end,uintptr_t high_mem) {
     if (high_mem == 0) {
       kprintf("Headless platform detected, %s not possible\r\n",__func__);
@@ -37,7 +38,6 @@ void alloc_init(uintptr_t kernel_end,uintptr_t high_mem) {
     allocStart = arch_getMemStart();
     // Clean the map
     total_pages = (high_mem)/4096;
-    total_pages *= 1024;
     //total_pages *= 1024;
     if (total_pages < 0) {
 	    kprintf("Something went really WRONG. HIGH MEM(%d,0x0%x). MN: %d, DEL: %d\r\n",high_mem,high_mem,high_mem*1024,(high_mem*1024)/4096);
@@ -98,11 +98,13 @@ void *ksbrk_page(int n) {
 		p_addr = alloc_getPage();
 		if (p_addr == (uint32_t)-1) {
 			kprintf("ksbrk_page: No free space left. alloc_getPage returns(new call): 0x%x",alloc_getPage());
+			kprintf("Physical Memory Pages used %d of %d. Used by kernel heap: %d pages\r\n",usedPhysMem/4096,total_pages,kheap_pages);
 			PANIC("A");
 			return (void *)-1;
 		}
 		arch_mmu_mapPage(NULL,(size_t)m_kheap,p_addr,3);
 		m_kheap+= PAGESIZE_4K;
+		kheap_pages+=n;
 	}
 	chunk->size = PAGESIZE_4K * n;
 	chunk->used = 0;
@@ -303,4 +305,7 @@ int alloc_alignAddress(int addr,int al) {
     al--;
     uintptr_t aligned_addr = (addr + al) & ~al;
     return aligned_addr;
+}
+uintptr_t alloc_getKernelHeapPages() {
+	return kheap_pages;
 }

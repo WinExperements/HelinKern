@@ -87,7 +87,7 @@ void thread_init() {
     // The interrupt handler for timer must be called from ARCH IRQ handler, see porting section in README
     task_list = queue_new();
     // Create the priority FILO queue
-    for (int i = 0; i < MAX_PRIORITY; i++) {
+    for (int i = 0; i < 2; i++) {
 	    priority[i] = filo_new(1000);
     }
     idle = thread_create("idle",idle_main,false);
@@ -126,7 +126,7 @@ uintptr_t thread_schedule(uintptr_t stack) {
 			    nextTask = idle;
 			    break;
 		    }
-		    if (nextTask->state == STATUS_RUNNING) break;
+		    if (nextTask->state == STATUS_RUNNING || nextTask->state == STATUS_SLEEP) break;
 		    if (nextTask->state != -1 || nextTask->state != STATUS_WAITPID) {
 			    push_prc(nextTask);
 		    }
@@ -158,11 +158,10 @@ switchTask:
 	    //kprintf("Found sleeping task :)\r\n");
 	    if (nextTask->wait_time <= 0) {
 		    nextTask->state = STATUS_RUNNING;
+		} else {
+	    		nextTask->wait_time-=10;
+	    		nextTask = idle;
 		}
-	    nextTask->wait_time-=10;
-	    //kprintf("minus 10 millisecond %d\r\n",nextTask->wait_time);
-	    // Switch to idle
-	    nextTask = idle;
 	}
     //kprintf("Switch to %s\n",nextTask->name);
     // switch the address space

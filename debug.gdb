@@ -23,4 +23,6 @@ target remote localhost:1234
 #b iso9660_read
 #b *0x10ab62
 #b module/iso9660/main.c:240
-b arch_processSignal
+b ext2_mount
+#b module/atapi/atapi.c:509
+b arch_post_init

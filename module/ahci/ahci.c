@@ -28,7 +28,7 @@
 #define ATA_DEV_BUSY 0x80
 #define ATA_DEV_DRQ 0x08
 
-__attribute__((section(".modname"))) char *name = "ahci";
+//__attribute__((section(".modname"))) char *name = "ahci";
 
 static int ctrl_id = 0;
 

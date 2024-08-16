@@ -53,10 +53,10 @@ extern char **environ;
 void sigint_handler(int sig);
 int main(int argc,char **argv) {
 	int mypid = getpid();
-	if (mypid != 1) {
+	/*if (mypid != 1) {
 		fprintf(stderr,"The init system can be runned only as PID 1!\r\n");
 		return 1;
-	}
+	}*/
 	printVersion();
   	signal(SIGINT,sigint_handler);
 	printf("Configuration path: %s\r\n",CONF_PATH);
@@ -68,7 +68,8 @@ int main(int argc,char **argv) {
 	}
   	printf("init[1]: Setting up host name to \"localhost\"\r\n");
   	char *hostname = "localhost";
-  	sethostname(hostname,sizeof(hostname));
+	int hostnamelen = strlen(hostname);
+  	sethostname(hostname,hostnamelen);
  	 // Setup environment.
 	setenv("PATH","/bin:/sbin",1);
 	// Read init.rc file line by line.
@@ -143,6 +144,7 @@ int main(int argc,char **argv) {
 			}
 		}}
 	}
+	printf("init[1]: Unexpected behaivor!!!\r\n");
 	return 0;
 }
 
@@ -165,7 +167,7 @@ void parseCommand(int argc,char **argv) {
 		char *serviceName = argv[1];
 		int priority = atoi(argv[2]);
 		char *executable = argv[3];
-		//printf("Start up service, name -> %s, priority -> %d, executable -> %s!\r\n",serviceName,priority,executable);
+		printf("Start up service, name -> %s, priority -> %d, executable -> %s!\r\n",serviceName,priority,executable);
 		// Build the argc and argv for a new process!
 		char **new_argv = malloc(argc-3);
 		int i,j = 0;
@@ -173,9 +175,13 @@ void parseCommand(int argc,char **argv) {
 			new_argv[j] = argv[i];
 		}
 		new_argv[j] = NULL;
-		int child = fork();
+		int child = syscall(SYS_fork,0,0,0,0,0);
 		if (child == 0) {
 			// Now we can call, execv
+			if (getpid() == 1) {
+				printf("BUG!!!!\r\n");
+				while(1) {}
+			}
 			execv(new_argv[0],new_argv);
 			// If we here, something went wrong.
 			perror("Execution error: ");

@@ -109,10 +109,10 @@ elif [ "$1" = "retry-newlib" ]; then
 	export PATH="$toA/bin/bin:$PATH"
 	export PATH="$toA/../gcc-i686/bin:$PATH"
 	cd newlib/build
-	gmake -C $TARGET/newlib/libc/sys/helin
-	gmake -C $TARGET/newlib/libc/sys
-	gmake -j$(nproc)
-	gmake DESTDIR=$sysrootPath install
+	gmake -C $TARGET/newlib/libc/sys/helin || exit
+	gmake -C $TARGET/newlib/libc/sys || exit
+	gmake -j$(nproc) || exit
+	gmake DESTDIR=$sysrootPath install || exit
 elif [ "$1" = "build-gcc" ]; then
 	# Here we do a GCC like stuff
 	# We need to build autoconf and automake specific versions for the GCC

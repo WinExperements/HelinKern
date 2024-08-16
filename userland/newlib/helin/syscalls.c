@@ -31,12 +31,9 @@
 #include <spawn.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <sys/msg.h>
 #define PATH_MAX 40
 // Structure from src/thread.c from kernel source
-typedef struct _pthread_str {
-        int entry;
-        void *arg;
-} pthread_str;
 
 static int globalMask = 0;
 // TODO: Need to be rewritten as arch-specific code.
@@ -89,6 +86,7 @@ int fork() {
 	} else if (parent_forkHandler != NULL) {
 		parent_forkHandler();
 	}
+	return ret;
 }
 struct kernelStat {
 	int           	st_dev;
@@ -265,6 +263,50 @@ int closedir(DIR *dir) {
     free(dir);
     return 0;
 }
+DIR *fdopendir(int fd) {
+	DIR *ret = (DIR *)malloc(sizeof(DIR));
+    	memset(ret,0,sizeof(DIR));
+    	ret->_fd = fd;
+	ret->_pos = 0;
+	ret->pointer = (struct dirent *)malloc(sizeof(struct dirent));
+    	memset(ret->pointer,0,sizeof(struct dirent));
+    	ret->native_ptr = (struct _helin_dirent *)malloc(sizeof(struct _helin_dirent));
+    	memset(ret->native_ptr,0,sizeof(struct _helin_dirent));
+    	return ret;
+}
+int readdir_r(DIR *dir,struct dirent *entry,struct dirent **result) {
+	if (!dir) {
+		errno = 9;
+		return -1;
+	}
+	*result = readdir(dir);
+	if (*result == NULL) {
+		return -1;
+	}
+	return 0;
+}
+void rewinddir(DIR *dir) {
+	if (!dir) {
+		errno = 9;
+		return -1;
+	}
+	// Reset the pointer.
+	dir->_pos = 0;
+}
+void seekdir(DIR *dir,long pos) {
+	if (!dir) return;
+	dir->_pos = pos;
+}
+long telldir(DIR *dir) {
+	if (!dir) {
+		return;
+	}
+	return dir->_pos;
+}
+int dirfd(DIR *d) {
+	if (!d) { errno = 9; return -1;}
+	return d->_fd;
+}
 int chdir (const char *path) {
     return helin_syscall(17,(uintptr_t)path,0,0,0,0);
 }
@@ -323,13 +365,7 @@ int pipe(int pipefd[2]) {
   // Use IPC manager API.
   return helin_syscall(SYS_ipc,1,0x50,0,(uintptr_t)pipefd,0);
 }
-void thread_entry(pthread_str *data) {
-	// stderr,stdout,stdin are automatically is openned for us
-	//printf("thread_entry: Received entry address: 0x%x, arg: 0x%x\n",data->entry,data->arg);
-	void (*entry)(void *) = ((void (*)(void *))data->entry);
-	entry(data->arg);
-        _exit(0);
-}
+// Well...sys_clone literaly clones the process...so the arguments must be like in crt0(argc is set 1, argv is to pthread_str and environ to NULL at start)
 // Pthread
 int pthread_equal(pthread_t t1, pthread_t t2) {
 	return t1 == t2;
@@ -338,9 +374,25 @@ int pthread_equal(pthread_t t1, pthread_t t2) {
 int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
                    void* (*start_routine)(void*), void* arg)
 {
-	int pid = helin_syscall(37,(uintptr_t)thread_entry,(uintptr_t)start_routine,(uintptr_t)arg,0,0);
+	// allocate new stack.
+	int pid = helin_syscall(37,0,0,0,0,0);
 	if (pid > 0) {
 		*thread = pid;
+	} else {
+		// we are child that running on separate stack?
+		if (attr != NULL) {
+			// Change stack if required.
+			if (attr->is_initialized && attr->stackaddr != NULL && attr->stacksize != 0) {
+				uintptr_t newPtr = (uintptr_t)attr->stackaddr+attr->stacksize;
+#if defined(__x86_64__)
+				asm volatile("mov %0, %%rsp\n" \
+						"call *%1"
+						: : "r"(newPtr),"r"(start_routine));
+#endif
+			}
+		}
+		start_routine(arg);
+		exit(1);
 	}
 	// Wait for start via sys_waitForStart
 	helin_syscall(38,pid,0,0,0,0);
@@ -387,8 +439,16 @@ void pthread_cleanup_push(void (*routine)(void *),
                                  void *arg) {}
 void pthread_cleanup_pop(int execute) {}
 
-int pthread_attr_init(pthread_attr_t *attr) {return 0;}
-int pthread_attr_destroy(pthread_attr_t *attr) {return 0;}
+int pthread_attr_init(pthread_attr_t *attr) {
+	if (attr == NULL) {
+		return -1;
+	}
+	attr->is_initialized = 1;
+	return 0;
+}
+int pthread_attr_destroy(pthread_attr_t *attr) {
+	free(attr); // ?
+}
 
 int fcntl(int fd, int cmd, ...) {
 	return 0; // We don't support :(
@@ -588,10 +648,8 @@ unsigned int minor(dev_t dev) {return 2;}
 ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {return 0;}
 //struct group g_empt;
 struct group *getgrnam(const char *name) {
-  FILE *groupFile = fopen("/etc/group","r");
-  if (!groupFile) {
-    return NULL;
-  }
+  	FILE *groupFile = fopen("/etc/group","r");
+
 	return NULL;
 }
 struct passwd *getpwnam(const char *name) {
@@ -826,11 +884,9 @@ int chroot(const char *to) {
 
 int confstr(int name,char *buff,size_t len) {
 	if (name == 0) {
-		// All utilities can be found at /initrd/(currently,alpha build)
-		strncpy(buff,"/initrd",len);
+		strncpy(buff,getenv("PATH"),len);
 		return 0;
 	}
-	errno = 38;
 	return -1;
 }
 
@@ -927,8 +983,17 @@ int fchown(int fd,int owner,int group) {
 
 int fchownat(int _dirfd,char *path,int mode,int group,int flags) {
 	// We need to use stat(2)
-	errno = 38;
-	return -1;
+	// open the file.
+	/*int fd = openat(_dirfd,path,mode);
+	if (fd < 0) {
+		return -1;
+	}
+	errno = helin_syscall(SYS_fchown,fd,group,flags,0,0);
+	close(fd);
+	if (errno > 0) {
+		return -1;
+	}*/
+	return 0;
 }
 void fexecve(int __fd, char * const __argv[], char * const __envp[]) {
 	/* Never seen this function before */
@@ -1262,4 +1327,168 @@ int shmctl(int shmid,int cmd,struct shmid_ds *buf) {
 	int ret = syscall(SYS_ipc,2,'S',cmd,(uintptr_t)pcmd,0);
 	free(pcmd);
 	return ret;
+}
+
+// Extended POSIX threads support.
+int pthread_attr_getdetachstate(pthread_attr_t *atrr,int *to) {
+	return -1;
+}
+int pthread_attr_getschedparam(const pthread_attr_t *attr,struct sched_param *to) {
+	if (attr == NULL || !attr->is_initialized) {
+		return -1;
+	}
+	*to = attr->schedparam;
+	return 0;
+}
+int pthread_attr_getschedpolicy(const pthread_attr_t *attr,int *to) {
+	if (attr == NULL | !attr->is_initialized) return -1;
+	*to = attr->schedpolicy;
+	return 0;
+}
+int pthread_attr_getscope(const pthread_attr_t *attr,int *to) {
+	if (attr == NULL || !attr->is_initialized) return -1;
+	*to = 0;
+	return 0;
+}
+
+int pthread_attr_getstack(const pthread_attr_t *attr,void **stack,size_t *stackSize) {
+	if (attr == NULL || !attr->is_initialized) return -1;
+	*stack = attr->stackaddr;
+	*stackSize = attr->stacksize;
+	return 0;
+}
+int pthread_attr_getstacksize(const pthread_attr_t *attr,int *size) {
+	if (attr == NULL || !attr->is_initialized) return -1;
+	*size = attr->stacksize;
+	return 0;
+}
+int pthread_attr_setdetachstate(pthread_attr_t *attr,int state) {
+	if (attr == NULL || attr->is_initialized) return -1;
+	attr->detachstate = state;
+	return 0;
+}
+int pthread_attr_setguardsize(pthread_attr_t *attr,size_t quardSize) {
+	errno = 38;
+	return -1;
+}
+int pthread_attr_setschedparam(pthread_attr_t *attr,const struct sched_param *param) {
+	errno = 38;
+	return -1;
+}
+int pthread_attr_setschedpolicy(pthread_attr_t *attr,int policy) {
+	if (attr == NULL || !attr->is_initialized) return -1;
+	attr->schedpolicy = policy;
+	return 0;
+}
+int pthread_attr_setscope(pthread_attr_t *attr,int scope) {
+	errno = 38;
+	return -1;
+}
+int pthread_attr_setstack(pthread_attr_t *attr,void *stack,size_t stackSize) {
+	if (attr == NULL || !attr->is_initialized) return -1;
+	attr->stackaddr = stack;
+	attr->stacksize = stackSize;
+	return 0;
+}
+int pthread_attr_setstacksize(pthread_attr_t *attr,int stackSize) {
+	if (attr == NULL || !attr->is_initialized) return -1;
+	attr->stacksize = stackSize;
+	return 0;
+}
+// Pthread mutexes.
+// Kernel currently doesn't support in-kernel mutexes. So software only.
+typedef struct _software_mutex {
+	int val;
+} SoftwareMutex;
+static SoftwareMutex *gl_mutex;
+int pthread_mutex_init(pthread_mutex_t *mutex,
+          const pthread_mutexattr_t *parameters) {
+	// mutex is an int!
+	if (mutex == NULL) {
+		gl_mutex = malloc(sizeof(SoftwareMutex));
+		memset(gl_mutex,0,sizeof(SoftwareMutex));
+	}
+	return 0;
+}
+int pthread_mutex_lock(pthread_mutex_t *mutex) {
+	if (gl_mutex != NULL) {
+		if (gl_mutex->val) {
+			while(gl_mutex->val);
+		}
+		gl_mutex->val = 1;
+	}
+	return 0;
+}
+int pthread_mutex_unlock(pthread_mutex_t *mutex) {
+	if (gl_mutex != NULL) {
+		gl_mutex->val = 0;
+	}
+	return 0;
+}
+int pthread_mutex_destroy(pthread_mutex_t *mt) {
+	if (gl_mutex != NULL) {
+		free(gl_mutex);
+		gl_mutex = NULL;
+	}
+	return 0;
+}
+
+
+// message queue!
+typedef struct _usrMsg {
+	int key; // unique key.
+	void *buffer; // data buffer.
+	size_t reqSize;
+} UserMsgObj;
+int msgget(key_t key,int flags) {
+	UserMsgObj *obj = malloc(sizeof(UserMsgObj));
+	memset(obj,0,sizeof(UserMsgObj));
+	obj->key = key;
+	int ret = helin_syscall(SYS_ipc,1,'m',0,(uintptr_t)obj,0);
+	free(obj);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return ret;
+}
+int       msgctl(int msgQueueID, int cmd, struct msqid_ds *fromOrTo) {
+	UserMsgObj *obj = malloc(sizeof(UserMsgObj));
+        memset(obj,0,sizeof(UserMsgObj));
+	obj->key = msgQueueID;
+	int ret = helin_syscall(SYS_ipc,2,'m',3,(uintptr_t)obj,0);
+	free(obj);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return ret;
+}
+ssize_t   msgrcv(int msgQueueID, void *buffer, size_t size, long msgType, int msgFlags) {
+	UserMsgObj *obj = malloc(sizeof(UserMsgObj));
+        memset(obj,0,sizeof(UserMsgObj));
+        obj->key = msgQueueID;
+	obj->buffer = buffer;
+	obj->reqSize = size;
+        int ret = helin_syscall(SYS_ipc,2,'m',2,(uintptr_t)obj,0);
+        free(obj);
+        if (ret < 0) {
+                errno = ret * -1;
+                return -1;
+        }       
+        return ret;
+}
+int       msgsnd(int msgQueueID, const void *buffer, size_t size, int msgFlags) {
+	UserMsgObj *obj = malloc(sizeof(UserMsgObj));
+        memset(obj,0,sizeof(UserMsgObj));
+        obj->key = msgQueueID;
+        obj->buffer = buffer;
+        obj->reqSize = size;
+        int ret = helin_syscall(SYS_ipc,2,'m',1,(uintptr_t)obj,0);
+        free(obj);
+        if (ret < 0) {
+                errno = ret * -1;
+                return -1;
+        }       
+        return ret;
 }

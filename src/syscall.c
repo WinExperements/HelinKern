@@ -73,7 +73,7 @@ static void sys_setgid(int gid);
 static int sys_getgid();
 static void *sys_sbrk(int increment);
 static int sys_dup(int oldfd,int newfd);
-static int sys_clone(void *entryPoint,uintptr_t arg1,uintptr_t arg2); // pthread support, yay
+static int sys_clone(void *stack,uintptr_t stackSize); // pthread support, yay
 static int sys_truncate(int fd,int newsize);
 // HelinOS specific
 static void sys_waitForStart(int pid); // waits for thread begin started, automatically enabled the interrupts
@@ -114,8 +114,10 @@ static int sys_getfsstat(struct statfs *buf,long bufsize,int mode);
 static int sys_getrlimit(int resID,rlimit_t *to);
 static int sys_setrlimit(int resID,rlimit_t *to);
 static int sys_getrusage(int resID,void *to);
+static int sys_openat(int dirfd,char *path,int mode);
+static int sys_sysconf(int id);
 static void *kmalloc_user(process_t *prc,int size);
-uintptr_t syscall_table[74] = {
+uintptr_t syscall_table[76] = {
     (uintptr_t)sys_default,
     (uintptr_t)sys_print,
     (uintptr_t)sys_exit,
@@ -190,8 +192,10 @@ uintptr_t syscall_table[74] = {
     (uintptr_t)sys_getrlimit,
     (uintptr_t)sys_setrlimit,
     (uintptr_t)sys_getrusage,
+    (uintptr_t)sys_openat,
+    (uintptr_t)sys_sysconf,
 };
-int syscall_num = 74;
+int syscall_num = 76;
 extern char *ringBuff;
 extern int ringBuffSize;
 extern int ringBuffPtr;
@@ -253,7 +257,7 @@ static void sys_kill(int pid,int sig) {
 		prc->state = STATUS_RUNNING;
 		push_prc(prc);
   	}
-	arch_reschedule();
+	thread_forceSwitch();
 }
 static int sys_getpid() {
     return thread_getCurrent();
@@ -485,6 +489,7 @@ static int sys_reboot(int reason) {
 		// Poweroff all POWER devices
 		arch_cli();
 		disableOutput = false;
+		kprintf("Used physical memory before: %d KiB\r\n",alloc_getUsedPhysMem() / 1024);
     		kprintf("kernel: Request power off from userland root process\r\n");
 		for (dev_t *dev = dev_getRoot(); dev != NULL; dev = dev->next) {
 			if ((dev->type & DEVFS_TYPE_POWER) == DEVFS_TYPE_POWER) {
@@ -740,7 +745,7 @@ static int sys_dup(int oldfd,int newfd) {
 		// oldfd = newfd, copy the newfd file descriptor
 		file_descriptor_t *nefd = prc->fds[newfd];
 		// replace vfs node of oldfd to vfs node of newfd
-		fd->node = nefd->node;
+		nefd->node = fd->node;
 		kfree(copy);
 		return oldfd;
 	}
@@ -752,10 +757,19 @@ static int sys_dup(int oldfd,int newfd) {
 	prc->fds[fd_id] = copy;
 	return fd_id;
 }
-static int sys_clone(void *entryPoint,uintptr_t arg1,uintptr_t arg2) {
+/*
+ * Modification of 26.07.2024:
+ * We pass most of our argumnets to arch_new_thread,
+ * so the arch specific code will do the 'magic'
+ * and prepare the context of new thread to the
+ * passed arguments, also changes the stack at call,
+ * if passed by the caller.
+ *
+*/
+static int sys_clone(void *stackPtr,uintptr_t stackSize) {
     process_t *caller = thread_getThread(thread_getCurrent());
     // Acording to the wiki, we need just to create an process with the same VM space
-    process_t *thread = thread_create("thread",entryPoint,true);
+    process_t *thread = thread_create("thread",0,true);
     // Change the address space
     // TODO: Add support for other flags
     thread->aspace = caller->aspace;
@@ -763,6 +777,10 @@ static int sys_clone(void *entryPoint,uintptr_t arg1,uintptr_t arg2) {
     thread->brk_begin = caller->brk_begin;
     thread->brk_end = caller->brk_end;
     thread->brk_next_unallocated_page_begin = caller->brk_next_unallocated_page_begin;
+    arch_clone_current(thread,NULL,0);
+    caller->brk_begin = thread->brk_begin;
+    caller->brk_end = thread->brk_end;
+    caller->brk_next_unallocated_page_begin = thread->brk_next_unallocated_page_begin;
     // Clone the file descriptors
     for (int i = 0; i < caller->next_fd; i++) {
 	    file_descriptor_t *desc = caller->fds[i];
@@ -770,13 +788,6 @@ static int sys_clone(void *entryPoint,uintptr_t arg1,uintptr_t arg2) {
 		    thread_openFor(thread,desc->node);
 		}
 	}
-    // Pass test arguments
-    pthread_str *st = (pthread_str *)kmalloc(sizeof(pthread_str));
-    memset(st,0,sizeof(pthread_str));
-    // by mapping, the arg1 is actual entry point, and arg2 is an argument to thread function
-    st->entry = arg1;
-    st->arg = (void *)arg2;
-    arch_putArgs(thread,1,(char **)(uintptr_t)st,NULL); // Only test
     return thread->pid;
 }
 
@@ -792,13 +803,14 @@ static void sys_waitForStart(int pid) {
 }
 
 static void sys_usleep(int ms) {
-	arch_cli();
-	process_t *caller = thread_getThread(thread_getCurrent());
+	//arch_cli();
+	/*process_t *caller = thread_getThread(thread_getCurrent());
 	caller->wait_time = ms;
 	caller->state = STATUS_SLEEP;
-	caller->quota = PROCESS_QUOTA;
+	caller->quota = PROCESS_QUOTA;*/
 	arch_sti();
-	arch_reschedule();
+	kwait(ms);
+	//arch_reschedule();
 }
 
 static int sys_truncate(int fd,int size) {
@@ -930,7 +942,7 @@ static int sys_fork() {
   	arch_mmu_switch(space);
   	fb_map();
 	arch_mmu_switch(orig);
-	thread_forceSwitch();
+	//thread_forceSwitch();
 	return child->pid;
 }
 
@@ -969,7 +981,30 @@ static int sys_creat(char *path,int type) {
     if (path[0] != '/') {
         in = caller->workDir;
     } else {
-        return -2; // not implemented :(
+        // Skip the latest element?
+	char *next = strtok(path,"/");
+	char *prev = next;
+	in = vfs_finddir(vfs_getRoot(),next);
+	while(next != NULL) {
+		prev = next;
+		next = strtok(NULL,"/");
+		if (next != NULL) {
+			// Well, check if this isn't end....
+			// Sorry for this bad code.
+			char *test = strtok(NULL,"/");
+			if (test != NULL) {
+				prev = test;
+				next = prev;
+			} else {
+				break;
+			}
+			in = vfs_finddir(in,prev);
+		}
+	}
+	if (!in->fs->creat(in,next,0)) {
+		return -1;
+	}
+	return 0;
     }
     if ((in->mount_flags & VFS_MOUNT_RO) == VFS_MOUNT_RO) {
 	    return 30;
@@ -1217,6 +1252,7 @@ static int sys_ipc(int cmd,int magicID,int ipcCmd,void *args) {
 						lst[i] = el;
 						i++;
 					}
+					return 0;
 				} else if (ipcCmd == 2) {
 					kprintf("DEBUG!\r\n");
 					symbols_print();
@@ -1269,5 +1305,34 @@ int sys_setrlimit(int id,rlimit_t *to) {
 }
 int sys_getrusage(int resID,void *to) {
 	// TODO: Implement THIS!
+	return 0;
+}
+static int sys_openat(int dirfd,char *path,int mode) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	file_descriptor_t *fd = caller->fds[dirfd];
+	if (!fd) {
+		return -2;
+	}
+	if ((fd->node->flags & VFS_DIRECTORY) != VFS_DIRECTORY) {
+		return -9;
+	}
+	char *pth = strdup(path);
+	char *token = strtok(pth,"/");
+	vfs_node_t *node = fd->node;
+	while(token != NULL) {
+		node = node->fs->finddir(node,token);
+		if (node == NULL) {
+			kfree(pth);
+			return -2;
+		}
+		token = strtok(NULL,"/");
+	}
+	kfree(pth);
+	return thread_openFor(caller,node);
+}
+static int sys_sysconf(int id) {
+	if (id == 1) {
+		return alloc_getUsedPhysMem();
+	}
 	return 0;
 }

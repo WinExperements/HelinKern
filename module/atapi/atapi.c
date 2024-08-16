@@ -269,7 +269,6 @@ atapiDetect:
 	}
 	kprintf("ATA: Detected device name: %s, type: %s\r\n",dev->identify.model,dev->type == IDE_ATAPI ? "ATAPI" : "IDE");
 	ata_create_device(dev->type == IDE_ATA,dev);
-	dev->type = IDE_ATAPI;
 	ide_write(dev,ATA_REG_CONTROL,0);
 	return true;
 }
@@ -316,9 +315,9 @@ uint64_t ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *
 	int startSec = offset / 512;
 	int totalSectors = how / 8192;
 	if (totalSectors == 0) {
-		ata_vdev_readBlock(node,startSec,8192,NULL);
+		ata_vdev_readBlock(node,startSec,512,buffer);
 		//kprintf("ATA: copy %d bytes of data\r\n",how);
-		memcpy(buffer,dev->dma_start,how);
+	//	memcpy(buffer,dev->dma_start,how);
 		return how;
 	}
 	// okay, now we need some loop.
@@ -331,11 +330,9 @@ uint64_t ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *
 			// We don't fit, retry
 			howToCopy = total_bytes;
 		}
-		ata_vdev_readBlock(node,startSec,8192,NULL);
-		memcpy(buffer+off,dev->dma_start,howToCopy);
-		total_bytes-=8192;
-		off+=8192;
-		startSec+=16;
+		ata_vdev_readBlock(node,startSec,512,buffer);
+		total_bytes-=512;
+		buffer+=512;
 	}
 	return how;
 }
@@ -506,7 +503,7 @@ static bool ata_vdev_readBlock(vfs_node_t *node,int lba,int how, void *buf) {
 	if (lba_mode == 2) {
 		cmd = ATA_CMD_READ_PIO_EXT;
 	}
-	arch_sti();
+	arch_cli();
 	dev->busy = 1;
 	inter_ata = dev;
 	outb(dev->base+ATA_REG_COMMAND,cmd);
@@ -557,6 +554,9 @@ void ata_create_device(bool hda,ata_device_t *dev) {
 	disk->device = dev;
 	disk->readBlock = ata_vdev_readBlock;
 	disk->ioctl = ata_vdev_ioctl;
+	if (hda) {
+		disk->type = DEVFS_TYPE_BLOCK;
+	}
 	dev_add(disk);
 	kfree(name);
 }
@@ -690,7 +690,7 @@ static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
 
 }
 
-static void module_main() {
+void atapi_init() {
 	kprintf("ATA device driver\n");
     for (unsigned int bus = 0; bus < 256; ++bus)
     {

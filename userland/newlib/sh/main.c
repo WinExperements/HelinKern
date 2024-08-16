@@ -76,9 +76,9 @@ bool executeCommand(int argc,char **argv,bool wait) {
 	    foundedPath = argv[0];
     } else {
       // We need to find executable somewhere in the PATH environment variable.
-      char *where = strtok(getenv("PATH"),":");
+      char *where = strtok(strdup(getenv("PATH")),":");
       while(where) {
-    	  snprintf(execPath,100,"/bin/%s",argv[0]);
+    	  snprintf(execPath,100,"/%s/%s",where,argv[0]);
         int f = 0;
         if ((f = open(execPath,O_RDONLY)) > 0) {
           foundedPath = where;
@@ -93,6 +93,24 @@ bool executeCommand(int argc,char **argv,bool wait) {
     // Fork-exec model on UNIX systems.
     int child = fork();
     if (child == 0) {
+	    int origFD = fileno(stdout);
+	    int inFD = fileno(stdin);
+	    int errFD = fileno(stderr);
+	    for (int i = 0; i < argc; i++) {
+		    if (argv[i][0] == '>') {
+			    int newFd = open(argv[i+1],O_RDWR | O_CREAT);
+			    if (newFd < 0) {
+				    perror(argv[0]);
+				    exit(1);
+				} else {
+					dup2(newFd,0);
+					dup2(newFd,1);
+					dup2(newFd,2);
+				}
+			    argv[i] = NULL;
+			    break;
+			}
+		}
 	    // Execv
 	    execv(execPath,argv);
 	    perror(argv[0]);
@@ -252,6 +270,17 @@ void parse(int argc,char **argv) {
 		    sig = atoi(argv[2]);
 		}
 	    kill(pid,sig);
+    } else if (!strcmp(argv[0],"free")) {
+	    uintptr_t used = syscall(75,1,0,0,0,0);
+	    printf("Used physical memory(KiB): %d\r\n",used/1024);
+    } else if (!strcmp(argv[0],"touch")) {
+	    if (argc < 2) {
+		    printf("touch <filename>\n");
+		    return;
+		}
+	    if (creat(argv[1],0) < 0) {
+		    perror("Failed");
+		}
     } else {
 	if (!executeCommand(argc,argv,true)) {
         	printf("Unknown command: %s\n",argv[0]);

@@ -1,3 +1,8 @@
+/*
+ * Thread/process main header file
+ *
+*/
+
 #ifndef THREAD_H
 #define THREAD_H
 #include <typedefs.h>

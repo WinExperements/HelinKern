@@ -51,7 +51,7 @@ static uint64_t mbr_dev_read(vfs_node_t *node,uint64_t offset,uint64_t how,void 
 	mbr_dev_t *dev = (mbr_dev_t *)node->device;
 	int off = dev->lba_start*512;
 	//kprintf("Reading from offset %d(lba_start -> %d)\r\n",off,dev->lba_start);
-	kprintf("Reading %d bytes\r\n",how);
+	//kprintf("Reading %d bytes\r\n",how);
 	return vfs_read((vfs_node_t *)dev->harddrive_addr,off+offset,how,buff);
 }
 static uint64_t mbr_dev_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buff) {

@@ -2,6 +2,7 @@
 #include <lib/queue.h> // why not.
 #include <ipc/pipe.h>
 #include <ipc/shm.h>
+#include <ipc/msg.h>
 #include <output.h>
 queue_t *registredIPC;
 void ipc_init() {
@@ -20,6 +21,7 @@ static Ipc *findIPC(int magic) {
 void ipc_init_standard() {
   pipe_init();
   shm_init();
+  msg_queue_init();
 }
 int ipc_add(Ipc *ipc) {
   // Check if we not registred it before.

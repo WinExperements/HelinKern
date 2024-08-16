@@ -93,7 +93,7 @@ extern char kernel_end[];
 extern void x86_switchToNew(int esp);
 extern void vga_change();
 static bool dontFB = false;
-static bool dontVGA = false;
+static bool dontVGA = true;
 static void thread_main(uintptr_t entryPoint,int esp,bool isUser);
 extern void x86_switch(registers_t *to);
 extern void x86_jumpToUser(int entryPoint,int userstack);
@@ -243,7 +243,7 @@ uintptr_t arch_getMemSize() {
 			    size = ent.size;
 		    }
 	   }
-	   return size / 1024;
+	   return size;
     	}
 #if defined(__x86_64__)
     // Limine.
@@ -261,7 +261,7 @@ uintptr_t arch_getMemSize() {
 		    lsize = entry->length;
 		}
 	}
-    return lsize / 1024;
+    return lsize;
 #else
 	for (unsigned long i = 0; i < info->mmap_length; i+=sizeof(multiboot_memory_map_t)) {
 		multiboot_memory_map_t *en = (multiboot_memory_map_t *)(info->mmap_addr+i);
@@ -269,7 +269,7 @@ uintptr_t arch_getMemSize() {
 			size = en->len_low;
 		}
 	}
-    return size/1024;
+    return size;
 #endif
 }
 void *arch_prepareContext(void *entry,bool isUser) {
@@ -510,6 +510,20 @@ void arch_post_init() {
 	// Map the response.
 	physAddr = (uintptr_t)hhdm_req.response - virtualOffset;
 	arch_mmu_mapPage(NULL,(uintptr_t)hhdm_req.response,physAddr,3);
+	uintptr_t cr0;
+	uintptr_t cr4;
+	asm volatile("mov %%cr0, %0" : "=r"(cr0));
+	asm volatile("mov %%cr4, %0" : "=r"(cr4));
+	// Clear EM bit.
+	cr0 &= ~(1 << 2);
+	// Set MP, OSFXSR and OSXMMEXCPT bits.
+	cr0 |= (1 << 1);
+	cr4 |= (1 << 9);
+	cr4 |= (1 << 10);
+	// Write values back.
+	asm volatile("mov %0, %%cr0" : : "r"(cr0));
+	asm volatile("mov %0, %%cr4" : : "r"(cr4));
+	asm volatile("finit"); // initialize FPU.
 #endif
 	//apic_init();
 	//smp_init();
@@ -527,6 +541,8 @@ void arch_post_init() {
 		ModuleInfo *mod = helinboot->mod;
 		initrdAddr = (void *)mod->begin;
 		initrdSize = mod->size;
+		// Reserve the space;
+		alloc_reserve((int)mod->begin,(int)mod->end+4096);
 		// Reserve the memory where the structures are located.
 		//alloc_reserve((int)helinboot,(int)helinboot+4096);
 	} else {
@@ -550,6 +566,9 @@ void arch_post_init() {
 				// Map the module.
 				initrdSize = (int)res->modules[0]->size;
 				initrdAddr = (void *)alloc_getPage();
+				for (int i = 0; i < (initrdSize/4096)+1; i++) {
+					alloc_getPage();
+				}
 				// Align it to 4KiB.
 //				initrdAddr = (void *)((uintptr_t)((uintptr_t)initrdAddr + 4095) & ~4095);
 				int pages = (initrdSize / 4096)+1;
@@ -825,7 +844,7 @@ void arch_trace(uintptr_t stackPtr) {
 void arch_prepareProcess(process_t *prc) {
 	// Allocate the FPU context
 	// Save current FPU context, before initializing new
-	void *current_fpu_state = 0;
+	/*void *current_fpu_state = 0;
     	arch_fpu_save(current_fpu_state);
 	prc->fpu_state = kmalloc(512 + 15); // Default 32-bit FPU context size
 	uintptr_t addr = (uintptr_t)prc->fpu_state;
@@ -835,7 +854,7 @@ void arch_prepareProcess(process_t *prc) {
 	arch_fpu_restore(prc->fpu_state);
 	asm volatile("finit");
 	arch_fpu_save(prc->fpu_state);
-	arch_fpu_restore(current_fpu_state);
+	arch_fpu_restore(current_fpu_state);*/
 }
 
 static void set_fpu_cw(const uint16_t cw) {
@@ -980,8 +999,15 @@ void arch_exitSignal(process_t *prc) {
 
 }
 #if defined(__x86_64__)
-void arch_fpu_save(void *ptr) {}
-void arch_fpu_restore(void *ptr) {}
+void arch_fpu_save(void *ptr) {
+	if (!ptr) return;
+	// Use inline asm.
+	asm volatile("fxsave (%0)" : : "r"(ptr));
+}
+void arch_fpu_restore(void *ptr) {
+	if (!ptr) return;
+	asm volatile("fxrstor (%0)" : : "r" (ptr));
+}
 extern void x86_switch(registers_t *to);
 #endif
 uintptr_t arch_getMemStart() {
@@ -991,5 +1017,38 @@ uintptr_t arch_getMemStart() {
 #else
 	// Limine will boot us up in end of available memory i guest, soo.
 	return (uintptr_t)0x100000;
+#endif
+}
+/*
+ * arch_clone_current:
+ * Clone current process context only and prepare new usable stack for it.
+ * The stack copy and alignment is required for proper thread functionallity.
+ * Otherwise we got stack corruption
+ *
+*/
+void arch_clone_current(process_t *prc,void *stackPtr,uintptr_t stackSize) {
+	if (prc->started) return; // we can't process already running process.
+#if defined(__x86_64__)
+	x64_task_t *tsk = (x64_task_t*)prc->arch_info;
+	// Create new registers, so the thread_main will think that we return from fork.
+	registers_t *regs = (registers_t*)kmalloc(sizeof(registers_t));
+	memcpy(regs,syscall_regs,sizeof(registers_t));
+	// Check if the stack ptr or stack size isn't zero.
+	uintptr_t copyAddr = syscall_regs->useresp & ~0xfff;
+	uintptr_t offset = syscall_regs->useresp - copyAddr;
+	if (stackPtr == NULL || stackSize == 0) {
+		// Allocate new stack.
+		uintptr_t rsp = (uintptr_t)sbrk(prc,4096);
+		memset((void *)rsp,0,4096);
+		regs->useresp = rsp;
+	} else {
+		regs->useresp = (uint64_t)stackPtr;
+	}
+	// Copy the stack otherwise we get em, stack corruption?
+	uintptr_t dstAddr = (uintptr_t)regs->useresp;
+	memcpy((void *)dstAddr,(void *)copyAddr,4096);
+	regs->useresp = dstAddr + offset;
+	regs->rax = 0;
+	tsk->userModeRegs = regs;
 #endif
 }

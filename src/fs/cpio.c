@@ -72,7 +72,7 @@ cont:
         int data_offset = offset;
         vfs_read(dev,data_offset,sizeof(struct cpio_hdr),&hdr);
         if (hdr.magic != CPIO_MAGIC) {
-            kprintf("cpiofs: Invalid magic(0x%x)\r\n",hdr.magic);
+            kprintf("cpiofs: Invalid magic(0x%x), offset: %d bytes\r\n",hdr.magic,data_offset);
             if (me != NULL) me->workDir = home;
             return false;
         }

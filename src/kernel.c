@@ -26,6 +26,7 @@
 #include <ahci/ahci.h>
 #include <ext2/ext2.h>
 #include <iso9660/iso9660.h>
+#include <fs/tmpfs.h>
 // Sockets!
 #include <socket/unix.h>
 #ifdef X86
@@ -59,6 +60,26 @@ void panic(char *file,int line,char *msg) {
    // arch_reset();
     kprintf("Reboot failed, halt");
     while(1) {}
+}
+static bool mount_root(char *devPath,char *fs) {
+	vfs_node_t *devNode = NULL;
+	if (devPath[0] == '/') {
+		devNode = vfs_find(devPath);
+		if (!devNode) {
+			return false;
+		}
+	} else {
+		dev_t *dev = dev_find(devPath);
+		if (!dev) {
+			return false;
+		}
+		devNode = dev->devNode;
+	}
+	vfs_fs_t *f = vfs_findFS(fs);
+	if (!f) {
+		return false;
+	}
+	return f->mount(devNode,vfs_getRoot(),NULL);
 }
 void kernel_main(const char *args) {
     // Bootstrap start
@@ -94,6 +115,7 @@ void kernel_main(const char *args) {
     kprintf("%s: begin of parsing kernel arguments!\n",__func__);
     // Make sure the args is accessable.
     //arch_mmu_mapPage(NULL,(vaddr_t)args,(paddr_t)args,3);
+    char *rootdev = NULL;
     char *begin = strtok(args," ");
     while(begin != NULL) {
     	if (strcmp(begin,"-v")) {
@@ -105,7 +127,11 @@ void kernel_main(const char *args) {
     	} else if (strcmp(begin,"noatapi")) {
     		// Don't init ATA/ATAPI driver at boot
     		dontUseAta = true;
-    	} else {
+    	} else if (strcmp(begin,"rootdev")) {
+		char *rdev = strtok(NULL," ");
+		if (rdev == NULL) break;
+		rootdev = strdup(rdev);
+	} else {
     		kprintf("WARRNING: Unknown boot argument: %s\n",begin);
     	}
     	begin = strtok(NULL," ");
@@ -120,15 +146,16 @@ void kernel_main(const char *args) {
     ipc_init_standard();
     partTab_init();
     cpio_init();
-    #ifdef X86
+#ifdef X86
     keyboard_init();
     fbdev_init();
     ps2mouse_init();
     pci_init();
     mbr_init();
-    ahci_init();
+    //ahci_init();
     ext2_main();
     iso9660_init();
+//    atapi_init();
     #endif
     tty_init();
     socket_init();
@@ -141,43 +168,47 @@ void kernel_main(const char *args) {
 #endif
     // register some sockets
     unix_register();
+    tmpfs_init();
+    kprintf("Internal structures initialized. Used physical pages: %d of %d. Used by kernel heap: %d. Physical bitmap took %d pages\r\n",alloc_getUsedPhysMem()/4096,alloc_getAllMemory()/4096,alloc_getKernelHeapPages(),alloc_getBitmapSize()/4096);
     arch_post_init();
     clock_setShedulerEnabled(true);
     arch_detect();
     // Directly try to mount initrd and run init if it fails then panic like Linux kernel or spawn kshell
     // Disable this chunk of code if you want to test your arch specific context switch code.
 #if 1
-    vfs_node_t *initrd = vfs_find("/initrdram");
-    if (!initrd) {
-        PANIC("Cannot find initrd. Pass it as module with initrd.cpio argument");
-    }
-    vfs_fs_t *cpio = vfs_findFS("cpio");
-    if (!cpio) {
-        PANIC("Cannot find CPIO FS in kernel!");
-    }
-    if (!vfs_mount(cpio,initrd,"/")) {
-	    PANIC("Failed to mount initrd");
+    if (rootdev != NULL) {
+	    if (mount_root(rootdev,"iso9660")) {
+		goto executeInit;
+	    } else {
+		    kprintf("Failed to mount device %s, fallback to initramfs\r\n",rootdev);
+	    }
 	}
-    vfs_node_t *mounted = vfs_getRoot();
-    if (!mounted || !strcmp(mounted->fs->fs_name,"cpio")) {
-        PANIC("Mounted filesystem name mismatch");
-    }
+    if (!mount_root("/initrdram","cpio")) {
+	    PANIC("Failed to mount initramfs. Check your system configuration/boot device integrity. You can also specify root device path using \"rootdev <device path>\" as part of kernel command line");
+	}
 #endif
 #if 1
-    kprintf("Detected Memory: %d MB. Used memory: %d(KB)\r\n",alloc_getAllMemory() / 1024 / 1024,alloc_getUsedSize() / 1024);
+executeInit:
+    kprintf("Detected Memory: %d MB. Used memory: %d(KB)\r\n",alloc_getAllMemory() / 1024 / 1024,alloc_getUsedPhysMem() / 1024);
     /*int (*insmod)(char *) = ((int (*)(char *))syscall_get(30));
     insmod("/initrd/pci.mod");*/
     int (*exec)(char *,int,char **,char **) = ((int (*)(char *,int,char **,char **))syscall_get(13));
     char *environ[] = {NULL};
-    int pid = exec("/init",0,NULL,environ); // Ядро передасть параметри за замовчуванням.
+    char *initPaths[] = {"/init","/sbin/init","/usr/bin/init","/usr/sbin/init",NULL};
+    int pid = 0;
+    for (int i = 0; initPaths[i] != NULL; i++) {
+	    kprintf("Trying to start %s as init....\r\n",initPaths[i]);
+	    pid = exec(initPaths[i],0,NULL,environ);
+	}
     if (pid < 0) {
-        PANIC("Failed to execute init");
-   }
+	    PANIC("Cannot find working init program");
+    }
 #else
 	thread_create("kshell",kshell_main,false);
 	//kshell_main();
 	//testTask();
 #endif
+end:
     arch_sti();
     while(1) {}
 }

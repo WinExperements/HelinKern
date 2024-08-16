@@ -188,7 +188,7 @@ vfs_node_t *iso9660_finddir(vfs_node_t *node,char *f_name) {
 			ret->fs = iso9660_fs;
 			ret->device = node->device;
 			ret->fs_mountOptions = (void *)10;
-			ret->mask = ((S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH));
+			ret->mask = ((S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH) | S_IXOTH);
 			if (!(rec->flags & 0x02)) {
 				ret->flags = VFS_DIRECTORY;
 			}
