@@ -32,5 +32,9 @@ struct tm
 void hw_clock_init();
 int hw_clock_get(struct tm *time);
 int hw_clock_set(struct tm *time);
-
+/*
+ * System starts counting time after boot, so we need to separate function
+ * to get the system software time, not hardware one.
+*/
+int clock_get(struct tm *time);
 #endif

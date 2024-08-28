@@ -1,3 +1,7 @@
+/*
+ * Thread and general time/clock API implementation.
+*/
+
 #include <thread.h>
 #include <kernel.h>
 #include <lib/queue.h>
@@ -11,6 +15,7 @@
 #include <dev/fb.h>
 #include <dev/socket.h>
 #include <resources.h>
+#include <dev/clock.h>
 #define MAX_PRIORITY 6
 process_t *runningTask;
 queue_t *task_list;
@@ -25,7 +30,7 @@ typedef struct {
     size_t size;
     void** data;
 } filo_t;
-
+static struct tm realtime_cl;
 void* filo_read(filo_t *queue) {
     if (queue->tail == queue->head) {
         return NULL;
@@ -95,6 +100,12 @@ void thread_init() {
     idle->state = -1;
     runningTask = idle;
     krn_rlimit_init_default();
+    // Initialize clock.
+#ifdef HWCLOCK
+    hw_clock_get(&realtime_cl);
+#else
+    memset(&realtime_cl,0,sizeof(struct tm));
+#endif
 }
 /* Допоможіть :( */
 uintptr_t thread_schedule(uintptr_t stack) {
@@ -229,12 +240,29 @@ process_t *thread_create(char *name,void* entryPoint,bool isUser) {
     return th;
 }
 // Clock implementation
-static int num_clocks = 0;
+static uint64_t num_clocks = 0;
 static bool schedulerEnabled = true;
-//static int seconds;
+static int msBeforeUpdate; // ms before the software clock update.(if this variable value is >= 1000 then update the clock)
 //static int nextClocks = 0;
 uintptr_t clock_handler(uintptr_t stack) {
     num_clocks++;
+    msBeforeUpdate++;
+    // Temporarly solution.
+    if (msBeforeUpdate >= 1000) {
+	    msBeforeUpdate = 0;
+	    if (++realtime_cl.tm_sec >= 60) {
+		    realtime_cl.tm_sec = 0;
+		    if (++realtime_cl.tm_min >= 60) {
+			    realtime_cl.tm_min = 0;
+			    if (++realtime_cl.tm_hour >= 24) {
+				    realtime_cl.tm_hour = 0;
+				    if (++realtime_cl.tm_mday >= 32) {
+					    realtime_cl.tm_mday = 0;
+				   }
+			    }
+		    }
+	    }
+    }
     if (schedulerEnabled) {
         return thread_schedule(stack);
     }
@@ -246,7 +274,7 @@ void kwait(int ms) {
     ++ms;
     while(num_clocks - now < ms) {}
 }
-int clock_getUptimeSec() {
+uint64_t clock_getUptimeSec() {
     return num_clocks/1000;
 }
 void clock_setShedulerEnabled(bool enabled) {
@@ -325,11 +353,15 @@ void thread_killThread(process_t *prc,int code) {
         if (fd != NULL) {
             DEBUG("Closing FD %d, %s\r\n", i,fd->node->name);
             vfs_close(fd->node);
-	    if (fd->node->flags == 4) {
+	    if ((fd->node->flags & 4) == 4) {
 		// socket?
+		if (((Socket *)fd->node->priv_data)->owner != prc->pid) {
+			goto freeFd;
+		}
 		socket_destroy((Socket *)fd->node->priv_data);
 		kfree(fd->node);
 	    }
+freeFd:
             kfree(fd);
         }
     }
@@ -374,7 +406,7 @@ void thread_changeName(process_t *prc,char *n) {
     }
     strcpy(prc->name,n);
 }
-int clock_getUptimeMsec() {
+uint64_t clock_getUptimeMsec() {
     return num_clocks;
 }
 int thread_openFor(process_t *caller,vfs_node_t *node) {
@@ -443,4 +475,8 @@ void krn_rlimit_init_default() {
 void thread_forceSwitch() {
 	if (runningTask == NULL) return;
 	runningTask->quota = PROCESS_QUOTA+1;
+}
+int clock_get(struct tm *time) {
+	memcpy(time,&realtime_cl,sizeof(struct tm));
+	return 0;
 }

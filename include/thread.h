@@ -57,8 +57,8 @@ process_t *thread_create(char *name,void* entryPoint,bool isUser);
 uintptr_t thread_schedule(uintptr_t stack); // interrupt handler
 uintptr_t clock_handler(uintptr_t stack);
 void kwait(int ms);
-int clock_getUptimeSec();
-int clock_getUptimeMsec();
+uint64_t clock_getUptimeSec();
+uint64_t clock_getUptimeMsec();
 void clock_setShedulerEnabled(bool enabled);
 int thread_getCurrent();
 process_t *thread_getThread(int pid);

@@ -281,6 +281,83 @@ void parse(int argc,char **argv) {
 	    if (creat(argv[1],0) < 0) {
 		    perror("Failed");
 		}
+    } else if (!strcmp(argv[0],"cp")) {
+	    if (argc < 3) {
+		    printf("cp: <source file> <destination file>\n");
+		    return;
+		}
+	    int sourceFd = open(argv[1],O_RDONLY);
+	    if (sourceFd < 0) {
+		    perror("Failed to open source file");
+		    return;
+		}
+	    int destFd = open(argv[2],O_RDWR);
+	    if (destFd < 0) {
+		    perror("Failed to open destination");
+		    close(sourceFd);
+		    return;
+		}
+	    // Retrive file size;
+	    struct stat st;
+	    if (fstat(sourceFd,&st)) {
+		    perror("Failed to retrive file information");
+		    close(sourceFd);
+		    close(destFd);
+		    return;
+		}
+	    // we copy data using 1K blocks(very very long)
+	    void *block = malloc(1024);
+	    int blocks = st.st_size / 1024;
+	    int i = 0;
+	    while(1) {
+		    int ret = read(sourceFd,block,1024);
+		    if (ret <= 0) break;
+		    if (write(destFd,block,1024) <= 0) {
+			    perror("Write-back error");
+			    break;
+			}
+		    printf("\rWritten block: %d/%d",i,blocks);
+		    fflush(stdout);
+		    i++;
+		}
+	    printf("\nWrite successful\n");
+	    // Check blocks.
+	    lseek(sourceFd,0,SEEK_SET);
+	    lseek(destFd,0,SEEK_SET);
+	    void *checkBuff = malloc(1024);
+	    for (i = 0; i < blocks; i++) {
+		    printf("\tChecking block: %d/%d",i,blocks);
+		    fflush(stdout);
+		    if (read(destFd,block,1024) <= 0) break;
+		    if (read(sourceFd,checkBuff,1024) <= 0) break;
+		    int diffCount = 0;
+		    if ((diffCount = memcmp(block,checkBuff,1024)) != 0) {
+			    fprintf(stderr,"\nDifferences found on block %d, bytes that isn't equal: %d\n",i,diffCount);
+			    break;
+			}
+		}
+	    close(sourceFd);
+	    close(destFd);
+	    free(block);
+	    free(checkBuff);
+    } else  if (!strcmp(argv[0],"swm")) {
+	    if (fork() == 0) {
+		    // we can start wm.
+		    printf("Starting WM\n");
+		    char *wm_argv[] = {"wm",NULL};
+		    execv("/mnt/wm",wm_argv);
+		    printf("Failure for wm to be online\n");
+		    exit(1);
+		}
+	    printf("Sleeping to take wm some time to initialize itself\n");
+	    sleep(4);
+	    printf("Okay. starting first client\n");
+	    if (fork() == 0) {
+		    char *helloworld_argv[] = {"hl",NULL};
+		    execv("/mnt/hl",helloworld_argv);
+		    printf("Start failure\n");
+		    exit(1);
+		}
     } else {
 	if (!executeCommand(argc,argv,true)) {
         	printf("Unknown command: %s\n",argv[0]);

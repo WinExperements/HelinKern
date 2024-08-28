@@ -9,7 +9,7 @@ static bool domain_find(clist_head_t *head,va_list args);
 static clist_definition_t *sockets;
 typedef struct _entry {
 	int domain;
-	bool (*create)(Socket *socket);
+	bool (*create)(Socket *socket,int type);
 } entry;
 
 void socket_init() {
@@ -19,7 +19,7 @@ void socket_init() {
 	kprintf("socket: initialized\n");
 }
 
-void socket_add(int domain,bool (*create)(Socket *socket)) {
+void socket_add(int domain,bool (*create)(Socket *socket,int type)) {
 	if (create == NULL) return;
 	void *a = clist_find(sockets,domain_find,domain);
 	if (a != NULL) {
@@ -36,11 +36,11 @@ void socket_add(int domain,bool (*create)(Socket *socket)) {
 	// All done
 }
 
-bool socket_create(int domain,Socket *socket) {
+bool socket_create(int domain,int type,Socket *socket) {
 	if (socket == NULL) return false;
 	entry *en = clist_find(sockets,domain_find,domain)->data;
 	if (en == NULL) return false;
-	return en->create(socket);
+	return en->create(socket,type);
 }
 
 static bool domain_find(clist_head_t *head,va_list args) {

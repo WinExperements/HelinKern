@@ -4,7 +4,7 @@
 #include <typedefs.h>
 #include <vfs.h>
 #include <lib/queue.h>
-
+#include <lib/fifosize.h>
 #ifndef SOCK_STREAM
 #define SOCK_STREAM    1
 #define SOCK_DGRAM     2
@@ -30,6 +30,9 @@ typedef struct _socket {
 	struct _socket *conn;
 	uint32_t domain;
 	queue_t *acceptQueue;
+	// Data queues.
+	queueSize *receive;
+	queueSize *sended;
 	int owner; // pid of owner
 	bool (*destroy)(struct _socket* socket);
 	int (*bind)(struct _socket* socket, int sockfd, const struct sockaddr *addr, socklen_t addrlen);
@@ -40,15 +43,12 @@ typedef struct _socket {
 	ssize_t (*recv)(struct _socket* socket, int sockfd, void *buf, size_t len, int flags);
 	bool (*isReady)(struct _socket* socket);
 	void *private_data; // socket specific data, like vfs_node_t->priv_data
-	/*
-	 * Flags are the same as the domain type
-	*/
-	int flags; // like non block or something else
+	int flags; // we back again.....
 } Socket;
 
 void socket_init();
-void socket_add(int domain, bool (*create)(Socket *socket));
-bool socket_create(int domain, Socket *socket);
+void socket_add(int domain, bool (*create)(Socket *socket,int type));
+bool socket_create(int domain,int type, Socket *socket);
 void socket_destroy(Socket *socket);
 
 #endif

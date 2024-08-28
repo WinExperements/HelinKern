@@ -190,6 +190,10 @@ void fb_putc(char ch) {
       fb_putchar(' ',cursor_x,cursor_y,0xffffff,BLACK);
       cursor_x = 0;
       cursor_y++;
+    } else if (ch == '\r') {
+	    fb_putchar(' ',cursor_x,cursor_y,0xffffff,BLACK);
+	    cursor_x = 0;
+	    goto end;
     }
 
   // IF all the above text fails , print the Character
@@ -200,7 +204,7 @@ void fb_putc(char ch) {
       if (charBuff != NULL )charBuff[cursor_y * ws_col  + cursor_x] = ch;
       cursor_x++;
     }
-
+end:
   // IF after all the printing we need to insert a new line
   if (cursor_x >= ws_col)
     {
@@ -290,7 +294,7 @@ static uint64_t fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *bu
 }
 static void *fbdev_mmap(struct vfs_node *node,int _addr,int size,int offset,int flags) {
     // First allocate requested space
-    unsigned long vstart = arch_mmu_query(NULL,USER_MMAP_START,size);
+    uint32_t vstart = (uint32_t)arch_mmu_query(NULL,(uintptr_t)(uint32_t)USER_MMAP_START,size);
     if (vstart == -1) {
 	    // No free virtual memory?
 	    return (void *)-1;
@@ -299,10 +303,10 @@ static void *fbdev_mmap(struct vfs_node *node,int _addr,int size,int offset,int 
         // Map
         // TODO: Fix  this shit
         int pag = (i*4096);
-        arch_mmu_mapPage(NULL,vstart+pag,paddr+pag,7);
+        arch_mmu_mapPage(NULL,vstart+pag,(uintptr_t)(uint32_t)paddr+pag,7);
     }
-    kprintf("Now found at 0x%x\r\n",arch_mmu_query(NULL,USER_MMAP_START,size));
-    return (void *)vstart;
+    //kprintf("Now found at 0x%x\r\n",arch_mmu_query(NULL,USER_MMAP_START,size));
+    return (void *)(uintptr_t)vstart;
 }
 void fbdev_init() {
 	if (width == 0 || height == 0) return;

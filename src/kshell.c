@@ -1,3 +1,8 @@
+/* Depracated protocol. Don't use it for standard testing, only for the global and deep kernel test.
+ * In environment where userspace programs SO BROKEN that even basic shell can't be runned....
+*/
+
+
 #include <vfs.h>
 #include <kshell.h>
 #include <arch.h>
@@ -252,7 +257,7 @@ static void parseCommand(int argc,char *cmd[]) {
 	    kprintf("Creating kernel UNIX socket server(TEST)\n");
 	    Socket *serv = (Socket *)kmalloc(sizeof(Socket));
 	    memset(serv,0,sizeof(Socket));
-	    if (!socket_create(PF_UNIX,serv)) {
+	    if (!socket_create(PF_UNIX,0,serv)) {
 		    kprintf("Failed to create socket\n");
 		    kfree(serv);
             return;
@@ -395,7 +400,7 @@ static void th_m() {
 	kprintf("Parallel thread!\n");
 	Socket *client = kmalloc(sizeof(Socket));
 	memset(client,0,sizeof(Socket));
-	socket_create(PF_UNIX,client);
+	socket_create(PF_UNIX,0,client);
 	// Connect
 	struct sockaddr *addr = kmalloc(sizeof(struct sockaddr));
 	memset(addr,0,sizeof(struct sockaddr));

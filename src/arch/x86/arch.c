@@ -1030,6 +1030,9 @@ void arch_clone_current(process_t *prc,void *stackPtr,uintptr_t stackSize) {
 	if (prc->started) return; // we can't process already running process.
 #if defined(__x86_64__)
 	x64_task_t *tsk = (x64_task_t*)prc->arch_info;
+#else
+	x86_task_t *tsk = (x86_task_t*)prc->arch_info;
+#endif
 	// Create new registers, so the thread_main will think that we return from fork.
 	registers_t *regs = (registers_t*)kmalloc(sizeof(registers_t));
 	memcpy(regs,syscall_regs,sizeof(registers_t));
@@ -1042,13 +1045,17 @@ void arch_clone_current(process_t *prc,void *stackPtr,uintptr_t stackSize) {
 		memset((void *)rsp,0,4096);
 		regs->useresp = rsp;
 	} else {
-		regs->useresp = (uint64_t)stackPtr;
+		regs->useresp = (uintptr_t)stackPtr;
 	}
 	// Copy the stack otherwise we get em, stack corruption?
 	uintptr_t dstAddr = (uintptr_t)regs->useresp;
 	memcpy((void *)dstAddr,(void *)copyAddr,4096);
 	regs->useresp = dstAddr + offset;
+#if defined(__x86_64__)
 	regs->rax = 0;
 	tsk->userModeRegs = regs;
+#else
+	regs->eax = 0;
+	tsk->forkESP = (int)regs;
 #endif
 }

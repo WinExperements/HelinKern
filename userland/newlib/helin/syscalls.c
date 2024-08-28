@@ -209,7 +209,17 @@ int write(int file, char *ptr, int len){
     return how;
 }
 int gettimeofday(struct timeval *__restrict __p,
-                          void *__restrict __tz){}
+                          void *__restrict __tz){
+	// same as clock_gettime.
+	struct timespec t;
+	int ret = clock_gettime(CLOCK_REALTIME,&t);
+	if (ret < 0) {
+		return -1;
+	}
+	__p->tv_sec = t.tv_sec;
+	__p->tv_usec = t.tv_nsec * 1000000;
+	return 0;
+}
 int ioctl(int fd,unsigned long request,...) {
     va_list args;
     va_start(args,request);
@@ -218,7 +228,13 @@ int ioctl(int fd,unsigned long request,...) {
     return ret;
 }
 void *mmap(void *addr,size_t len,int prot,int flags,int fd,off_t offset) {
-    return (void *)helin_syscall(29,fd,(uintptr_t)addr,len,offset,flags);
+    int ret = helin_syscall(29,fd,(uintptr_t)addr,len,offset,flags);
+    /*if (ret < 0) {
+	    errno = ret * -1;
+	    return (void*)-1;
+	}*/
+    void *ptr = (void *)(uintptr_t)(uint32_t)ret;
+    return ptr;
 }
 DIR *opendir(const char *path) {
     int fd = helin_syscall(18,(uintptr_t)path,0,0,0,0);
@@ -451,7 +467,16 @@ int pthread_attr_destroy(pthread_attr_t *attr) {
 }
 
 int fcntl(int fd, int cmd, ...) {
-	return 0; // We don't support :(
+	va_list args;
+	va_start(args,cmd);
+	int parameter = va_arg(args,int);
+	va_end(args);
+	int ret = helin_syscall(SYS_fcntl,fd,cmd,(int)parameter,0,0);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return ret; // We don't support :(
 }
 
 int lstat(const char *pathname, struct stat *statbuf) {
@@ -1314,7 +1339,7 @@ void *shmat(int shmid, const void *to, int flags) {
 	cmd->mapAddr = to;
 	int ret = syscall(SYS_ipc,2,'S',2,(uintptr_t)cmd,0);
 	free(cmd);
-	return ret;
+	return (void *)(uintptr_t)(uint32_t)ret;
 }
 int shmdt(const void *ptr) {
 	return syscall(SYS_ipc,2,'S',3,(uintptr_t)ptr,0);

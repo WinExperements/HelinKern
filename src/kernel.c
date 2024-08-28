@@ -152,7 +152,7 @@ void kernel_main(const char *args) {
     ps2mouse_init();
     pci_init();
     mbr_init();
-    //ahci_init();
+    ahci_init();
     ext2_main();
     iso9660_init();
 //    atapi_init();

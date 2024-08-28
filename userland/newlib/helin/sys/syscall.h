@@ -79,6 +79,9 @@ enum syscall_table {
 	SYS_getrlimit,
 	SYS_setrlimit,
 	SYS_getrusage,
+	SYS_openat,
+	SYS_sysconf,
+	SYS_fcntl,
 	NUM_SYSCALLS,
 };
 

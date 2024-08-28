@@ -79,7 +79,7 @@ createNode:
 	shmNode->priv_data = st;
 	shmNode->inode = shm_id;
 	thread_openFor(caller,shmNode);
-	return shm_id;
+	return st->id;
 }
 struct shm_obj *shm_find(int id) {
 	queue_for(obj,shmQueue) {
@@ -109,15 +109,20 @@ int shm_command(process_t *caller,int cmd,void *args) {
 				  if (obj == NULL) {
 					  return -1;
 				  }
+				  // Find memory hole where we can fit.
+				  // 32-bit integer due to some extreme address given if don't use it.
+				  uint32_t where = arch_mmu_query(NULL,(uintptr_t)(uint32_t)USER_MMAP_START,obj->size+4096);
 				  for (int i = 0; i < (obj->size / 4096)+1; i++) {
-					  arch_mmu_mapPage(NULL,USER_MMAP_START+(i*4096),obj->pageBegin+(i*4096),7);
+					  arch_mmu_mapPage(NULL,where+(i*4096),obj->pageBegin+(i*4096),7);
 				  }
 				  obj->atCnt++;
-				  return USER_MMAP_START;
+				  return where;
 			  } break;
 		case 0x3: {
 				  // Args is actually virtual address of attached shm object....
-				  void *phys_addr = arch_mmu_getPhysical(args);
+				  // on 64 bit systems we process this address differenctly.
+				  uintptr_t argsAddr = (uintptr_t)args;
+				  void *phys_addr = arch_mmu_getPhysical((void *)(uintptr_t)(uint32_t)argsAddr);
 				  // Now find the SHM object.
 				  queue_for(sh,shmQueue) {
 					  struct shm_obj *shobj = (struct shm_obj *)sh->value;
@@ -128,7 +133,7 @@ int shm_command(process_t *caller,int cmd,void *args) {
 				   }
 				  if (obj == NULL) return -1;
 				  obj->atCnt--;
-				  arch_mmu_unmap(NULL,(vaddr_t)args,(obj->size/4096)+1);
+				  arch_mmu_unmap(NULL,(vaddr_t)(uint32_t)argsAddr,(obj->size/4096)+1);
 				  if (obj->atCnt < 0) {
 					  kprintf("[shm]: Freeing resources used by this SHM segment\r\n");
 					  for (int i = 0; i < (obj->size/4096)+1; i++) {
@@ -180,7 +185,7 @@ void shm_init() {
 void shm_fs_close(vfs_node_t *node) {
 	struct shm_obj *obj = (struct shm_obj *)node->priv_data;
 	// Unmap this area from process virtual memory(first actual use of arch_mmu_unmap)
-	arch_mmu_unmap(NULL,USER_MMAP_START,(obj->size/4096)+1);
+//	arch_mmu_unmap(NULL,USER_MMAP_START,(obj->size/4096)+1);
 	if (obj->destroyed) return;
 	if (thread_getCurrent() == obj->owner->pid) {
 		// Free memory used by this object.

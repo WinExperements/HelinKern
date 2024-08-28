@@ -116,8 +116,9 @@ static int sys_setrlimit(int resID,rlimit_t *to);
 static int sys_getrusage(int resID,void *to);
 static int sys_openat(int dirfd,char *path,int mode);
 static int sys_sysconf(int id);
+static int sys_fcntl(int fd,int cmd,long long arg);
 static void *kmalloc_user(process_t *prc,int size);
-uintptr_t syscall_table[76] = {
+uintptr_t syscall_table[77] = {
     (uintptr_t)sys_default,
     (uintptr_t)sys_print,
     (uintptr_t)sys_exit,
@@ -194,8 +195,9 @@ uintptr_t syscall_table[76] = {
     (uintptr_t)sys_getrusage,
     (uintptr_t)sys_openat,
     (uintptr_t)sys_sysconf,
+    (uintptr_t)sys_fcntl,
 };
-int syscall_num = 76;
+int syscall_num = 77;
 extern char *ringBuff;
 extern int ringBuffSize;
 extern int ringBuffPtr;
@@ -298,7 +300,7 @@ static int sys_close(int fd) {
 	    return 1;
     }
     vfs_close(d->node);
-    if (d->node->flags == 4) {
+    if ((d->node->flags & 4) == 4) {
 	Socket *s = (Socket *)d->node->priv_data;
 	socket_destroy(s);
         kfree(d->node);
@@ -319,7 +321,7 @@ static int sys_read(int _fd,int offset,int size,void *buff) {
     if (!vfs_hasPerm(fd->node,PERM_READ,caller->gid,caller->uid)) {
 	    return -13;
     }
-    if (fd->node->flags == 4) {
+    if ((fd->node->flags & 4) == 4) {
 	   // kprintf("WARRNING: Redirect from read to recv!\n");
 	    Socket *sock = (Socket *)fd->node->priv_data;
 	    int socksize = sock->recv(sock,_fd,buff,size,0);
@@ -345,7 +347,7 @@ static int sys_write(int _fd,int offset,int size,void *buff) {
     if (!vfs_hasPerm(fd->node,PERM_WRITE,caller->gid,caller->uid)) {
 	    return -13;
     }
-    if (fd->node->flags == 4) {
+    if ((fd->node->flags & 4) == 4) {
 	    //kprintf("WARRNING: redirecting from write to send!\n");
 	    Socket *sock = (Socket *)fd->node->priv_data;
 	    //kprintf("Send from %s to socket owner: %s\n",caller->name,thread_getThread(sock->conn->owner)->name);
@@ -631,6 +633,9 @@ static int sys_seek(int _fd,int type,int how) {
     process_t *caller = thread_getThread(thread_getCurrent());
     if (caller == NULL) return -1;
     file_descriptor_t *fd = caller->fds[_fd];
+    if (fd == NULL) {
+	    return -9;
+    }
     if (type == 0) {
         fd->offset = how;
     } else if (type == 2) {
@@ -824,11 +829,12 @@ static int sys_truncate(int fd,int size) {
 static int sys_socket(int domain,int type,int protocol) {
 	Socket *s = kmalloc(sizeof(Socket));
 	memset(s,0,sizeof(Socket));
-	if (!socket_create(domain,s)) {
+	if (!socket_create(domain,type,s)) {
 		kfree(s);
 		return -1;
 	}
 	s->owner = thread_getCurrent();
+	s->flags = type;
 	// Create and open node
 	vfs_node_t *n = kmalloc(sizeof(vfs_node_t));
 	memset(n,0,sizeof(vfs_node_t));
@@ -884,18 +890,23 @@ static int sys_ready(int fd) {
 	process_t *t = thread_getThread(thread_getCurrent());
 	file_descriptor_t *ft = t->fds[fd];
 	if (ft != NULL) {
-		if (ft->node->flags == 4) {
+		if ((ft->node->flags & 4) == 4) {
 			// Check if socket is ready for connections
 			Socket *sock = (Socket *)ft->node->priv_data;
-			if (sock->acceptQueue != NULL) {
-				if (sock->acceptQueue->size != 0) {
+			// Check for incomming data, THEN check if the connection is tryied.
+			if (sock->isReady) {
+				if (sock->isReady(sock)) {
 					return 3;
-				} else return 2;
-			} else if (sock->isReady) {
-				return (sock->isReady(sock) ? 3 : 2);
-			} else {
-				return 2;
+				}
+				// No incomming data? Check if we have incomming clients.
+				if (sock->acceptQueue != NULL) {
+					// Check if have something.
+					if (sock->acceptQueue->size != 0) {
+						return 3;
+					}
+				}
 			}
+			return 2;
 		}
 	}
 	return (vfs_isReady(ft->node) ? 3 : 2);
@@ -1112,14 +1123,19 @@ static int sys_unlink(char *path) {
 static int sys_gettime(int clock,struct tm *time) {
 	switch(clock) {
 		case 0:
-		case 1:
 		case 4:
-#ifdef HWCLOCK
-		hw_clock_get(time);
-#endif
+			uint64_t clocks = clock_getUptimeSec();
+			time->tm_mday = clocks / 86400;
+			clocks %= 86400;
+			time->tm_hour = clocks / 3600;
+			time->tm_min = clocks / 60;
+			time->tm_sec = clocks % 60;
+			break;
+		case 1:
+		clock_get(time);
 		break;
 		default:
-		return 22;
+		return -22;
 	}
 	return 0;
 }
@@ -1335,4 +1351,29 @@ static int sys_sysconf(int id) {
 		return alloc_getUsedPhysMem();
 	}
 	return 0;
+}
+int sys_fcntl(int fd,int cmd,long long arg) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	if (fd >= caller->next_fd) return -9;
+	file_descriptor_t *fds = caller->fds[fd];
+	if (fds == NULL || fds->node == NULL) return -9;
+	vfs_node_t *node = fds->node;
+	switch(cmd) {
+		case 3:
+			if ((node->flags & 4) == 4) {
+				Socket *socket = (Socket *)node->priv_data;
+				return socket->flags;
+			} else {
+				return node->flags;
+			}
+		case 4:
+			if ((node->flags & 4) == 4) {
+				Socket *socket = (Socket *)node->priv_data;
+				socket->flags = arg;
+			} else {
+				node->flags = arg;
+			}
+			return 0;
+	}
+	return -22;
 }

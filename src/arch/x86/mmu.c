@@ -336,6 +336,7 @@ size_t arch_mmu_unmap(aspace_t *aspace,vaddr_t vaddr,uint32_t pageCount) {
  * Return virtual address in which required size can fit.
 */
 int arch_mmu_query(aspace_t *aspace,vaddr_t start,uintptr_t size) {
+#if !defined(__x86_64__)
 	int pd_index = PAGE_DIRECTORY_INDEX(start);
 	int pt_index = PAGE_TABLE_INDEX(start);
 	int sizeInPages = size / 4096;
@@ -365,6 +366,121 @@ int arch_mmu_query(aspace_t *aspace,vaddr_t start,uintptr_t size) {
 		pt_index = 0;
 	}
 	return -1;
+#else
+	/*void *v_addr = (void *)start;
+	vaddr_t vaddr = (vaddr_t)v_addr;
+        vaddr_t indv = (vaddr_t)v_addr;
+        indv >>= 12;
+        int pageIndex = indv & 0x1ff;
+        indv >>= 9;
+        int ptIndex = indv & 0x1ff;
+        indv >>= 9;
+        int pdIndex = indv & 0x1ff;
+        indv >>= 9;
+        uint64_t pdpIndex = indv & 0x1ff;
+        uint64_t *pml4 = (uint64_t *) 0xffffff7fbfdfe000; // we use recursive strategy, so this is our active PML4 address.
+        uint64_t pdpAddr = 0xffffff7fbfc00000 + (0x1000 * pdpIndex);
+        uint64_t pdAddr = 0xffffff7f80000000 + (0x200000 * pdpIndex) + (0x1000 * pdIndex);
+        uint64_t ptAddr = 0xffffff0000000000;
+        uint64_t ptOffset = (0x40000000 * pdpIndex);
+        ptAddr += ptOffset; 
+        ptAddr += (0x200000 * pdIndex);
+        ptAddr += (0x1000 * ptIndex);
+        uint64_t *pdp = (uint64_t *)pdpAddr;
+        uint64_t *pd = (uint64_t *)pdAddr;
+        uint64_t *pt = (uint64_t *)ptAddr;
+	int pages = size / 4096;
+	int pagesFound = 0;
+	// Check each page level for the existance of tables.
+	if ((pml4[pdpIndex] & PG_PRESENT) != PG_PRESENT) return start;
+	if ((pdp[pdIndex] & PG_PRESENT) != PG_PRESENT) return start;
+	if ((pd[ptIndex] & PG_PRESENT) != PG_PRESENT) return start;
+
+	// Now check some tables?
+	for (; pdIndex < 511; pdIndex++) {
+		if (pdp[pdIndex] == 0) return start;
+		for (; ptIndex <= 509; ptIndex++) {
+			if (pd[ptIndex] == 0) return start;
+			for (int i = 0; i < 509; i++) {
+				if (pt[i] == 0) {
+					pagesFound++;
+				} else {
+					pagesFound = 0;
+				}
+				start+=4096;
+				if (pagesFound == pages) {
+					return start;
+				}
+			}
+			ptAddr = 0xffffff0000000000;
+        		ptOffset = (0x40000000 * pdpIndex);
+        		ptAddr += ptOffset; 
+        		ptAddr += (0x200000 * pdIndex);
+        		ptAddr += (0x1000 * ptIndex);
+			pt = (uint64_t*)ptAddr;
+			ptIndex = 0;
+		}
+		pdAddr = 0xffffff7f80000000 + (0x200000 * pdpIndex) + (0x1000 * pdIndex);
+		pd = (uint64_t *)pdAddr;
+	}*/
+	int pages = size / 4096;
+	void *v_addr = (void *)start;
+        vaddr_t vaddr = (vaddr_t)v_addr;
+        vaddr_t indv = (vaddr_t)v_addr;
+        indv >>= 12;
+        int pageIndex = indv & 0x1ff;
+        indv >>= 9;
+        int ptIndex = indv & 0x1ff;
+        indv >>= 9;
+        int pdIndex = indv & 0x1ff;
+        indv >>= 9;
+	uint64_t pdpIndex = indv & 0x1ff;
+    	uint64_t *pml4 = (uint64_t *) 0xffffff7fbfdfe000;
+	uint64_t pdpAddr = 0xffffff7fbfc00000;
+    	uint64_t pdAddr = 0xffffff7f80000000;
+    	uint64_t ptAddr = 0xffffff0000000000;
+	uint64_t *pdpt = (uint64_t *)pdpAddr;
+	uint64_t *pd = (uint64_t *)pdAddr;
+	uint64_t *pt = (uint64_t *)ptAddr;
+	uint64_t pdptPhys = pml4[0];
+	pdptPhys &= ~0xfff;
+	uint64_t pdPhys = pdpt[0];
+	pdPhys &= ~0xfff;
+	int pagesFound = 0;
+	for (; pdpIndex < 7; pdpIndex++) {
+		pdpAddr = 0xffffff7fbfc00000 + (0x1000 * pdpIndex);
+		pdpt = (uint64_t *)pdpAddr;
+		if (pml4[pdpIndex] == 0) return start;	// nothing here
+		for (; pdIndex < 510; pdIndex++) {
+			if ((pdpt[pdIndex] & PG_PRESENT) != PG_PRESENT) return start;
+			pdAddr = 0xffffff7f80000000 + (0x200000 * pdpIndex) + (0x1000 * pdIndex);
+			pd = (uint64_t*)pdAddr;
+			for (; ptIndex < 510; ptIndex++) {
+				if ((pd[ptIndex] & PG_PRESENT) != PG_PRESENT) return start;
+				uint64_t ptOffset = 0x40000000 * pdpIndex;
+				ptAddr = 0xffffff0000000000;
+    				ptAddr += ptOffset;
+    				ptAddr += (0x200000 * pdIndex);
+    				ptAddr += (0x1000 * ptIndex);
+				pt = (uint64_t*)ptAddr;
+				for (int pgIndex = 0; pgIndex < 511; pgIndex++) {
+					if (pt[pgIndex] == 0) {
+						pagesFound++;
+					} else {
+						pagesFound = 0;
+					}
+					start+=4096;
+					if (pages == pagesFound) {
+						return start;
+					}
+				}
+			}
+			ptIndex = 0;
+		}
+		pdIndex = 0;
+	}
+	return -1;
+#endif
 }
 void arch_mmu_switch(aspace_t *aspace) {
     CHANGE_PD(aspace);
