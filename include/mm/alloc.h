@@ -36,7 +36,7 @@ void alloc_initProcess(process_t *prc,int size);
 int alloc_getUsedSize();
 // Required by FAT32!
 void *krealloc(void *p,int size);
-void alloc_freePage(int addr);
+void alloc_freePage(paddr_t addr);
 int alloc_getBitmapSize();
 void alloc_mapItself();
 int alloc_getEnd(); // needed for FB :(
@@ -45,4 +45,6 @@ unsigned long alloc_getUsedPhysMem(); // get used physical memory
 unsigned long alloc_getAllMemory(); // get all available amount of memory
 int alloc_alignAddress(int address,int aligment);
 uintptr_t alloc_getKernelHeapPages();
+uintptr_t alloc_getReservedSize();
+paddr_t alloc_getPages(int pgnum);
 #endif

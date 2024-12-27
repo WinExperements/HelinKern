@@ -232,7 +232,22 @@ x86_switchContext:
 [global x86_switch]
 x86_switch:
     mov ebp,[esp+4]
-    mov esp,ebp
+    ; Push all registers onto stack.
+    push dword [ebp+56]
+    push dword [ebp+52]
+    push dword [ebp+48]
+    push dword [ebp+44]
+    push dword [ebp+40]
+    push dword [ebp+36]
+    push dword [ebp+32]
+    push dword [ebp+28]
+    push dword [ebp+24]
+    push dword [ebp+20]
+    push dword [ebp+16]
+    push dword [ebp+12]
+    push dword [ebp+8]
+    push dword [ebp+4]
+    push dword [ebp+0]
     jmp irq_handler_exit
 [global x86_jumpToUser]
 x86_jumpToUser:

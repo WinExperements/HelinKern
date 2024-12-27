@@ -246,8 +246,31 @@ usermode_test:
 
 [global x86_switch]
 x86_switch:
-	mov rsp,rdi
-	jmp irq_common_exit
+	; Push required registers onto stack.
+  push qword [rdi+176] ; ds 
+  push qword [rdi+168] ; r15
+  push qword [rdi+160] ; r14
+  push qword [rdi+152] ; r13
+  push qword [rdi+144] ; r12
+  push qword [rdi+136] ; r11
+  push qword [rdi+128] ; r10
+  push qword [rdi+120] ; r9
+  push qword [rdi+112] ; r8
+  push qword [rdi+104] ; rbp
+  push qword [rdi+96] ; rdi
+  push qword [rdi+88] ; rsi
+  push qword [rdi+80] ; rdx
+  push qword [rdi+72] ; rcx
+  push qword [rdi+64] ; rbx
+  push qword [rdi+56] ; rax
+  push qword [rdi+48] ; int_no
+  push qword [rdi+40] ; error_code
+  push qword [rdi+32] ; rip
+  push qword [rdi+24] ; cs
+  push qword [rdi+16] ; eflags
+  push qword [rdi+8] ; useresp
+  push qword [rdi+0] ; stack segment selector.
+  jmp irq_common_exit
 
 [global copy_page_physical_asm]
 copy_page_physical_asm:

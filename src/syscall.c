@@ -1,3 +1,10 @@
+/*
+ * Syscall realization.
+ *
+ * We are currently monolitic kernel, so here we implement all list of required syscalls.
+*/
+
+
 #include <syscall.h>
 #include <output.h>
 #include <arch.h>
@@ -15,6 +22,7 @@
 #include <dev/fb.h>
 #include <resources.h>
 #include <symbols.h>
+#include <arch/elf.h>
 // Pthreads structure that passed to newlib thread_entry
 typedef struct _pthread_str {
 	uintptr_t entry;
@@ -33,13 +41,23 @@ struct statfs {
 	char f_mnttoname[90];
 	char f_fstypename[90];
 };
+struct timespec {
+	long tv_sec;
+	long tv_usec;
+};
+struct sigaction {
+        void (*sa_handler)(int);
+        unsigned long sa_mask;
+        int sa_flags;
+};
 // stat.
 extern char *ringBuff;
-static char *system_hostname = NULL;
+char system_hostname[255];
 extern queue_t *priority[6];
+extern process_t *runningTask; // sheduler?
 static void sys_default() {}
 static void sys_exit(int exitCode);
-static void sys_kill(int pid,int code);
+static int sys_kill(int pid,int code);
 static int sys_getpid();
 static int sys_open(char *path,int flags);
 static int sys_close(int fd);
@@ -49,17 +67,17 @@ static int sys_write(int fd,int offset,int size,void *buff);
 // TODO: Reformate this syscalls into clock_* syscalls.
 static void sys_signal(int sig,int handler);
 static void sys_sigexit();
-static void sys_print(char *msg);
+static int sys_fstat(int fd,struct stat *s);
 // End of deprecated system calls. Need reform. Never use it.
 static int sys_exec(char *path,int argc,char **argv,char **environ);
 static int sys_reboot(int reason);
 static int sys_chdir(char *to);
-static void sys_pwd(char *buff,int len);
+static int sys_pwd(char *buff,int len);
 static int sys_opendir(char *path);
 static void sys_closedir(int fd);
 static int sys_readdir(int fd,int p,void *dirPtr);
 static int sys_mount(char *dev,char *mount_point,char *fs);
-static int sys_waitpid(int pid);
+static int sys_waitpid(int pid,int *status,int options);
 static int sys_getppid();
 static int sys_getuid();
 static void sys_setuid(int uid);
@@ -72,7 +90,8 @@ static int sys_ioctl(int fd,int req,va_list list);
 static void sys_setgid(int gid);
 static int sys_getgid();
 static void *sys_sbrk(int increment);
-static int sys_dup(int oldfd,int newfd);
+// if duptype is 1 then this is dup(), if duptype is 2 then it is dup2()
+static int sys_dup(int oldfd,int newfd,int duptype);
 static int sys_clone(void *stack,uintptr_t stackSize); // pthread support, yay
 static int sys_truncate(int fd,int newsize);
 // HelinOS specific
@@ -95,10 +114,10 @@ static int sys_sync(int fd);
 static int sys_munmap(void *ptr,int size);
 static int sys_umount(char *mountpoint);
 static int sys_access(char *path,int mode);
-static int sys_chmod(int fd,int mode);
-static int sys_stat(int fd,struct stat *);
+static int sys_fchmod(int fd,int mode);
+static int sys_stat(const char *path,struct stat *);
 static int sys_unlink(char *path);
-static int sys_gettime(int clock,struct tm *time);
+static int sys_clock(int clock,uint64_t *out);
 static int sys_settime(int clock,struct tm *time);
 static int sys_syslog(int type,char *buf,int len);
 static int sys_chroot(char *to);
@@ -115,12 +134,28 @@ static int sys_getrlimit(int resID,rlimit_t *to);
 static int sys_setrlimit(int resID,rlimit_t *to);
 static int sys_getrusage(int resID,void *to);
 static int sys_openat(int dirfd,char *path,int mode);
-static int sys_sysconf(int id);
+static unsigned long sys_sysconf(int id);
 static int sys_fcntl(int fd,int cmd,long long arg);
+static int sys_mprotect(void *addr,size_t len,int prot);
+static int sys_mkdirat(int dirfd,const char *name,int mode);
+static int sys_mknod(const char *name,int mode,int devid);
+static int sys_mknodat(int dirfd,const char *name,int mode,int devid);
+static int sys_utime(int fd,struct timespec **times,int flags);
+static int sys_symlinkat(int dirfd,char *from,char *to);
+static int sys_readlink(char *path,char *buff,int size);
+static int sys_readlinkat(char *path,int dirfd,char *buff,int size);
+// Finally. More signal support.
+static int sys_sigwait(unsigned long *sigset,int *sig);
+static int sys_chmod(const char *path,int mode);
+static int sys_fchmodat(int dirfd,const char *path,int fd);
+static int sys_unlinkat(int dirfd,const char *name);
+// Advanced signal IPC support.
+static int sys_sigaction(int sig,const struct sigaction *act,struct sigaction *oldact);
+static int sys_signalstack(struct sigStack *ss,struct sigStack *old_ss);
 static void *kmalloc_user(process_t *prc,int size);
-uintptr_t syscall_table[77] = {
+uintptr_t syscall_table[94] = {
     (uintptr_t)sys_default,
-    (uintptr_t)sys_print,
+    (uintptr_t)sys_fstat,
     (uintptr_t)sys_exit,
     (uintptr_t)sys_kill,
     (uintptr_t)sys_getpid,
@@ -134,7 +169,7 @@ uintptr_t syscall_table[77] = {
     (uintptr_t)sys_sigexit,
     (uintptr_t)sys_exec,
     (uintptr_t)sys_reboot,
-    (uintptr_t)sys_default,
+    (uintptr_t)sys_symlink,
     (uintptr_t)sys_pwd,
     (uintptr_t)sys_chdir,
     (uintptr_t)sys_opendir,
@@ -176,18 +211,18 @@ uintptr_t syscall_table[77] = {
     (uintptr_t)sys_munmap,
     (uintptr_t)sys_umount,
     (uintptr_t)sys_access,
-    (uintptr_t)sys_chmod,
-    (uintptr_t)sys_gettime,
+    (uintptr_t)sys_fchmod,
+    (uintptr_t)sys_clock,
     (uintptr_t)sys_settime,
     (uintptr_t)sys_syslog,
     (uintptr_t)sys_chroot,
     (uintptr_t)sys_fchdir,
-    (uintptr_t)sys_fchown,
     (uintptr_t)sys_chown,
+    (uintptr_t)sys_fchown,
     (uintptr_t)sys_rm,
     (uintptr_t)sys_getpgid,
     (uintptr_t)sys_nice,
-    (uintptr_t)sys_symlink,
+    (uintptr_t)sys_symlinkat,
     (uintptr_t)sys_ipc,
     (uintptr_t)sys_getfsstat,
     (uintptr_t)sys_getrlimit,
@@ -196,8 +231,22 @@ uintptr_t syscall_table[77] = {
     (uintptr_t)sys_openat,
     (uintptr_t)sys_sysconf,
     (uintptr_t)sys_fcntl,
+    (uintptr_t)sys_mprotect,
+    (uintptr_t)sys_mkdirat,
+    (uintptr_t)sys_mknod,
+    (uintptr_t)sys_mknodat,
+    (uintptr_t)sys_utime,
+    (uintptr_t)sys_default, // sys_link
+    (uintptr_t)sys_readlink,
+    (uintptr_t)sys_readlinkat,
+    (uintptr_t)sys_sigwait,
+    (uintptr_t)sys_chmod,
+    (uintptr_t)sys_fchmodat,
+    (uintptr_t)sys_unlinkat,
+    (uintptr_t)sys_sigaction,
+    (uintptr_t)sys_signalstack,
 };
-int syscall_num = 77;
+int syscall_num = 94;
 extern char *ringBuff;
 extern int ringBuffSize;
 extern int ringBuffPtr;
@@ -213,13 +262,41 @@ static char *strdup_user(process_t *prc,char *str) {
 	new[len] = 0;
 	return new;
 }
-static void sys_print(char *msg) {
-    /*
-    	WARRNING! Deprecated. Never use it.
-     */
-    //sys_write(1,0,sizeof(msg),msg);
+/*static bool checkPtr(void *ptr) {
+  return ((uintptr_t)ptr < KERN_HEAP_BEGIN) || ((uintptr_t)ptr > KERN_HEAP_END);
+}*/
+static int stat_convMode(vfs_node_t *node) {
+        int mode = 0100000;
+        if ((node->flags & VFS_DIRECTORY) == VFS_DIRECTORY) {
+                mode = 040000;
+        } else if ((node->flags & VFS_BLOCK) == VFS_BLOCK) {
+                mode = 060000;
+        }
+        return mode;
 }
-static bool isAccessable(void *ptr) {
+static int sys_fstat(int fd,struct stat *stat) {
+  process_t *caller = thread_getThread(thread_getCurrent());
+  file_descriptor_t *f = caller->fds[fd];
+  if (f == NULL) {
+    return -EBADF;
+  }
+  if (stat == NULL) {
+    return -EBADF;
+  }
+  memset(stat,0,sizeof(struct stat));
+  vfs_node_t *node = f->node;
+  stat->st_ino = node->inode;
+  stat->st_mode = node->mask;
+  stat->st_mode |= stat_convMode(node);
+  stat->st_uid = node->uid;
+  stat->st_gid = node->gid;
+  stat->st_size = node->size;
+  stat->st_mtime = node->mtime;
+  stat->st_ctime = node->ctime;
+  stat->st_atime = node->atime;
+  return 0;
+}
+bool isAccessable(void *ptr) {
     return arch_mmu_getPhysical(ptr) != 0;
 }
 void syscall_init() {
@@ -228,38 +305,53 @@ void syscall_init() {
 }
 uintptr_t syscall_get(int n) {
 	if (n > syscall_num) return 0;
-	DEBUG("Get syscall %d from %s\r\n",n,thread_getThread(thread_getCurrent())->name);
+	//DEBUG("Get syscall %d from %s\r\n",n,thread_getThread(thread_getCurrent())->name);
 	return syscall_table[n];
 }
 static void sys_exit(int exitCode) {
     DEBUG("sys_exit: %d\r\n",exitCode);
-    thread_killThread(thread_getThread(thread_getCurrent()),exitCode);
+    thread_killThread(thread_getThread(thread_getCurrent()),exitCode,true);
 }
-static void sys_kill(int pid,int sig) {
+static int sys_kill(int pid,int sig) {
+	//			    ta
 	if (sig == 9 || sig == 0) {
 		// Well, the previous code has no check if the thread_getThread will return 0.
 		process_t *thToKill = thread_getThread(pid);
-		if (thToKill == NULL || thToKill->pid == 0) return; //non existing process or idle.
-		thread_killThread(thToKill,-9);
-		arch_reschedule();
-		return;
+                if (thToKill == NULL ||  !thToKill->userProcess) {
+                        return -ESRCH;
+                }
+		if (thToKill->died || thToKill->state == STATUS_ZOMBIE) {
+			return -ESRCH;
+		}
+		thread_killThread(thToKill,-9,true);
+		if (runningTask == thToKill)arch_reschedule();
+		return 0;
 	}
 	if (sig >= 32) {
-		kprintf("%s: doesn't supported signal: %d\r\n",__func__,sig);
-		return;
+		return -EINVAL;
 	}
 	process_t *prc = thread_getThread(pid);
 	if (!prc) {
-		kprintf("%s: cannot find process %d!\r\n",__func__,pid);
-		return;
+		return -ESRCH;
 	}
-	queue_t *que = (queue_t *)prc->signalQueue;
-	enqueue(que,(void *)sig);
+	if (prc->died || prc->state == STATUS_ZOMBIE) return -ESRCH;
+	  queue_t *que = (queue_t *)prc->signalQueue;
+	  enqueue(que,(void *)sig);
   	if (prc->state != STATUS_RUNNING && prc->state != STATUS_CREATING) {
-		prc->state = STATUS_RUNNING;
-		push_prc(prc);
+		    prc->state = STATUS_RUNNING;
+		    push_prc(prc);
   	}
-	thread_forceSwitch();
+    // Default handling?
+    ProcessSignal hndlr = prc->signal_handlers[sig];
+    if (hndlr.handler == 0) {
+        switch(sig) {
+          case 1:
+          thread_killThread(prc,-sig,true);
+          break;
+        }
+    }
+  thread_forceSwitch();
+  return 0;
 }
 static int sys_getpid() {
     return thread_getCurrent();
@@ -268,39 +360,72 @@ static int sys_open(char *path,int flags) {
     // get caller
     // Finnaly i found this fucking bug
     process_t *caller = thread_getThread(thread_getCurrent());
+    if (strlen(path) == 0) {
+      // this shit destroys our kernel.
+      return -ENOENT;
+    }
     char *path_copy = strdup(path);
-    vfs_node_t *node = vfs_find(path_copy);
+    vfs_node_t *node = NULL;
+    if (strcmp(path_copy,".")) {
+	    node = caller->workDir;
+	} else {
+		node = vfs_find(path_copy);
+	}
     // Check permissions.
-    if (!vfs_hasPerm(node,PERM_READ,caller->gid,caller->uid)) {
-	    return -13;
-    }
-    if (!node && (flags == 7 || flags == 1538)) {
-	    // Before any creation, check if file system isn't read only.
-	    vfs_node_t *where = vfs_getRoot();
-	    if (path[0] != '/') {
-		    where = caller->workDir;
-	    }
-	    if ((where->mount_flags & VFS_MOUNT_RO) == VFS_MOUNT_RO) {
-		    return -30;
-	    }
-	    strcpy(path_copy,path);
-	    node = vfs_creat(vfs_getRoot(),path_copy,flags);
-	    if (!node) {
-		    // Even after this....
-		    return -1;
-	    }
-    }
     kfree(path_copy);
-    return thread_openFor(caller,node);
+    if (node != NULL) {
+	    if (!vfs_hasPerm(node,PERM_READ,caller->gid,caller->uid)) {
+	    	return -EACCES;
+    	}
+            // Check if we don't open directory if not required to.
+            if ((flags & 0x200000) != 0x200000) {
+                    if ((node->flags & VFS_DIRECTORY) == VFS_DIRECTORY) {
+                            return -EISDIR;
+                    }
+            }
+    }
+    if (node == NULL) {
+	    if (((flags & 2) == 2)
+		    || ((flags & 0x200) == 0x200) ||
+		    ((flags & 1) == 1)) {
+	    // Before any creation, check if file system isn't read only.
+	    	int r = sys_creat(path,0);
+	    	if (r > 0) {
+		    kfree(path_copy);
+		    return -ENOENT;
+		}
+	    // Path is modified by strtok....
+	    path_copy = strdup(path);
+	    node = vfs_find(path_copy);
+	    kfree(path_copy);
+	    if (node == NULL) {
+		    return -ENOENT;
+		}
+	} else {
+		return -ENOENT;
+	}
+    } else {
+	    // node not found.
+	    if (node == NULL) return -ENOENT;
+    }
+    return thread_openFor(caller,node,flags);
 }
 static int sys_close(int fd) {
     process_t *caller = thread_getThread(thread_getCurrent());
+    if (fd < 0 || fd >= 200) return -EBADF;
     file_descriptor_t *d = caller->fds[fd];
+    if (!isAccessable(d) || !isAccessable(d->node) || !isAccessable(d->node->fs)) return -EBADF;
     if (d == NULL || d->node == NULL) {
-	    return 1;
+	    return -EBADF;
     }
+    //kprintf("Closing fd %d: %s\n",fd,d->node->name);
+    if (d->node->fs->close != NULL) {
+	    if (!isAccessable(d->node->fs->close)) {
+		    return -EBADF;
+		}
+	}
     vfs_close(d->node);
-    if ((d->node->flags & 4) == 4) {
+    if ((d->node->flags & VFS_SOCKET) == VFS_SOCKET) {
 	Socket *s = (Socket *)d->node->priv_data;
 	socket_destroy(s);
         kfree(d->node);
@@ -312,42 +437,54 @@ static int sys_close(int fd) {
 static int sys_read(int _fd,int offset,int size,void *buff) {
     process_t *caller = thread_getThread(thread_getCurrent());
     DEBUG("Read for %s, file descriptor %d\n",caller->name,_fd);
+    if (_fd < 0 || _fd >= 200) return -EBADF;
     file_descriptor_t *fd = caller->fds[_fd];
+    if ((uintptr_t)fd < KERN_HEAP_BEGIN || (uintptr_t)fd > KERN_HEAP_END) return -EBADF;
+    if ((uintptr_t)fd->node < KERN_HEAP_BEGIN || (uintptr_t)fd->node > KERN_HEAP_END) return -EBADF;
+    /*if (!isAccessable(fd)) return -EBADF;
+    if (!isAccessable(fd->node) || !isAccessable(fd->node->fs) || !isAccessable(fd->node->fs->read)) return -EBADF;*/
     if (fd == NULL || fd->node == NULL) {
 	    kprintf("WARRNING: read: invalid FD passed\n");
-	    return 0;
+	    return -EBADF;
 	}
     // Check permissions.
     if (!vfs_hasPerm(fd->node,PERM_READ,caller->gid,caller->uid)) {
-	    return -13;
+	    return -EACCES;
     }
-    if ((fd->node->flags & 4) == 4) {
+    if ((fd->node->flags & VFS_SOCKET) == VFS_SOCKET) {
 	   // kprintf("WARRNING: Redirect from read to recv!\n");
 	    Socket *sock = (Socket *)fd->node->priv_data;
 	    int socksize = sock->recv(sock,_fd,buff,size,0);
 	    return socksize;
 	}
+    if (offset == 0 && fd->offset > fd->node->size) {
+	    return 0;
+	} else if (fd->offset+offset >= fd->node->size) {
+		return 0;
+	}
     int how = vfs_read(fd->node,fd->offset,size,buff);
     fd->offset+=how;
-    if (offset >= fd->node->size) {
-        return 0;
-    }
     return how;
 }
 static int sys_write(int _fd,int offset,int size,void *buff) {
     process_t *caller = thread_getThread(thread_getCurrent());
+    if (_fd < 0 || _fd >= 200) return -EBADF;
     file_descriptor_t *fd = caller->fds[_fd];
+    if ((uintptr_t)fd < KERN_HEAP_BEGIN || ((uintptr_t)fd > KERN_HEAP_END)) return -EBADF;
     if (fd == NULL || fd->node == NULL) {
-	    return 0;
+	    return -EFAULT;
     }
-    if ((fd->node->mount_flags == VFS_MOUNT_RO) == VFS_MOUNT_RO) {
-	    return -30;
+    if ((fd->node->mount_flags & VFS_MOUNT_RO) == VFS_MOUNT_RO) {
+	    return -EROFS;
     }
     // Check if we have permissions to do it.
     if (!vfs_hasPerm(fd->node,PERM_WRITE,caller->gid,caller->uid)) {
-	    return -13;
+	    return -EACCES;
     }
-    if ((fd->node->flags & 4) == 4) {
+    /*if ((fd->flags & FD_RDWR) != FD_RDWR) {
+	    return -EACCES;
+	}*/
+    if ((fd->node->flags & VFS_SOCKET) == VFS_SOCKET) {
 	    //kprintf("WARRNING: redirecting from write to send!\n");
 	    Socket *sock = (Socket *)fd->node->priv_data;
 	    //kprintf("Send from %s to socket owner: %s\n",caller->name,thread_getThread(sock->conn->owner)->name);
@@ -363,26 +500,44 @@ static void sys_signal(int signal,int handler) {
 		return;
 	}
 	if (handler == 0) {
-		kprintf("Handler is out of bounds!\r\n");
 		return;
 	}
 	process_t *prc = thread_getThread(thread_getCurrent());
 	if (!prc) {
-		kprintf("Now such process!\r\n");
+		kprintf("No such process!\r\n");
 		return;
 	}
-	prc->signal_handlers[signal] = handler;
+	ProcessSignal s = prc->signal_handlers[signal];
+	// Setup?
+	s.handler = handler;
+	prc->signal_handlers[signal] = s;
 	//kprintf("%s: registred for %d to 0x%x\r\n",__func__,signal,handler);
 }
-static void sys_sigexit() {
+static void sys_sigexit(int signum) {
+	arch_cli();
 	process_t *caller = thread_getThread(thread_getCurrent());
 	//kprintf("%s: caller -> %s\r\n",__func__,caller->name);
-	arch_exitSignal(caller);
+	// We don't care about "default" values in ProcessSignal as some architectures can not use this values at all.
+	ProcessSignal *s = &caller->signal_handlers[signum];
+        s->blocked = false;
+        // Check if we still have some some sort of the signals....
+        if (((queue_t*)caller->signalQueue)->size > 0) {
+                // We can't currently return until we process all signals.
+                uintptr_t n = (uintptr_t)dequeue((queue_t *)caller->signalQueue);
+                if (n == signum) {
+                        enqueue((queue_t *)caller->signalQueue,(void *)n);
+                } else {
+                        s->exited = true;
+                }
+                thread_forceSwitch();
+        }
+        s->exited = true;
+	arch_exitSignal(caller,s);
+	//while(1) {}
 	arch_reschedule();
 	// what?
 	PANIC("Serious kernel bug");
 }
-/* Clone string array from one address space to another */
 static void cloneStrArray(char **fromAr,char ***toAr,void *fromAspace,process_t *toP,int ArrSize) {
   if (fromAr == NULL || toAr == NULL || toP == NULL) return;
   char **krnBuff = kmalloc(sizeof(char *) * (ArrSize + 1));
@@ -413,8 +568,13 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
     vfs_node_t *file = vfs_find(buff);
     if (!file) {
         kfree(buff);
-        return -1;
+        return ENOENT;
     }
+    kfree(buff);
+    // Check if directory.
+    /*if ((file->flags & VFS_DIRECTORY) == VFS_DIRECTORY) {
+	    return EISDIR;
+	}*/
     process_t *caller = thread_getThread(thread_getCurrent());
     if (caller != NULL) {
     	bool hasPerm = vfs_hasPerm(file,PERM_EXEC,caller->gid,caller->uid);
@@ -424,27 +584,65 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
 	    	return 13; //EACCES.
     	}
     }
-    arch_cli();
-    clock_setShedulerEnabled(false);
+    // Check if the ELF file is correct and CAN be executed on this platform.
+    Elf32_Ehdr *hdr = kmalloc(sizeof(Elf32_Ehdr));
+    vfs_read(file,0,sizeof(Elf32_Ehdr),hdr);
+    if (!elf_check_file(hdr) || !arch_elf_check_header(hdr)) {
+	    vfs_close(file);
+	    kfree(buff);
+	    kfree(hdr);
+	    return ENOEXEC;
+    }
+    kfree(hdr);
     int len = file->size;
     int environSize = 0;
     aspace_t *realSpace = arch_mmu_getAspace();
-    while(environ[environSize]) {
+    while(environ[environSize] != NULL) {
       uintptr_t space = (uintptr_t)arch_mmu_getPhysical(environ[environSize]);
       if (space == 0 || space < 0x1000) {
         break; // corupted.
       }
       environSize++;
     }
-    aspace_t *original = (caller != NULL ? caller->aspace : NULL);
+    // Clone argv and env. as we can't access them later.
+    char **env_kernel = kmalloc(sizeof(char*) * environSize);
+    for (int i = 0; i < environSize; i++) {
+	    env_kernel[i] = strdup(environ[i]);
+	}
+    // The same as argv.
+    char **argv_kernel = kmalloc(sizeof(char **)*argc);
+    for (int i = 0; i < argc; i++) {
+	    argv_kernel[i] = strdup(argv[i]);
+	  }
+    arch_cli();
+    clock_setShedulerEnabled(false);
     arch_mmu_switch(arch_mmu_getKernelSpace());
-    if (caller != NULL )caller->aspace = arch_mmu_newAspace();
+    if (caller != NULL) {
+	    // Destroy previous space.
+	    arch_mmu_destroyAspace(caller->aspace,false);
+    }
     arch_sti();
     if (!elf_load_file(file,caller)) {
 	    if (caller != NULL) {
-		    thread_killThread(caller,1);
+		    arch_cli();
+		    arch_mmu_switch(arch_mmu_getKernelSpace());
+		    /* elf_load_file will probably destroy our process.
+		     * Because the ELF header itself okay, but we still
+		     * got error? Then it's likely I/O error of
+		     * drive where we load file from.
+		     */
+		    // Free the env_kernel and argv_kernel.
+		    for (int i = 0; i < environSize; i++) {
+			    kfree(env_kernel[i]);
+		    }
+		    for (int i = 0; i < argc; i++) {
+			    kfree(argv_kernel[i]);
+		    }
+		    kfree(env_kernel);
+		    kfree(argv_kernel);
+		    arch_reschedule(); // get out of there!
 		}
-	    return -1;
+	    return ENOEXEC;
     }
     arch_cli();
     arch_mmu_switch(arch_mmu_getKernelSpace());
@@ -452,15 +650,14 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
     // Change name to actual file name
     thread_changeName(prc,file->name);
     kfree(buff);
-    if (caller != NULL )arch_mmu_switch(original);
     vfs_close(file);
     char **new_argv = NULL;
     char **newEnviron = NULL;
     if (argc == 0 || argv == 0) {
         	// Передамо звичайні параметри(ім'я файлу і т.д)
   	    	arch_mmu_switch(prc->aspace);
-        	new_argv = sbrk(prc,2);
-        	new_argv[0] = strdup_user(prc,path);
+        	new_argv = sbrk(prc,sizeof(char *)*2);
+        	new_argv[0] = strdup_user(prc,file->name);
 	      	arch_mmu_switch(arch_mmu_getKernelSpace());
         	argc = 1;
     } else {
@@ -469,11 +666,29 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
 	    // Also required if current platform supports mapping only active page directory(x86,x86_64 for example)
 	    // We need to somehow access argv from ANOTHER address space.
 	    // Need to be optimized.
-	    cloneStrArray(argv,&new_argv,original,prc,argc);
+	    arch_mmu_switch(prc->aspace);
+	    new_argv = sbrk(prc,sizeof(char *)*(argc+1));
+	    for (int i = 0; i < argc; i++) {
+		    new_argv[i] = strdup_user(prc,argv_kernel[i]);
+		    kfree(argv_kernel[i]);
+	    }
+	    kfree(argv_kernel);
+	    new_argv[argc] = NULL;
     }
     // Clone environ.
-    arch_mmu_switch(realSpace);
-    cloneStrArray(environ,&newEnviron,original,prc,environSize);
+    arch_mmu_switch(prc->aspace);
+    if (environSize == 0) {
+	    newEnviron = sbrk(prc,sizeof(char *)*1);
+	    newEnviron[0] = NULL;
+    } else {
+    	newEnviron = sbrk(prc,sizeof(char *)*(environSize+1));
+    	for (int i = 0; i < environSize; i++) {
+	    	newEnviron[i] = strdup_user(prc,env_kernel[i]);
+	    	kfree(env_kernel[i]);
+    	}
+    	kfree(env_kernel);
+	newEnviron[environSize] = NULL;
+    }
     arch_mmu_switch(arch_mmu_getKernelSpace());
     arch_putArgs(prc,argc,new_argv,newEnviron);
     //if (caller != NULL )arch_mmu_destroyAspace(original,false);
@@ -485,8 +700,9 @@ static int sys_exec(char *path,int argc,char **argv,char **environ) {
 }
 static int sys_reboot(int reason) {
 	if (thread_getThread(thread_getCurrent())->uid != 0) {
-		return 13;
+		return EACCES;
 	}
+	arch_cli();
 	if (reason == POWEROFF_MAGIC) {
 		// Poweroff all POWER devices
 		arch_cli();
@@ -505,6 +721,7 @@ static int sys_reboot(int reason) {
 		arch_poweroff();
 		while(1) {}
 	}
+        arch_cli();
 	arch_reset();
 	return 0; // what?
 }
@@ -516,17 +733,27 @@ static int sys_chdir(char *to) {
     vfs_node_t *node = vfs_find(copy);
     if (!node) {
         kfree(copy);
-	return -1;
+	return -ENOENT;
     }
     prc->workDir = node;
+    if (size > 255) {
+            size = 254;
+        }
+    memcpy(prc->cwd,to,size);
     kfree(copy);
     return 0;
 }
-static void sys_pwd(char *buff,int len) {
-    vfs_node_path(thread_getThread(thread_getCurrent())->workDir,buff,len);
+static int sys_pwd(char *buff,int len) {
+	if (buff == NULL) return -22;
+    //vfs_node_path(thread_getThread(thread_getCurrent())->workDir,buff,len);
+    if (len > 255) {
+            len = 255;
+        }
+    memcpy(buff,thread_getThread(thread_getCurrent())->cwd,len);
+    return 0;
 }
 static int sys_opendir(char *path) {
-    return sys_open(path,0);
+    return sys_open(path,0x200000);
 }
 static void sys_closedir(int fd) {
     sys_close(fd);
@@ -536,32 +763,40 @@ static void sys_closedir(int fd) {
 // kernel mode structures and data anymore.
 static int sys_readdir(int fd,int p,void *dirPtr) {
     process_t *caller = thread_getThread(thread_getCurrent());
+    if (fd < 0 || fd >= 200) return -EBADF;
     file_descriptor_t *_fd = caller->fds[fd];
-    struct dirent *ret = vfs_readdir(_fd->node,p);
-    if (ret == NULL) {
-	    return -1;
-    }
-    memcpy(dirPtr,ret,sizeof(struct dirent));
-    return 0;
+    if (_fd == NULL) {
+	    return -EBADF;
+	}
+    int r = vfs_readdir(_fd->node,p,(struct dirent *)dirPtr);
+    return r;
 }
 static int sys_mount(char *dev,char *mount_point,char *fs) {
+    // Check if caller have required privileges.
+    process_t *prc = thread_getThread(thread_getCurrent());
+    if (prc->uid != 0) {
+	    return -EACCES;
+	  }
+    // Validate pointers.
+    if (!isAccessable(dev) || !isAccessable(mount_point) || !isAccessable(fs)) {
+      return -EFAULT;
+    }
     char *dev_copy = strdup(dev);
     char *mountptr = strdup(mount_point);
     char *f = strdup(fs);
     vfs_node_t *de = vfs_find(dev_copy);
-    process_t *prc = thread_getThread(thread_getCurrent());
     if (!de) {
         kfree(dev_copy);
         kfree(mountptr);
         kfree(f);
-        return -1;
+        return -ENOENT;
     }
     vfs_fs_t *fol = vfs_findFS(f);
     if (!fol) {
         kfree(dev_copy);
         kfree(mountptr);
         kfree(f);
-        return -2;
+        return -ENOENT;
     }
     aspace_t *aspace = arch_mmu_getAspace();
     prc->aspace = arch_mmu_getKernelSpace();
@@ -569,47 +804,76 @@ static int sys_mount(char *dev,char *mount_point,char *fs) {
    // kprintf("DEBUG! %s: fol: %x, de: %x, mountptr: 0x%x\n",__func__,fol,de,mountptr);
    // kprintf("Calling vfs_mount\n");
     if (!vfs_mount(fol,de,mountptr)) {
-	    kprintf("Return of vfs_mount with error -3\r\n");
 	    kfree(dev_copy);
 	    kfree(mountptr);
 	    kfree(f);
 	    arch_mmu_switch(aspace);
 	    prc->aspace = aspace;
-	    return -3;
+	    return -EINVAL;
     }
     kfree(dev_copy);
     kfree(mountptr);
     kfree(f);
     prc->aspace = aspace;
     arch_mmu_switch(aspace);
+    // When the mount process is complete, then retrive latest element and fill the device_path.
+    vfs_mount_t *mntList = vfs_getMntList();
+    while(mntList->next != NULL) {
+      mntList = mntList->next;
+    }
+    mntList->device_path = strdup(dev);
     return 0;
 }
-static int sys_waitpid(int pid) {
+static int sys_waitpid(int pid,int *status,int options) {
     // Most important syscall!
     process_t *parent = thread_getThread(thread_getCurrent());
     if (pid > 0) {
-    // Check if the given process has been spawned by the current caller
-    struct process *child = thread_getThread(pid);
-
-    DEBUG("sys_waitpid called from %s to wait for %s\r\n", parent->name, child->name);
-
-    if (child != NULL && child->parent == parent) {
-        thread_waitPid(parent);
-
-        // Wait for the child process to start and die
-        while (!child->started || !child->died) {
-            // Perform a blocking wait until the child process status changes
-            arch_reschedule();
-        }
-    }
-} else if (pid < 0) {
-	// wait for any child that has been spawned by the fucking process
-	thread_waitPid(parent);
-	while(parent->state == STATUS_WAITPID) {
-		arch_reschedule();
+    	// Check if the given process has been spawned by the current caller
+    	struct process *child = thread_getThread(pid);
+    	//DEBUG("sys_waitpid called from %s to wait for %s\r\n", parent->name, child->name);
+    	if (child != NULL && child->parent == parent) {
+        //	thread_waitPid(parent);
+		// Wait for the child process to start and die
+        	while (!child->started || !child->died || child->state != STATUS_ZOMBIE) {
+            		// Perform a blocking wait until the child process status changes
+            		arch_reschedule();
+        	}
+		if (status != NULL) {*status = child->exit_code;}
+		queue_remove(parent->childQueue,child);
+                kfree(child->name);
+		kfree(child);
+		return pid;
+    	}
+	} else if (pid < 0) {
+		// wait for any child that has been spawned by the fucking process
+		int nonblock = ((options & 1) == 1);
+		int how = 1;
+                queue_t *childQ = (queue_t*)parent->childQueue;
+		while(how) {
+			queue_for(p,childQ) {
+                                // Check if queue element doesn't fucked up.
+                                if ((uintptr_t)p < KERN_HEAP_BEGIN || (uintptr_t)p > KERN_HEAP_END) return -1;
+				process_t *child = (process_t *)p->value;
+				if ((uintptr_t)child < KERN_HEAP_BEGIN || (uintptr_t)child > KERN_HEAP_END) {
+                                kprintf("Removing unknown task(%s)\n",parent->name);
+                                childQ->size = 0;
+                                childQ->head = NULL;
+				return -1;
+				}
+				if (child->died || child->state == STATUS_ZOMBIE) {
+					queue_remove(parent->childQueue,child);
+					int r = child->pid;
+					if (status != NULL) {*status = child->exit_code;}
+                                        kfree(child->name);
+					kfree(child);
+					return r;
+				}
+			}
+                if (nonblock) how--;
+                //  arch_reschedule();
+		}
+		return 0;
 	}
-	return parent->died_child;
-}
 	return 0;
 }
 static int sys_getppid() {
@@ -631,36 +895,106 @@ static void sys_setuid(int uid) {
 }
 static int sys_seek(int _fd,int type,int how) {
     process_t *caller = thread_getThread(thread_getCurrent());
+    if (_fd < 0 || _fd >= 200) {
+	    return -EBADF;
+	}
     if (caller == NULL) return -1;
     file_descriptor_t *fd = caller->fds[_fd];
     if (fd == NULL) {
-	    return -9;
+	    return -EBADF;
     }
     if (type == 0) {
         fd->offset = how;
     } else if (type == 2) {
-        fd->offset = fd->node->size;
+        fd->offset = fd->node->size - how;
     } else if (type == 1) {
-    	return fd->offset;
+    	fd->offset += how;
     }
-    return 0;
+    return fd->offset;
 }
 static int sys_tell(int _fd) {
     process_t *caller = thread_getThread(thread_getCurrent());
+    if (_fd < 0 || _fd >= 200) {
+	    return -EBADF;
+	}
     file_descriptor_t *fd = caller->fds[_fd];
     return fd->offset;
 }
 static void *sys_mmap(int _fd,int addr,int size,int offset,int flags) {
     process_t *caller = thread_getThread(thread_getCurrent());
-    if (_fd == -1) return (void *)-1;
+    if (size == 0) return (void *)-EINVAL;
+    // Check if flags doesn't explode our kernel
+    if (((flags & 0x0001) == 0x001) && ((flags & 0x002) == 0x002)) {
+      // Whatahell
+      return (void *)-EINVAL;
+    }
+    uint32_t where = 0;
+    if (_fd <= 0) {
+      if ((flags & 0x0008) == 0x0008) {
+        // Map fixed address space.
+        if (addr == 0) {
+          return (void *)-EINVAL;
+        }
+        where = (uint32_t)arch_mmu_query(NULL,(uintptr_t)addr,size);
+        if (where != addr) {
+          // cannot placed here.
+          return (void *)-ENOMEM;
+        }
+      }
+      if (addr != 0) {
+        where = (uint32_t)arch_mmu_query(NULL,(uintptr_t)(uint32_t)addr,size);
+      } else {
+	      where =  (uint32_t)arch_mmu_query(NULL,(uintptr_t)(uint32_t)USER_MMAP_START,size);
+      }
+	    if (where == -1) {
+		    return (void *)-ENOMEM;
+	    }
+	    int pages = (size/4096)+2;
+      if (pages == 0) pages = 1;
+	    for (int i = 0; i < pages; i++) {
+		    int off = (i*4096);
+        uintptr_t page = alloc_getPage();
+        if (page == -1) {
+          return (void *)-ENOMEM;
+        }
+			int map_flags = arch_mmu_processFlags(PROT_READ | PROT_WRITE | PROT_USER | PROT_OWNED);
+		    arch_mmu_mapPage(NULL,where+off,page,map_flags); // MMU_OWNED used to allow munmap to free the pages.
+	    }
+	    return (void *)(uintptr_t)where;
+    }
+    if (_fd < 0 || _fd >= 200) {
+	    return (void *)-EBADF;
+    }
     file_descriptor_t *fd = caller->fds[_fd];
     vfs_node_t *node = fd->node;
     // Check permission.
     if (!vfs_hasPerm(node,PERM_WRITE,caller->gid,caller->uid)) {
-	    return (void *)-19;
+	    return (void *)-EACCES;
     }
     if (node != NULL) {
-        return vfs_mmap(node,addr,size,offset,flags);
+                // Some changes here!
+                if (node->fs->mmap == NULL) {
+                        // All work done by ourself.
+                        if (size > node->size) {
+                                // Limit :(
+                                size = node->size;
+                        }
+                        if (addr != 0) {
+                                where = (uint32_t)arch_mmu_query(NULL,(uintptr_t)(uint32_t)addr,size);
+                        } else {
+                                where = (uint32_t)arch_mmu_query(NULL,(uintptr_t)(uint32_t)USER_MMAP_START,size);
+                        }
+                        // Now! Allocate some pages!
+                        int map_flags = arch_mmu_processFlags(PROT_READ | PROT_WRITE | PROT_USER | PROT_OWNED);
+                        for (int i = 0; i < (size/4096)+1; i++) {
+                                uintptr_t pa = alloc_getPage();
+                                arch_mmu_mapPage(NULL,where+(i*4096),pa,map_flags);
+                        }
+                        // Now, read the file content in our allocated memory.
+                        vfs_read(node,offset,size,(void *)where);
+                        return (void *)where;
+                }
+                return vfs_mmap(node,addr,size,offset,flags);
     }
     return (void *)-1;
 }
@@ -671,18 +1005,12 @@ static int sys_insmod(char *path) {
     vfs_node_t *module = vfs_find(copy);
     if (!module) {
         kfree(copy);
-        return -1;
+        return -ENOENT;
     }
     kfree(copy);
-    aspace_t *aspace = arch_mmu_getAspace();
-    arch_cli();
-    clock_setShedulerEnabled(false);
-    arch_mmu_switch(arch_mmu_getKernelSpace());
     // allocate space that need to be used
     void *m = kmalloc(module->size+elf_get_module_bytes(module));
     if (!m) {
-        clock_setShedulerEnabled(true);
-        arch_mmu_switch(aspace);
         return -2;
     }
     vfs_read(module,0,module->size,m);
@@ -690,8 +1018,6 @@ static int sys_insmod(char *path) {
     module_t *mod = load_module(m);
     if (!mod) {
 	kfree(m);
-        arch_mmu_switch(aspace);
-        clock_setShedulerEnabled(true);
         return -2;
     }
     kprintf("Module %s load address(used for GDB): 0x%x\n",mod->name,mod->load_address);
@@ -700,10 +1026,7 @@ static int sys_insmod(char *path) {
 	//kprintf("sys_insmod: calling entry point of module\n");
         mod->init(mod);
     }
-    kfree(m);
-    clock_setShedulerEnabled(true);
-    arch_sti();
-    arch_mmu_switch(aspace);
+    //kfree(m);
     //kprintf("syscall: exit from sys_insmod\n");
     return 0;
 }
@@ -713,10 +1036,13 @@ static void sys_rmmod(char *name) {
 static int sys_ioctl(int fd,int req,va_list list) {
     // Generally used by the compositor to draw windows!
     process_t *caller = thread_getThread(thread_getCurrent());
+    if (fd < 0 || fd >= 200) return -EBADF;
     file_descriptor_t *file_desc = caller->fds[fd];
-    if (file_desc == NULL || file_desc->node == NULL) return -1;
+    if (!isAccessable(file_desc) || !isAccessable(file_desc->node)) return -EBADF;
+    if (file_desc == NULL || file_desc->node == NULL) return -ENOENT;
     // Sanity check
-    if (file_desc->node->fs == NULL|| file_desc->node->fs->ioctl == NULL) return -1;
+    if (!isAccessable(file_desc->node->fs) || !isAccessable(file_desc->node->fs->ioctl)) return -EBADF;
+    if (file_desc->node->fs == NULL|| file_desc->node->fs->ioctl == NULL) return -EBADF;
     return file_desc->node->fs->ioctl(file_desc->node,req,list);
 }
 static void sys_setgid(int gid) {
@@ -731,34 +1057,52 @@ static int sys_getgid() {
 }
 static void *sys_sbrk(int increment) {
     process_t *prc = thread_getThread(thread_getCurrent());
-    if (!prc) return (void *)-1;
+    if (!prc) return (void *)-ENOMEM;
     if (increment == 0) {
 	    increment = 1;
 	}
     void *ptr = sbrk(prc,increment);
+    if (ptr == (void*)-1) {
+      return (void *)-1;
+    }
     //kprintf("Ptr -> 0x%x\r\n",ptr);
-    return ptr;
+    return (void *)ptr;
 }
-static int sys_dup(int oldfd,int newfd) {
+static int sys_dup(int oldfd,int newfd,int dupfd) {
 	process_t *prc = thread_getThread(thread_getCurrent());
-	if (!prc) return -1;
+	if (!prc) return -EBADF;
 	// Duplicate there FD
 	file_descriptor_t *fd = prc->fds[oldfd];
-	if (!fd) return -1;
-	file_descriptor_t *copy = (file_descriptor_t *)kmalloc(sizeof(file_descriptor_t));
-	if (newfd > 0) {
-		// oldfd = newfd, copy the newfd file descriptor
-		file_descriptor_t *nefd = prc->fds[newfd];
-		// replace vfs node of oldfd to vfs node of newfd
-		nefd->node = fd->node;
-		kfree(copy);
-		return oldfd;
+	if (!fd && dupfd != 1) return -EBADF;
+	if (newfd >= 200) {
+		return -24;
 	}
+	if (dupfd == 2) {
+		// newfd = oldfd, copy the newfd file descriptor
+                file_descriptor_t *cp = kmalloc(sizeof(file_descriptor_t));
+                memcpy(cp,fd,sizeof(file_descriptor_t));
+                prc->fds[newfd] = cp;
+		return newfd;
+	}
+        file_descriptor_t *copy = kmalloc(sizeof(file_descriptor_t));
 	// We don't clear memory because we gonna copy it
-	memcpy(copy,fd,sizeof(file_descriptor_t));
-	// Incrmenet the next FD pointer
-	int fd_id = prc->next_fd;
-	prc->next_fd++;
+	if (fd != NULL) {
+		memcpy(copy,fd,sizeof(file_descriptor_t));
+	}
+	// find new usable fd.
+	int fd_id = -1;
+	for (int i = 0; i < prc->next_fd; i++) {
+		if (prc->fds[i] == NULL) {
+			// Found!
+			fd_id = i;
+			break;
+		}
+	}
+	if (fd_id == -1) {
+		// Not found. Okay.
+		fd_id = prc->next_fd;
+		prc->next_fd++;
+	}
 	prc->fds[fd_id] = copy;
 	return fd_id;
 }
@@ -772,9 +1116,11 @@ static int sys_dup(int oldfd,int newfd) {
  *
 */
 static int sys_clone(void *stackPtr,uintptr_t stackSize) {
+    arch_cli();
     process_t *caller = thread_getThread(thread_getCurrent());
     // Acording to the wiki, we need just to create an process with the same VM space
     process_t *thread = thread_create("thread",0,true);
+    thread->state = STATUS_CREATING;
     // Change the address space
     // TODO: Add support for other flags
     thread->aspace = caller->aspace;
@@ -790,15 +1136,18 @@ static int sys_clone(void *stackPtr,uintptr_t stackSize) {
     for (int i = 0; i < caller->next_fd; i++) {
 	    file_descriptor_t *desc = caller->fds[i];
 	    if (desc != NULL) {
-		    thread_openFor(thread,desc->node);
-		}
+		    thread_openFor(thread,desc->node,desc->flags);
+		} else {
+      caller->fds[i] = NULL;
+    }
 	}
+    thread->state = STATUS_RUNNING;
     return thread->pid;
 }
 
 static void sys_waitForStart(int pid) {
 	process_t *waitFor = thread_getThread(pid);
-	if (waitFor->pid == 0) {
+	if (waitFor == NULL || waitFor->pid == 0) {
 		// Returned when no such process ID(PID)
 		return;
 	}
@@ -820,8 +1169,11 @@ static void sys_usleep(int ms) {
 
 static int sys_truncate(int fd,int size) {
 	process_t *prc = thread_getThread(thread_getCurrent());
+	if (fd < 0 || fd >= 200) {
+		return -EBADF;
+	}
 	file_descriptor_t *desc = prc->fds[fd];
-	if (!desc) return -1;
+	if (!desc) return -ENOENT;
 	vfs_truncate(desc->node,size);
 	return 0;
 }
@@ -831,57 +1183,60 @@ static int sys_socket(int domain,int type,int protocol) {
 	memset(s,0,sizeof(Socket));
 	if (!socket_create(domain,type,s)) {
 		kfree(s);
-		return -1;
+		return -EBADF;
 	}
 	s->owner = thread_getCurrent();
 	s->flags = type;
 	// Create and open node
 	vfs_node_t *n = kmalloc(sizeof(vfs_node_t));
 	memset(n,0,sizeof(vfs_node_t));
-	n->flags = 4; // socket FD instance, destroy at close
+	n->flags = VFS_SOCKET; // socket FD instance, destroy at close
 	n->priv_data = s;
 	n->mask = (S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
-	return thread_openFor(thread_getThread(thread_getCurrent()),n);
+	return thread_openFor(thread_getThread(thread_getCurrent()),n,FD_RDWR);
 }
 static int sys_bind(int sockfd,struct sockaddr *addr,int len) {
 	process_t *caller = thread_getThread(thread_getCurrent());
+	if (sockfd < 0 || sockfd >= 200) {
+		return -EBADF;
+	}
         file_descriptor_t *desc = caller->fds[sockfd];
-        if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
+        if (desc == NULL || desc->node == NULL || (desc->node->flags & VFS_SOCKET) != VFS_SOCKET) return -EBADF;
         Socket *s = desc->node->priv_data;
         return s->bind(s,sockfd,addr,len);
 }
 static int sys_listen(int sockfd,int backlog) {
 	process_t *caller = thread_getThread(thread_getCurrent());
         file_descriptor_t *desc = caller->fds[sockfd];
-        if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
+        if (desc == NULL || desc->node == NULL || (desc->node->flags & VFS_SOCKET) != VFS_SOCKET) return -EBADF;
         Socket *s = desc->node->priv_data;
         return s->listen(s,sockfd,backlog);
 }
 static int sys_accept(int sockfd,struct sockaddr *addr,int len) {
 	process_t *caller = thread_getThread(thread_getCurrent());
         file_descriptor_t *desc = caller->fds[sockfd];
-        if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
+        if (desc == NULL || desc->node == NULL || (desc->node->flags & VFS_SOCKET) != VFS_SOCKET) return -EBADF;
         Socket *s = desc->node->priv_data;
         return s->accept(s,sockfd,addr,(socklen_t *)&len);
 }
 static int sys_connect(int sockfd,const struct sockaddr *addr,int len) {
 	process_t *caller = thread_getThread(thread_getCurrent());
         file_descriptor_t *desc = caller->fds[sockfd];
-        if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
+        if (desc == NULL || desc->node == NULL || (desc->node->flags & VFS_SOCKET) != VFS_SOCKET) return -EBADF;
         Socket *s = desc->node->priv_data;
         return s->connect(s,sockfd,addr,(socklen_t *)&len);
 }
 static int sys_send(int sockfd,const void *buff,int len,int flags) {
 	process_t *caller = thread_getThread(thread_getCurrent());
         file_descriptor_t *desc = caller->fds[sockfd];
-        if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
+        if (desc == NULL || desc->node == NULL || (desc->node->flags & VFS_SOCKET) != VFS_SOCKET) return -EBADF;
         Socket *s = desc->node->priv_data;
         return s->send(s,sockfd,buff,len,flags);
 }
 static int sys_recv(int sockfd,void *buff,int len,int flags) {
 	process_t *caller = thread_getThread(thread_getCurrent());
 	file_descriptor_t *desc = caller->fds[sockfd];
-	if (desc == NULL || desc->node == NULL || desc->node->flags != 4) return -1;
+	if (desc == NULL || desc->node == NULL || (desc->node->flags & VFS_SOCKET) != VFS_SOCKET) return -EBADF;
 	Socket *s = desc->node->priv_data;
 	return s->recv(s,sockfd,buff,len,flags);
 }
@@ -890,7 +1245,7 @@ static int sys_ready(int fd) {
 	process_t *t = thread_getThread(thread_getCurrent());
 	file_descriptor_t *ft = t->fds[fd];
 	if (ft != NULL) {
-		if ((ft->node->flags & 4) == 4) {
+		if ((ft->node->flags & VFS_SOCKET) == VFS_SOCKET) {
 			// Check if socket is ready for connections
 			Socket *sock = (Socket *)ft->node->priv_data;
 			// Check for incomming data, THEN check if the connection is tryied.
@@ -920,12 +1275,15 @@ static int sys_ready(int fd) {
 */
 static int sys_fork() {
 	//i Firstly we need to clone parents process_t structure
+	arch_cli();
 	process_t *parent = thread_getThread(thread_getCurrent());
 	// Clone!
  	aspace_t *orig = arch_mmu_getAspace();
 	arch_mmu_switch(arch_mmu_getKernelSpace());
 	process_t *child =  thread_create(parent->name,(void *)arch_syscall_getCallerRet(),true);
 	child->state = STATUS_CREATING;
+	child->substate = SUBSTATE_FORK;
+	memset(child->fds,0,200);
 	// Clone the parent root and work directories.
 	child->workDir = parent->workDir;
 	child->root = parent->root;
@@ -936,12 +1294,20 @@ static int sys_fork() {
 	child->aspace = space;
 	//arch_cloneStack(parent,child);
 	// Clone the FD's
-	for (int i = 0; i < parent->next_fd; i++) {
+	for (int i = 0; i < 200; i++) {
 		file_descriptor_t *desc = parent->fds[i];
-		if (desc != NULL && desc->node != NULL) {
-			thread_openFor(child,desc->node);
+		// We MUST do indentical FD list as parent.
+		if (desc == NULL) {
+			child->fds[i] = NULL;
+			continue;
 		}
+		file_descriptor_t *f = kmalloc(sizeof(file_descriptor_t));
+		memcpy(f,desc,sizeof(file_descriptor_t));
+		// Change owner of FD.
+		f->pid = child->pid;
+		child->fds[i] = f;
 	}
+	child->next_fd = parent->next_fd;
 	// sys_sbrk
 	child->brk_begin = parent->brk_begin;
  	child->brk_end = parent->brk_end;
@@ -951,7 +1317,7 @@ static int sys_fork() {
 	child->state = STATUS_RUNNING; // yeah
   	// Test.
   	arch_mmu_switch(space);
-  	fb_map();
+  	//fb_map();
 	arch_mmu_switch(orig);
 	//thread_forceSwitch();
 	return child->pid;
@@ -968,78 +1334,73 @@ static int sys_uname(struct utsname *name) {
     name->release = strdup_user(caller,OS_RELEASE);
     name->version = strdup_user(caller,OS_VERSION);
     name->machine = strdup_user(caller,arch_getName());
+    name->nodename = (system_hostname == NULL ? strdup_user(caller,"") : strdup_user(caller,system_hostname));
     return 0;
 }
 static int sys_sethostname(char *name,int len) {
 	if (name == NULL || len == 0) return -1;
-	if (system_hostname != NULL) {
-		kfree(system_hostname);
-	}
-	system_hostname = strdup(name);
+	if (len > 255) {
+                len = 254;
+        }
+        memcpy(system_hostname,name,len);
+        system_hostname[len] = 0;
 	return 0;
 }
 static int sys_gethostname(char *name,int len) {
-	memcpy(name,system_hostname,len-1);
-	name[len] = 0;
+	if (system_hostname == 0) {
+		return -EFAULT;
+	}
+	int copy_len = strlen(system_hostname);
+        if (copy_len+1 < len) {
+                copy_len = len;
+        }
+	memcpy(name,system_hostname,copy_len-1);
+	name[copy_len] = 0;
 	return 0;
 }
 
-static int sys_creat(char *path,int type) {
+static int sys_creat(char *pth,int type) {
     // Used to create directory, yes i don't know why i named it as sys_creat
-    if (path == NULL ) return -1; // EINVL
-    vfs_node_t *in = NULL;
-    process_t *caller = thread_getThread(thread_getCurrent());
-    if (path[0] != '/') {
-        in = caller->workDir;
-    } else {
-        // Skip the latest element?
-	char *next = strtok(path,"/");
-	char *prev = next;
-	in = vfs_finddir(vfs_getRoot(),next);
-	while(next != NULL) {
-		prev = next;
-		next = strtok(NULL,"/");
-		if (next != NULL) {
-			// Well, check if this isn't end....
-			// Sorry for this bad code.
-			char *test = strtok(NULL,"/");
-			if (test != NULL) {
-				prev = test;
-				next = prev;
-			} else {
-				break;
-			}
-			in = vfs_finddir(in,prev);
-		}
-	}
-	if (!in->fs->creat(in,next,0)) {
-		return -1;
-	}
-	return 0;
-    }
-    if ((in->mount_flags & VFS_MOUNT_RO) == VFS_MOUNT_RO) {
-	    return 30;
-    }
-    vfs_node_t *node = vfs_creat(in,path,VFS_DIRECTORY);
-    if (!node) {
-        return -3;
-    }
-    return 0;
+    if (pth == NULL ) return EINVAL; // EINVL
+    return vfs_createFile(pth,type);
 }
 
 static int sys_sync(int fd) {
-    return -1;
+    return -ENOSYS;
 }
 
 static int sys_munmap(void *ptr,int size) {
 	// unmap specific area of memory.
 	// TODO: Call unmap specific function if exist.
-	arch_mmu_unmap(NULL,(vaddr_t)ptr,size);
+	uint32_t pages = (size / 4096)+1;
+	arch_mmu_unmap(NULL,(vaddr_t)ptr,pages);
 	return 0;
 }
 static int sys_umount(char *mountpoint) {
-	// TODO: Add mount table.
-    return -1;
+    // Check the pointer.
+    if (!isAccessable(mountpoint)) {
+      return -EFAULT;
+    }
+    // Find the mount point in table.
+    struct vfsmnt *mnt = vfs_getMntList();
+    while(mnt != NULL) {
+      if (strcmp(mnt->target_path,mountpoint)) {
+        mnt->prev->next = mnt->next;
+        // Call FS specific function.
+        if (mnt->fs->umount != NULL) {
+          mnt->fs->umount(mnt->target);
+        }
+        // Restore original pointer?
+        mnt->target->priv_data = mnt->priv_data;
+        kfree(mnt->device_path);
+        kfree(mnt->target_path);
+        kfree(mnt);
+        return 0;
+        break;
+      }
+      mnt = mnt->next;
+    }
+    return -EINVAL;
 }
 
 static int sys_access(char *path,int mode) {
@@ -1048,7 +1409,7 @@ static int sys_access(char *path,int mode) {
 	vfs_node_t *node = vfs_find(usr_path);
 	if (node == NULL) {
 		kfree(usr_path);
-		return -1;
+		return -ENOENT;
 	}
 	/*if ((node->flags != 0)) {
 		kfree(usr_path);
@@ -1057,11 +1418,14 @@ static int sys_access(char *path,int mode) {
 	kfree(usr_path);
 	return 0;
 }
-static int sys_chmod(int fd,int mode) {
+static int sys_fchmod(int fd,int mode) {
 	process_t *caller = thread_getThread(thread_getCurrent());
+	if (fd < 0 || fd >= 200) {
+		return -EBADF;
+	}
 	file_descriptor_t *desc = caller->fds[fd];
 	if (!desc) {
-		return 2; // errno ENON
+		return -ENOENT; // errno ENON
 	}
 	vfs_node_t *node = desc->node;
 	// We need some security thinks, but later.
@@ -1069,7 +1433,7 @@ static int sys_chmod(int fd,int mode) {
 		// User isn't root, check write access.
 		if (!vfs_hasPerm(node,PERM_WRITE,caller->gid,caller->uid)) {
 			// Caller doesn't have privileges to do this.
-			return 19;
+			return -EACCES;
 		}
 	}
 	node->mask = mode;
@@ -1077,29 +1441,32 @@ static int sys_chmod(int fd,int mode) {
 	vfs_writeMetadata(node);
 	return 0;
 }
-static int sys_stat(int fd,struct stat *stat) {
+static int sys_stat(const char *path,struct stat *stat) {
 	process_t *prc = thread_getThread(thread_getCurrent());
-	// Find the file descriptor.
-	file_descriptor_t *dsc = prc->fds[fd];
-	if (fd >= prc->next_fd) return -1;
-	if (dsc == NULL) return -1 /* TODO: Return actual errno */;
 	/* Return some peace of information that currently available */
-	if (stat == NULL) return -1;
+        char *pth = strdup(path);
+        vfs_node_t *node = vfs_find(pth);
+        kfree(pth);
+        if (!node) {
+                return ENOENT;
+        }
+	if (stat == NULL) return -EFAULT;
 	memset(stat,0,sizeof(struct stat));
 	// Populate non FS specific information based on VFS node.
-	vfs_node_t *node = dsc->node;
+        if (node->mask >= 0x100000) {
+                return EFAULT;
+        }
 	stat->st_ino = node->inode;
 	stat->st_mode = node->mask;
-	if (node->flags & VFS_DIRECTORY) {
-		stat->st_mode |= 40000;
-	} else {
-		stat->st_mode |= 100000;
-	}
+	stat->st_mode |= stat_convMode(node);
 	stat->st_uid = node->uid;
 	stat->st_gid = node->gid;
 	stat->st_size = node->size;
+	stat->st_mtime = node->mtime;
+	stat->st_ctime = node->ctime;
+	stat->st_atime = node->atime;
 	/* Try to call FS specific stat */
-	if (node->fs->stat != NULL) {
+        if (!isAccessable(node->fs) && !isAccessable(node->fs->stat)) {
 		node->fs->stat(node,stat);
 	}
 	return 0;
@@ -1109,30 +1476,28 @@ static int sys_unlink(char *path) {
 	vfs_node_t *node = vfs_find(path_copy);
 	if (!node) {
 		kfree(path_copy);
-		return 2;
+		return ENOENT;
 	}
 	if (!node->fs || !node->fs->rm) {
-		return 22;
+		return EBADF;
 	}
 	if (!node->fs->rm(node)) {
-		return 22;
+		return EFAULT;
 	}
 	return 0;
 }
 
-static int sys_gettime(int clock,struct tm *time) {
+static int sys_clock(int clock,uint64_t *out) {
+	if (out == NULL) {
+		return EINVAL;
+	}
 	switch(clock) {
 		case 0:
 		case 4:
-			uint64_t clocks = clock_getUptimeSec();
-			time->tm_mday = clocks / 86400;
-			clocks %= 86400;
-			time->tm_hour = clocks / 3600;
-			time->tm_min = clocks / 60;
-			time->tm_sec = clocks % 60;
+			*out = clock_getUptimeSec();
 			break;
 		case 1:
-		clock_get(time);
+		*out = clock_get();
 		break;
 		default:
 		return -22;
@@ -1167,32 +1532,42 @@ int sys_chroot(char *path) {
 	process_t *caller = thread_getThread(thread_getCurrent());
 	if (caller == NULL) return -1;
 	char *pth = strdup(path);
+	if (!isAccessable(path)) {
+		return EFAULT;
+	}
 	vfs_node_t *to = vfs_find(pth);
 	kfree(pth);
 	if (!to) {
-		return 2;
+		return ENOENT;
 	}
 	caller->root = to;
+	caller->workDir = to;
 	return 0;
 }
 
 int sys_fchdir(int _fd) {
 	process_t *caller = thread_getThread(thread_getCurrent());
+	if (_fd < 0 || _fd >= 200) {
+		return EBADF;
+	}
 	file_descriptor_t *fd = caller->fds[_fd];
 	if (fd == NULL) {
-		return 2;
+		return ENOENT;
 	}
 	caller->workDir = fd->node;
 	return 0;
 }
 int sys_fchown(int _fd,int owner,int group) {
 	process_t *caller = thread_getThread(thread_getCurrent());
+	if (_fd < 0 || _fd >= 200) {
+		return EBADF;
+	}
 	file_descriptor_t *fd = caller->fds[_fd];
 	// Check if we have permissions to do so.
 	if (caller->uid != 0) {
 		// User isn't privileged.
 		if (!vfs_hasPerm(fd->node,PERM_WRITE,caller->gid,caller->uid)) {
-			return 19;
+			return EACCES;
 		}
 	}
 	fd->node->uid = owner;
@@ -1203,15 +1578,17 @@ int sys_fchown(int _fd,int owner,int group) {
 }
 int sys_chown(int mode,char *path,int owner,int group) {
 	process_t *caller = thread_getThread(thread_getCurrent());
+  char *pth = strdup(path);
 	vfs_node_t *node = vfs_find(path);
+  kfree(pth);
 	if (!node) {
-		return 2;
+		return ENOENT;
 	}
 	// Check access.
 	if (caller->uid != 0) {
 		// Not privileged.
 		if (!vfs_hasPerm(node,PERM_WRITE,caller->gid,caller->uid)) {
-			return 19;
+			return EACCES;
 		}
 	}
 	node->uid = owner;
@@ -1223,7 +1600,7 @@ int sys_rm(int mode,char *path) {
 	// yes
 	vfs_node_t *obj = vfs_find(path);
 	if (obj == NULL) {
-		return 2;
+		return ENOENT;
 	}
 	if (obj->fs == NULL || obj->fs->rm == NULL) {
 		return 5;
@@ -1240,11 +1617,34 @@ int sys_nice(int prio) {
 	return 0;
 }
 int sys_symlink(char *target,char *path) {
-	return 38;
+	// Make copy of target and path.
+	char *target_copy = strdup(target);
+	char *path_copy = strdup(path);
+	// Find target
+	vfs_node_t *targetNode = vfs_find(target_copy);
+	if (targetNode == NULL) {
+		kfree(target_copy);
+		kfree(path_copy);
+		return -ENOENT;
+	}
+	if ((targetNode->mount_flags & VFS_MOUNT_RO) == VFS_MOUNT_RO) {
+		// We need make sure that the file system can be writable.
+		kfree(target_copy);
+		kfree(path_copy);
+		return -EROFS;
+	}
+	kfree(target_copy);
+	// Now call FS specific function.
+	// Oh no! Previous implementation will cause use-after-free....
+	int ret =  vfs_symlink(targetNode,path_copy);
+	kfree(path_copy);
+	return ret;
 }
 struct prcInfo {
 	char name[20];
 	int pid;
+	int status;
+  uintptr_t usedMem;
 };
 static int sys_ipc(int cmd,int magicID,int ipcCmd,void *args) {
   switch(cmd) {
@@ -1255,26 +1655,35 @@ static int sys_ipc(int cmd,int magicID,int ipcCmd,void *args) {
     case 2: {
 		    if (magicID == 'P') {
 			    if (ipcCmd == 0) {
-				    return ((queue_t*)thread_getThreadList())->size;
+				    queue_t *list = (queue_t*)thread_getThreadList();
+				    return list->size;
 				} else if (ipcCmd == 1) {
 					queue_t *list = (queue_t*)thread_getThreadList();
 					struct prcInfo *lst = (struct prcInfo *)args;
 					int i = 0;
 					queue_for(node,list) {
+						if ((uintptr_t)node < KERN_HEAP_BEGIN || ((uintptr_t)node > KERN_HEAP_END)) {
+							// Remove this from table.
+							kprintf("BUG");
+						}
 						process_t *prc = (process_t *)node->value;
+						if (prc->stack == NULL) continue;
 						struct prcInfo el = lst[i];
 						strcpy(el.name,prc->name);
 						el.pid = prc->pid;
+						el.status = prc->state;
+                                                el.usedMem = prc->brk_next_unallocated_page_begin - prc->brk_begin;
 						lst[i] = el;
 						i++;
 					}
 					return 0;
 				} else if (ipcCmd == 2) {
 					kprintf("DEBUG!\r\n");
-					symbols_print();
+					extern void ahci_init();
+                                        //ahci_init();
 					return 0;
 				}
-				
+
 		    }
 		    return ipc_cmd(magicID,ipcCmd,args);
     } break;
@@ -1299,7 +1708,11 @@ int sys_getfsstat(struct statfs *buf,long bufsize,int mode) {
 		if (root->device == NULL) {
 			strcpy(buf[i].f_mntfromname,"none");
 		} else {
-			vfs_node_path(root->device,buf[i].f_mntfromname,90);
+      if (root->device_path != NULL) {
+        strcpy(buf[i].f_mntfromname,root->device_path);
+      } else {
+        vfs_node_path(root->device,buf[i].f_mntfromname,90);
+      }
 	//		strcpy(buf[i].f_mntfromname,root->device->name);
 		}
 		strcpy(buf[i].f_mnttoname,root->target_path);
@@ -1325,12 +1738,19 @@ int sys_getrusage(int resID,void *to) {
 }
 static int sys_openat(int dirfd,char *path,int mode) {
 	process_t *caller = thread_getThread(thread_getCurrent());
+	if (dirfd == -2) {
+		// AT_FDCWD.
+		return sys_open(path,mode);
+	}
+	if (dirfd < 0 || dirfd >= 200) {
+		return -EBADF;
+	}
 	file_descriptor_t *fd = caller->fds[dirfd];
 	if (!fd) {
-		return -2;
+		return -ENOENT;
 	}
 	if ((fd->node->flags & VFS_DIRECTORY) != VFS_DIRECTORY) {
-		return -9;
+		return -ENOTDIR;
 	}
 	char *pth = strdup(path);
 	char *token = strtok(pth,"/");
@@ -1339,35 +1759,52 @@ static int sys_openat(int dirfd,char *path,int mode) {
 		node = node->fs->finddir(node,token);
 		if (node == NULL) {
 			kfree(pth);
-			return -2;
+			return -ENOENT;
 		}
 		token = strtok(NULL,"/");
 	}
 	kfree(pth);
-	return thread_openFor(caller,node);
+	return thread_openFor(caller,node,FD_RDWR);
 }
-static int sys_sysconf(int id) {
+static unsigned long sys_sysconf(int id) {
 	if (id == 1) {
 		return alloc_getUsedPhysMem();
-	}
+	} else if (id == 2) {
+		return alloc_getKernelHeapPages();
+	} else if (id == 3) {
+		return alloc_getUsedSize();
+	} else if (id == 4) {
+		return alloc_getReservedSize();
+	} else if (id == 5) {
+                uintptr_t a = alloc_getPage();
+                alloc_freePage(a);
+                uintptr_t riz = a - arch_getMemStart();
+                return riz;
+        } else if (id == 6) {
+                // total memory.
+                return alloc_getAllMemory();
+        }
 	return 0;
 }
 int sys_fcntl(int fd,int cmd,long long arg) {
 	process_t *caller = thread_getThread(thread_getCurrent());
-	if (fd >= caller->next_fd) return -9;
+	if (fd < 0 || fd >= 200) {
+		return -EBADF;
+	}
 	file_descriptor_t *fds = caller->fds[fd];
+	if ((uintptr_t)fds < KERN_HEAP_BEGIN || (uintptr_t)fds > KERN_HEAP_END) return -EBADF;
 	if (fds == NULL || fds->node == NULL) return -9;
 	vfs_node_t *node = fds->node;
 	switch(cmd) {
 		case 3:
-			if ((node->flags & 4) == 4) {
+			if ((node->flags & VFS_SOCKET) == VFS_SOCKET) {
 				Socket *socket = (Socket *)node->priv_data;
 				return socket->flags;
 			} else {
 				return node->flags;
 			}
 		case 4:
-			if ((node->flags & 4) == 4) {
+			if ((node->flags & VFS_SOCKET) == VFS_SOCKET) {
 				Socket *socket = (Socket *)node->priv_data;
 				socket->flags = arg;
 			} else {
@@ -1376,4 +1813,252 @@ int sys_fcntl(int fd,int cmd,long long arg) {
 			return 0;
 	}
 	return -22;
+}
+// Цей системний виклик дещо цікавий, адже
+// нам потрібно змінити права доступу для
+// кожної сторінки, розміром у 4КіБ, ба-
+// зуючись на прарорцях у параметрі prot.
+static int sys_mprotect(void *addr,size_t len,int prot) {
+	int pages = (len / 4096);
+	if (pages == 0) pages = 1;
+	// TODO: Обробити прапорці у параметрі prot.
+	int newFlags = arch_mmu_processFlags(prot);
+	for (int i = 0; i < pages; i++) {
+		// Нам потрібно отримати фізичну ядресу нашої сторінки.
+		uintptr_t physAddr = (uintptr_t)arch_mmu_getPhysical(addr+(i*4096));
+		if (physAddr == NULL || physAddr == -1) {
+			// Не існує? Дивно.
+			return -12;
+		}
+		// Зробимо свою справу.
+		arch_mmu_mapPage(NULL,(vaddr_t)addr+(i*4096),physAddr,newFlags);
+	}
+	return 0; // якщо вийшло звісно.
+}
+static int sys_mkdirat(int dirfd,const char *name,int mode) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	if (dirfd < 0 || dirfd >= 200) return -EBADF;
+	file_descriptor_t *fd = caller->fds[dirfd];
+	if (fd == NULL) return -EBADF;
+	if (fd->node == NULL) return -EBADF;
+	if (fd->node->fs == NULL) return -EBADF;
+	if (fd->node->fs->creat == NULL) return -EBADF;
+	if (fd->node->fs->finddir(fd->node,name) != NULL) {
+		return -17;
+	}
+	vfs_node_t *newDir = NULL;
+	if ((newDir = fd->node->fs->creat(fd->node,name,VFS_DIRECTORY)) == NULL) {
+		return -22;
+	}
+	newDir->uid = caller->uid;
+	newDir->gid = caller->gid;
+	newDir->mask = mode;
+	return 0;
+}
+static int sys_mknod(const char *name,int mode,int devid) {
+	return -ENOSYS;
+}
+static int sys_mknodat(int dirfd,const char *name,int mode,int devid) {
+	return -ENOSYS;
+}
+static int sys_utime(int fd,struct timespec **time,int flags) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	if (fd < 0 || fd >= 200) return -EBADF;
+	file_descriptor_t *_fd = caller->fds[fd];
+	if (_fd == NULL) {
+		return -EBADF;
+	}
+	vfs_node_t *node = _fd->node;
+	node->mtime = time[1]->tv_sec;
+	node->atime = time[0]->tv_sec;
+	return 0;
+}
+static int sys_symlinkat(int dirfd,char *from,char *to) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	if (dirfd < 0 || dirfd >= 200) return -EBADF;
+	file_descriptor_t *fd = caller->fds[dirfd];
+	if (fd == NULL || fd->node == NULL ||
+			(fd->node->flags & VFS_DIRECTORY) != VFS_DIRECTORY) {
+		return -EBADF;
+	}
+	// Well. Do the same as sys_symlink.
+	char *from_copy = strdup(from);
+	vfs_node_t *fromnode = vfs_find(from);
+	if (!fromnode || fromnode->fs == NULL) {
+		kfree(from_copy);
+		return -ENOENT;
+	}
+	// Check source.
+	if (fromnode->fs->symlink == NULL) {
+		kfree(from_copy);
+		return -ENOSYS;
+	}
+	char *to_copy = strdup(to);
+	int ret = fromnode->fs->symlink(fromnode,to);
+	kfree(to_copy);
+	return ret;
+}
+static int sys_sigwait(unsigned long *sigset,int *sig) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+	kprintf("sys_sigwait: called for %s\n",caller->name);
+	return -ENOSYS;
+}
+static int sys_readlink(char *from,char *buff,int buffsz) {
+  process_t *caller = thread_getThread(thread_getCurrent());
+  char *from_copy = strdup(from);
+  if (!from_copy) return -ENOMEM;
+  vfs_node_t *target = vfs_find(from);
+  kfree(from_copy);
+  if (!target) {
+    return -ENOENT;
+  }
+  if (!vfs_hasPerm(target,PERM_READ,caller->uid,caller->gid)) {
+    return -EPERM;
+  }
+  if (target->fs == NULL || target->fs->readlink == NULL) {
+    return -ENOSYS;
+  }
+  return target->fs->readlink(target,buff,buffsz);
+}
+static int sys_readlinkat(char *from,int dirfd,char *buff,int buffsz) {
+	process_t *caller = thread_getThread(thread_getCurrent());
+  vfs_node_t *searchIn = NULL;
+  if (dirfd == -2) {
+    searchIn = caller->workDir;
+  } else {
+    file_descriptor_t *fd = caller->fds[dirfd];
+    if (fd == NULL) {
+      return -EBADF;
+    }
+    searchIn = fd->node;
+  }
+  if ((searchIn->flags & VFS_DIRECTORY) != VFS_DIRECTORY) {
+    return -ENOTDIR;
+  }
+  // we use strdup because the strtok currupts the given string. And the strtok is used in various part of the kernel itself.
+  char *from_copy = strdup(from);
+  vfs_node_t *node = vfs_finddir(searchIn,from_copy);
+  kfree(from_copy);
+  if (!node) {
+    return -ENOENT;
+  }
+  if (node->fs == NULL || node->fs->readlink == NULL) {
+    return -ENOSYS;
+  }
+  return node->fs->readlink(node,buff,buffsz);
+}
+static int sys_chmod(const char *path,int mode) {
+  process_t *caller = thread_getThread(thread_getCurrent());
+  if (!isAccessable(path)) return -EFAULT;
+  char *pth = strdup(path);
+  vfs_node_t *node = vfs_find(pth);
+  kfree(pth);
+  if (!node) return -ENOENT;
+  if (!vfs_hasPerm(node,PERM_WRITE,caller->gid,caller->uid)) {
+    return -EACCES;
+  }
+  node->mask = mode;
+  vfs_writeMetadata(node);
+  return 0;
+}
+static int sys_fchmodat(int dirfd,const char *path,int mode) {
+  process_t *caller = thread_getThread(thread_getCurrent());
+  if (!isAccessable(path)) return -EFAULT;
+  if (dirfd < 0 || dirfd > 0) return -EBADF;
+  file_descriptor_t *fd = caller->fds[dirfd];
+  if (fd == NULL) return -EBADF;
+  if ((fd->node->flags & VFS_DIRECTORY) != VFS_DIRECTORY) return -EBADF;
+  char *pth = strdup(path);
+  vfs_node_t *node = vfs_finddir(fd->node,pth);
+  kfree(pth);
+  if (!node) {
+    return -ENOENT;
+  }
+  if (!vfs_hasPerm(node,PERM_WRITE,caller->gid,caller->uid)) {
+    return -EACCES;
+  }
+  node->mask = mode;
+  vfs_writeMetadata(node);
+  return 0;
+}
+int sys_unlinkat(int dirfd,const char *name) {
+  process_t *caller = thread_getThread(thread_getCurrent());
+  /*
+  * if dirfd == -2 then that means current work directory.
+  */
+  vfs_node_t *node = NULL;
+  vfs_node_t *dir = NULL;
+  char *n = strdup(name);
+  if (dirfd == -2) {
+    dir = caller->workDir;
+  } else {
+    if (dirfd < 0 || dirfd >= 200) {
+      return -EBADF;
+    }
+    file_descriptor_t *fd = caller->fds[dirfd];
+    if (fd == NULL) {
+      return -EBADF;
+    }
+    dir = fd->node;
+  }
+  if (n[0] == '/') {
+    // Search in root!
+    node = vfs_find(n);
+  } else {
+    // Check if the directory is even an directory!
+    if ((dir->flags & VFS_DIRECTORY) != VFS_DIRECTORY) {
+      return -ENOTDIR;
+    }
+    node = vfs_finddir(dir,n);
+  }
+  kfree(n);
+  if (!node) {
+    return -ENOENT;
+  }
+  if (node->fs->rm == NULL) {
+    return -EROFS;
+  }
+  if (!node->fs->rm(node)) {
+    return -EFAULT;
+  }
+  return 0;
+}
+static int sys_sigaction(int sig,const struct sigaction *act,struct sigaction *oldact) {
+        /* Поки що мінімальна реалізація. */
+        process_t *caller = thread_getThread(thread_getCurrent());
+        if (sig >= 32) {
+                return EINVAL;
+        }
+        if (act == NULL) {
+                return EINVAL;
+        }
+        ProcessSignal hndl = caller->signal_handlers[sig];
+        hndl.handler = (uintptr_t)act->sa_handler;
+        hndl.flags = act->sa_flags;
+        // Update!
+        caller->signal_handlers[sig] = hndl;
+        return 0;
+}
+static int sys_signalstack(struct sigStack *ss,struct sigStack *old_ss) {
+        process_t *caller = thread_getThread(thread_getCurrent());
+        if (ss == NULL && old_ss == NULL) {
+                return EFAULT;
+        }
+        if (old_ss != NULL) {
+                if (caller->sigStack != NULL) {
+                        memcpy(old_ss,caller->sigStack,sizeof(struct sigStack));
+                }
+        }
+        if (ss != NULL) {
+                // Check if the stack size meet minimum size.
+                if (ss->size < 4096) {
+                        return ENOMEM;
+                }
+                // Check if the alternative stack is accesable.
+                if (!isAccessable(ss->stack+ss->size)) {
+                        return EFAULT;
+                }
+                memcpy(caller->sigStack,ss,sizeof(struct sigStack));
+        }
+        return 0;
 }

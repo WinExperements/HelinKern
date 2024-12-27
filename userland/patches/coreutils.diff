@@ -1,0 +1,408 @@
+diff --color -crB orig/coreutils-8.5/build-aux/config.sub coreutils-8.5/build-aux/config.sub
+*** orig/coreutils-8.5/build-aux/config.sub	2010-04-23 16:44:00.000000000 +0300
+--- coreutils-8.5/build-aux/config.sub	2024-12-13 23:07:50.202018353 +0200
+***************
+*** 1315,1321 ****
+  	      | -os2* | -vos* | -palmos* | -uclinux* | -nucleus* \
+  	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
+  	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
+! 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops* | -es*)
+  	# Remember, each alternative MUST END IN *, to match a version number.
+  		;;
+  	-qnx*)
+--- 1315,1321 ----
+  	      | -os2* | -vos* | -palmos* | -uclinux* | -nucleus* \
+  	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
+  	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
+! 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops* | -es* | -helin*)
+  	# Remember, each alternative MUST END IN *, to match a version number.
+  		;;
+  	-qnx*)
+Only in coreutils-8.5: helin
+diff --color -crB orig/coreutils-8.5/lib/getaddrinfo.c coreutils-8.5/lib/getaddrinfo.c
+*** orig/coreutils-8.5/lib/getaddrinfo.c	2010-04-21 21:11:48.000000000 +0300
+--- coreutils-8.5/lib/getaddrinfo.c	2024-12-13 23:49:52.888264696 +0200
+***************
+*** 132,331 ****
+               const struct addrinfo *restrict hints,
+               struct addrinfo **restrict res)
+  {
+!   struct addrinfo *tmp;
+!   int port = 0;
+!   struct hostent *he;
+!   void *storage;
+!   size_t size;
+! #if HAVE_IPV6
+!   struct v6_pair {
+!     struct addrinfo addrinfo;
+!     struct sockaddr_in6 sockaddr_in6;
+!   };
+! #endif
+! #if HAVE_IPV4
+!   struct v4_pair {
+!     struct addrinfo addrinfo;
+!     struct sockaddr_in sockaddr_in;
+!   };
+! #endif
+! 
+! #ifdef WIN32_NATIVE
+!   if (use_win32_p ())
+!     return getaddrinfo_ptr (nodename, servname, hints, res);
+! #endif
+! 
+!   if (hints && (hints->ai_flags & ~(AI_CANONNAME|AI_PASSIVE)))
+!     /* FIXME: Support more flags. */
+!     return EAI_BADFLAGS;
+! 
+!   if (hints && !validate_family (hints->ai_family))
+!     return EAI_FAMILY;
+! 
+!   if (hints &&
+!       hints->ai_socktype != SOCK_STREAM && hints->ai_socktype != SOCK_DGRAM)
+!     /* FIXME: Support other socktype. */
+!     return EAI_SOCKTYPE; /* FIXME: Better return code? */
+! 
+!   if (!nodename)
+!     {
+!       if (!(hints->ai_flags & AI_PASSIVE))
+!         return EAI_NONAME;
+! 
+! #ifdef HAVE_IPV6
+!       nodename = (hints->ai_family == AF_INET6) ? "::" : "0.0.0.0";
+! #else
+!       nodename = "0.0.0.0";
+! #endif
+!     }
+! 
+!   if (servname)
+!     {
+!       struct servent *se = NULL;
+!       const char *proto =
+!         (hints && hints->ai_socktype == SOCK_DGRAM) ? "udp" : "tcp";
+! 
+!       if (hints == NULL || !(hints->ai_flags & AI_NUMERICSERV))
+!         /* FIXME: Use getservbyname_r if available. */
+!         se = getservbyname (servname, proto);
+! 
+!       if (!se)
+!         {
+!           char *c;
+!           if (!(*servname >= '0' && *servname <= '9'))
+!             return EAI_NONAME;
+!           port = strtoul (servname, &c, 10);
+!           if (*c || port > 0xffff)
+!             return EAI_NONAME;
+!           port = htons (port);
+!         }
+!       else
+!         port = se->s_port;
+!     }
+! 
+!   /* FIXME: Use gethostbyname_r if available. */
+!   he = gethostbyname (nodename);
+!   if (!he || he->h_addr_list[0] == NULL)
+!     return EAI_NONAME;
+! 
+!   switch (he->h_addrtype)
+!     {
+! #if HAVE_IPV6
+!     case PF_INET6:
+!       size = sizeof (struct v6_pair);
+!       break;
+! #endif
+! 
+! #if HAVE_IPV4
+!     case PF_INET:
+!       size = sizeof (struct v4_pair);
+!       break;
+! #endif
+! 
+!     default:
+!       return EAI_NODATA;
+!     }
+! 
+!   storage = calloc (1, size);
+!   if (!storage)
+!     return EAI_MEMORY;
+! 
+!   switch (he->h_addrtype)
+!     {
+! #if HAVE_IPV6
+!     case PF_INET6:
+!       {
+!         struct v6_pair *p = storage;
+!         struct sockaddr_in6 *sinp = &p->sockaddr_in6;
+!         tmp = &p->addrinfo;
+! 
+!         if (port)
+!           sinp->sin6_port = port;
+! 
+!         if (he->h_length != sizeof (sinp->sin6_addr))
+!           {
+!             free (storage);
+!             return EAI_SYSTEM; /* FIXME: Better return code?  Set errno? */
+!           }
+! 
+!         memcpy (&sinp->sin6_addr, he->h_addr_list[0], sizeof sinp->sin6_addr);
+! 
+!         tmp->ai_addr = (struct sockaddr *) sinp;
+!         tmp->ai_addrlen = sizeof *sinp;
+!       }
+!       break;
+! #endif
+! 
+! #if HAVE_IPV4
+!     case PF_INET:
+!       {
+!         struct v4_pair *p = storage;
+!         struct sockaddr_in *sinp = &p->sockaddr_in;
+!         tmp = &p->addrinfo;
+! 
+!         if (port)
+!           sinp->sin_port = port;
+! 
+!         if (he->h_length != sizeof (sinp->sin_addr))
+!           {
+!             free (storage);
+!             return EAI_SYSTEM; /* FIXME: Better return code?  Set errno? */
+!           }
+! 
+!         memcpy (&sinp->sin_addr, he->h_addr_list[0], sizeof sinp->sin_addr);
+! 
+!         tmp->ai_addr = (struct sockaddr *) sinp;
+!         tmp->ai_addrlen = sizeof *sinp;
+!       }
+!       break;
+! #endif
+! 
+!     default:
+!       free (storage);
+!       return EAI_NODATA;
+!     }
+! 
+!   if (hints && hints->ai_flags & AI_CANONNAME)
+!     {
+!       const char *cn;
+!       if (he->h_name)
+!         cn = he->h_name;
+!       else
+!         cn = nodename;
+! 
+!       tmp->ai_canonname = strdup (cn);
+!       if (!tmp->ai_canonname)
+!         {
+!           free (storage);
+!           return EAI_MEMORY;
+!         }
+!     }
+! 
+!   tmp->ai_protocol = (hints) ? hints->ai_protocol : 0;
+!   tmp->ai_socktype = (hints) ? hints->ai_socktype : 0;
+!   tmp->ai_addr->sa_family = he->h_addrtype;
+!   tmp->ai_family = he->h_addrtype;
+! 
+! #ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+!   switch (he->h_addrtype)
+!     {
+! #if HAVE_IPV4
+!     case AF_INET:
+!       tmp->ai_addr->sa_len = sizeof (struct sockaddr_in);
+!       break;
+! #endif
+! #if HAVE_IPV6
+!     case AF_INET6:
+!       tmp->ai_addr->sa_len = sizeof (struct sockaddr_in6);
+!       break;
+! #endif
+!     }
+! #endif
+! 
+!   /* FIXME: If more than one address, create linked list of addrinfo's. */
+! 
+!   *res = tmp;
+! 
+    return 0;
+  }
+  
+--- 132,138 ----
+               const struct addrinfo *restrict hints,
+               struct addrinfo **restrict res)
+  {
+!   
+    return 0;
+  }
+  
+***************
+*** 359,441 ****
+               char *restrict service, socklen_t servicelen,
+               int flags)
+  {
+- #ifdef WIN32_NATIVE
+-   if (use_win32_p ())
+-     return getnameinfo_ptr (sa, salen, node, nodelen,
+-                             service, servicelen, flags);
+- #endif
+- 
+-   /* FIXME: Support other flags. */
+-   if ((node && nodelen > 0 && !(flags & NI_NUMERICHOST)) ||
+-       (service && servicelen > 0 && !(flags & NI_NUMERICHOST)) ||
+-       (flags & ~(NI_NUMERICHOST|NI_NUMERICSERV)))
+-     return EAI_BADFLAGS;
+- 
+-   if (sa == NULL || salen < sizeof (sa->sa_family))
+-     return EAI_FAMILY;
+- 
+-   switch (sa->sa_family)
+-     {
+- #if HAVE_IPV4
+-     case AF_INET:
+-       if (salen < sizeof (struct sockaddr_in))
+-         return EAI_FAMILY;
+-       break;
+- #endif
+- #if HAVE_IPV6
+-     case AF_INET6:
+-       if (salen < sizeof (struct sockaddr_in6))
+-         return EAI_FAMILY;
+-       break;
+- #endif
+-     default:
+-       return EAI_FAMILY;
+-     }
+  
+-   if (node && nodelen > 0 && flags & NI_NUMERICHOST)
+-     {
+-       switch (sa->sa_family)
+-         {
+- #if HAVE_IPV4
+-         case AF_INET:
+-           if (!inet_ntop (AF_INET,
+-                           &(((const struct sockaddr_in *) sa)->sin_addr),
+-                           node, nodelen))
+-             return EAI_SYSTEM;
+-           break;
+- #endif
+- 
+- #if HAVE_IPV6
+-         case AF_INET6:
+-           if (!inet_ntop (AF_INET6,
+-                           &(((const struct sockaddr_in6 *) sa)->sin6_addr),
+-                           node, nodelen))
+-             return EAI_SYSTEM;
+-           break;
+- #endif
+- 
+-         default:
+-           return EAI_FAMILY;
+-         }
+-     }
+- 
+-   if (service && servicelen > 0 && flags & NI_NUMERICSERV)
+-     switch (sa->sa_family)
+-       {
+- #if HAVE_IPV4
+-       case AF_INET:
+- #endif
+- #if HAVE_IPV6
+-       case AF_INET6:
+- #endif
+-         {
+-           unsigned short int port
+-             = ntohs (((const struct sockaddr_in *) sa)->sin_port);
+-           if (servicelen <= snprintf (service, servicelen, "%u", port))
+-             return EAI_OVERFLOW;
+-         }
+-         break;
+-       }
+  
+    return 0;
+  }
+--- 166,172 ----
+diff --color -crB orig/coreutils-8.5/lib/strtod.c coreutils-8.5/lib/strtod.c
+*** orig/coreutils-8.5/lib/strtod.c	2010-04-23 16:44:01.000000000 +0300
+--- coreutils-8.5/lib/strtod.c	2024-12-14 14:07:05.451973040 +0200
+***************
+*** 33,38 ****
+--- 33,39 ----
+  
+  /* Convert NPTR to a double.  If ENDPTR is not NULL, a pointer to the
+     character after the last one used in the number is put in *ENDPTR.  */
++ #if 0
+  double
+  strtod (const char *nptr, char **endptr)
+  {
+***************
+*** 274,276 ****
+--- 275,278 ----
+    errno = EINVAL;
+    return 0.0;
+  }
++ #endif
+diff --color -crB orig/coreutils-8.5/src/libstdbuf.c coreutils-8.5/src/libstdbuf.c
+*** orig/coreutils-8.5/src/libstdbuf.c	2010-03-13 17:14:09.000000000 +0200
+--- coreutils-8.5/src/libstdbuf.c	2024-12-14 14:27:39.228912988 +0200
+***************
+*** 57,63 ****
+     not necessarily imply that all of size bytes are used for the buffer area".
+     However I think it's just a buggy implementation due to the various
+     inconsistencies with write sizes and subsequent writes.  */
+! 
+  static const char *
+  fileno_to_name (const int fd)
+  {
+--- 57,63 ----
+     not necessarily imply that all of size bytes are used for the buffer area".
+     However I think it's just a buggy implementation due to the various
+     inconsistencies with write sizes and subsequent writes.  */
+! #if 0
+  static const char *
+  fileno_to_name (const int fd)
+  {
+***************
+*** 140,142 ****
+--- 140,144 ----
+    if (o_mode)
+      apply_mode (stdout, o_mode);
+  }
++ #endif
++ int main() {return 0;}
+diff --color -crB orig/coreutils-8.5/src/stat.c coreutils-8.5/src/stat.c
+*** orig/coreutils-8.5/src/stat.c	2010-03-13 17:14:09.000000000 +0200
+--- coreutils-8.5/src/stat.c	2024-12-14 14:23:43.017645320 +0200
+***************
+*** 516,521 ****
+--- 516,522 ----
+  print_statfs (char *pformat, size_t prefix_len, char m, char const *filename,
+                void const *data)
+  {
++ #if 0
+    STRUCT_STATVFS const *statfsbuf = data;
+  
+    switch (m)
+***************
+*** 596,601 ****
+--- 597,603 ----
+        fputc ('?', stdout);
+        break;
+      }
++ #endif
+  }
+  
+  /* print stat info */
+***************
+*** 882,888 ****
+        return false;
+      }
+  
+!   if (STATFS (filename, &statfsbuf) != 0)
+      {
+        error (0, errno, _("cannot read file system information for %s"),
+               quote (filename));
+--- 884,890 ----
+        return false;
+      }
+  
+!   if (1)
+      {
+        error (0, errno, _("cannot read file system information for %s"),
+               quote (filename));

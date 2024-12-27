@@ -4,10 +4,13 @@
 #include <lib/string.h>
 #include <thread.h>
 #include <mm/alloc.h>
+#include <thread.h>
 static vfs_fs_t *fs_start;
 static vfs_node_t *fs_root;
 static vfs_node_t *vfs_find_impl(vfs_node_t *start,char *path);
 static vfs_mount_t *vfsmntlst;
+extern process_t *runningTask;
+extern bool isAccessable(void *ptr);
 void vfs_init() {
 }
 void vfs_addFS(vfs_fs_t *fs) {
@@ -19,7 +22,7 @@ void vfs_addFS(vfs_fs_t *fs) {
         while(ffs->next) {
             ffs = ffs->next;
         }
-        ffs->next = fs; 
+        ffs->next = fs;
     }
 }
 int vfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf) {
@@ -51,17 +54,24 @@ void vfs_open(vfs_node_t *node,bool r,bool w) {
     }
 }
 void vfs_close(vfs_node_t *node) {
-    if (!node || !node->fs || !node->fs->close) { 
-        return;
-    } else {
-        node->fs->close(node);
+	// Check if the node is accessable.
+    /*if (!isAccessable(node) || !isAccessable(node->fs)) return;
+    if (!isAccessable(node->fs->close)) return;*/
+    //if ((uintptr_t)node < KERN_HEAP_BEGIN || ((uintptr_t)node > KERN_HEAP_END)) return;
+    if ((uintptr_t)node->fs < KERN_HEAP_BEGIN || ((uintptr_t)node->fs > KERN_HEAP_END)) return;
+    //if ((uintptr_t)node->fs->close < KERN_HEAP_BEGIN || ((uintptr_t)node->fs->close > KERN_HEAP_END)) return;
+    if (node == NULL || node->fs == NULL || node->fs->close == NULL) return;
+    if (!isAccessable(node->fs->close)) {
+      kprintf("broken node\n");
+    return;
     }
+    node->fs->close(node);
 }
-struct dirent *vfs_readdir(vfs_node_t *in,uint32_t index) {
+int vfs_readdir(vfs_node_t *in,uint32_t index,struct dirent *to) {
     if (!in) return NULL;
     if (!in->fs) return NULL;
     if (!in->fs->readdir) return NULL;
-    struct dirent *ret = in->fs->readdir(in,index);
+    int ret = in->fs->readdir(in,index,to);
     //kprintf("Return from FS: %s, 0x%x\n",in->fs->fs_name,ret);
     return ret;
 }
@@ -70,7 +80,12 @@ vfs_node_t *vfs_finddir(vfs_node_t *in,char *name) {
     return in->fs->finddir(in,name);
 }
 vfs_node_t *vfs_getRoot() {
-    return fs_root;
+	vfs_node_t *ret = fs_root;
+	process_t *cur = thread_getThread(thread_getCurrent());
+	if (cur != NULL && cur->pid != 0) {
+		ret = cur->root;
+	}
+    return ret;
 }
 void vfs_putIntoMnt(vfs_node_t *dev,vfs_node_t *target,vfs_fs_t *fs,char *target_path) {
 	vfs_mount_t *el = kmalloc(sizeof(vfs_mount_t));
@@ -79,11 +94,13 @@ void vfs_putIntoMnt(vfs_node_t *dev,vfs_node_t *target,vfs_fs_t *fs,char *target
 	el->target = target;
 	el->target_path = strdup(target_path);
 	el->fs = fs;
+	el->priv_data = target->priv_data;
 	if (vfsmntlst == NULL) {
 		vfsmntlst = el;
 	} else {
 		vfs_mount_t *mnt = NULL;
 		for (mnt = vfsmntlst; mnt->next != NULL; mnt = mnt->next) {}
+    el->prev = mnt;
 		mnt->next = el;
 	}
 }
@@ -97,22 +114,22 @@ bool vfs_mount(vfs_fs_t *fs,vfs_node_t *dev,char *mountPoint) {
         return false;
     }
     if (strcmp(mountPoint,"/")) {
-	if (!fs->mount) {
+	      if (!fs->mount) {
                 kprintf("%s: filesystem mount function are not defined\n",mountPoint);
                 return false;
         }
-        if (fs_root == NULL) {            
+        if (fs_root == NULL) {
             fs_root = kmalloc(sizeof(vfs_node_t));
             memset(fs_root,0,sizeof(vfs_node_t));
-	    fs_root->mask = (S_IRWXU | S_IRWXG | S_IRWXO);
+	          fs_root->mask = (S_IRWXU | S_IRWXG | S_IRWXO);
         }
-	bool root = fs->mount(dev,fs_root,NULL);
+	      bool root = fs->mount(dev,fs_root,NULL);
         if (!root) {
                 kprintf("%s: filesystem mount failed\n",mountPoint);
                 return false;
         } else {
-		vfs_putIntoMnt(dev,fs_root,fs,"/");
-	}
+		        vfs_putIntoMnt(dev,fs_root,fs,"/");
+	      }
     } else {
         vfs_node_t *mount_point = vfs_find(mountPoint);
 	if (!mount_point) {
@@ -156,10 +173,10 @@ vfs_node_t *vfs_find(char *path) {
     if (path[0] == '/') {
 	    vfs_node_t *rootDir = vfs_getRoot();
 	    process_t *caller = thread_getThread(thread_getCurrent());
-	    if (caller != NULL) {
+	    if (caller != NULL && caller->root != 0) {
 		    rootDir = caller->root;
 		}
-        	return vfs_find_impl(vfs_getRoot(),path);
+        	return vfs_find_impl(rootDir,path);
     } else {
         vfs_node_t *workDir = NULL;
 	process_t *curPRC = thread_getThread(thread_getCurrent());
@@ -175,6 +192,8 @@ vfs_node_t *vfs_find(char *path) {
         }
         if (strcmp(path,"..")) {
             return workDir->prev;
+        } else if (strcmp(path,".")) {
+            return workDir;
         }
 search:
         return vfs_find_impl(workDir,path);
@@ -328,4 +347,64 @@ bool vfs_hasPerm(vfs_node_t *node,int perm,int gr,int us) {
 		}
 	}
 	return false;
+}
+int vfs_symlink(vfs_node_t *from,const char *to) {
+	if (!from) return -EBADF;
+	if (!from->fs) return -EBADF;
+	if (!from->fs->symlink) return -ENOSYS;
+	return from->fs->symlink(from,to);
+}
+int vfs_readlink(vfs_node_t *from,char *buffer,int size) {
+	if (!from || !from->fs|| !buffer || size <= 0) return -EBADF;
+	if (!from->fs->readlink) return -ENOSYS;
+	return from->fs->readlink(from,buffer,size);
+}
+int vfs_createFile(char *to,int type) {
+        if (to == NULL) return EINVAL;
+        vfs_node_t *in = NULL;
+        if (to[0] != '/') {
+                in = vfs_getRoot();
+        } else {
+                char *path = strdup(to);
+                char *next = strtok(path,"/");
+                char *prev = next;
+                in = vfs_finddir(vfs_getRoot(),next);
+                if (in == NULL) {
+                        return EINVAL;
+                }
+                while(next != NULL) {
+                        prev = next;
+                        next = strtok(NULL,"/");
+                        if (next != NULL) {
+                                char *test = strtok(NULL,"/");
+                                if (test != NULL) {
+                                        prev = test;
+                                        next = prev;
+                                } else {
+                                        break;
+                                }
+                                in = vfs_finddir(in,prev);
+                        }
+                }
+                if (in->fs == NULL || in->fs->creat == NULL) {
+                        kfree(path);
+                        return EINVAL;
+                }
+                if (!in->fs->creat(in,next,type)) {
+                        kfree(path);
+                        return EFAULT;
+                }
+                kfree(path);
+                return 0;
+        }
+        if ((in->mount_flags & VFS_MOUNT_RO) == VFS_MOUNT_RO) {
+                return EROFS;
+        }
+        char *n = strdup(to);
+        vfs_node_t *node = vfs_creat(in,n,type);
+        kfree(n);
+        if (!node) {
+                return EFAULT;
+        }
+        return 0;
 }

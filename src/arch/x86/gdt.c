@@ -12,6 +12,7 @@
 // POSIX x86 module extension :) 18/03/2024
 #include <arch/x86/task.h>
 #include <lib/string.h>
+#include <lib/queue.h>
 extern void copy_page_physical(uintptr_t,uintptr_t);
 gdt_entry_t gdt_entries[7];
 gdt_ptr_t   gdt_ptr;
@@ -264,7 +265,7 @@ static bool handle_COW(uintptr_t addr,int present) {
             if (faulter->parent == NULL) return false;
             	     aspace_t *addrSpace = arch_mmu_getAspace();
 		     vaddr_t phys = (vaddr_t)arch_mmu_getPhysical((void *)addr);
-		     aspace_t *parentSP = faulter->parent->aspace;
+		    // aspace_t *parentSP = faulter->parent->aspace;
 		     /*
 		      * If parent doesn't have the same address of page as we have, that means that parent is already have remaped page, that happening because our scheduler starts first parent then child
 		     */
@@ -292,7 +293,7 @@ void interrupt_sendEOI() {
     outb(PIC_SLAVE_COMMAND,0x20);
     outb(PIC_MASTER_COMMAND,0x20);
 }
-
+extern bool disableOutput;
 uintptr_t x86_irq_handler(uintptr_t regsAddr) {
     // Tell the controller that the interrupt ended
     registers_t *regs = (registers_t *)regsAddr;
@@ -312,6 +313,8 @@ uintptr_t x86_irq_handler(uintptr_t regsAddr) {
         arch_cli();
         uintptr_t addr = 0;
 	asm volatile("mov %%cr2, %0" : "=r"(addr));
+        uintptr_t addrSpace = 0;
+        asm volatile("mov %%cr3, %0" : "=r"(addrSpace));
         if (int_no == 14) {
             // get faulting address
              int rw = regs->error_code & 0x2;
@@ -319,18 +322,22 @@ uintptr_t x86_irq_handler(uintptr_t regsAddr) {
             if (rw && handle_COW(addr,present)) {
                 return regsAddr;
             }
-            kprintf("Page fault!!! When trying to %s %x - IP:0x%x\n", rw ? "write to" : "read from", addr, whereIs);
-            kprintf("The page was %s\n", present ? "present" : "not present");
+            if (regs->cs != 0x1b) {
+                kprintf("Page fault!!! When trying to %s %x - IP:0x%x\n", rw ? "write to" : "read from", addr, whereIs);
+                kprintf("The page was %s\n", present ? "present" : "not present");
+                kprintf("Faulting address space is 0x%x\n",addrSpace);
+            }
 //	    kprintf("Fault in address space of process %s, 0x%x\r\n",thread_getThread(thread_getCurrent())->name,arch_mmu_getAspace());
         }
         //arch_poweroff();
         if (regs->cs == 0x1b) {
-            kprintf("%s in %s(%d) at 0x%x\r\n",exception_names[int_no],thread_getThread(thread_getCurrent())->name,thread_getCurrent(),whereIs);
+            process_t *whoIS = thread_getThread(thread_getCurrent());
+            kprintf("at 0x%x\n",addr);
 	    //arch_sti();
-            thread_killThread(thread_getThread(thread_getCurrent()),18198);
-            //arch_reschedule(); // never return?
-	    kprintf("Kill failed\r\n");
+            enqueue((queue_t *)whoIS->signalQueue,(void *)11); // SIGSEGV.
+            arch_reschedule(); // never return?
          }
+        disableOutput = false;
         kprintf("Exception: %s, halt, CS: 0x%x, where: 0x%x\r\n",exception_names[int_no],regs->cs,whereIs);
 	uintptr_t traceStack = 0;
 #if defined(__x86_64__)
@@ -338,7 +345,7 @@ uintptr_t x86_irq_handler(uintptr_t regsAddr) {
 #else
 	traceStack = regs->ebp;
 #endif
-	//arch_trace(traceStack);
+	arch_trace(traceStack);
 
         // Halt
         while(1) {}
@@ -350,17 +357,14 @@ uintptr_t x86_irq_handler(uintptr_t regsAddr) {
 	if (runningTask != NULL && runningTask->userProcess) {
 #if !defined(__x86_64__)
 		x86_task_t *archInfo = (x86_task_t *)runningTask->arch_info;
+		//archInfo->userTaskRegisters = regs;
+		// the same as x86_64....
 		archInfo->userTaskRegisters = regs;
 		runningTask->arch_info = archInfo; // for any case
 #else
 		x64_task_t *archInfo = (x64_task_t *)runningTask->arch_info;
-		if (regs->cs == 0x1b) {
-			if (archInfo->syscallRegs == 0) {
-				archInfo->syscallRegs = kmalloc(sizeof(registers_t));
-			}
-			memcpy(archInfo->syscallRegs,regs,sizeof(registers_t));
-			archInfo->userModeRegs = regs;
-		}
+		archInfo->userModeRegs = regs;
+		//kprintf("Done\n. syscallRegs = 0x%x\n",archInfo->syscallRegs);
 		archInfo->userModeRegs = regs;
 		runningTask->arch_info = archInfo;
 #endif

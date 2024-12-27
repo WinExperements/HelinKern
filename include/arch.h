@@ -77,8 +77,8 @@ void arch_switchToUserMode();
  * REQUIRED BY:
  * POSIX signals implementation.
 */
-void arch_processSignal(process_t *prc,uintptr_t address,...);
-void arch_exitSignal(process_t *prc);
+void arch_processSignal(process_t *prc,ProcessSignal handler,...);
+void arch_exitSignal(process_t *prc,ProcessSignal *to);
 /* Soooo 😔, this function is required only if the kernel is loaded not at the start of available memory.
  * If it starts in start of free memory then return kernel end adddress otherwise
  * return address when the allocation of physical memory can actually begin.
@@ -90,4 +90,9 @@ uintptr_t arch_getMemStart();
  * NOTE: The new process MUST be started in separate stack!
 */
 void arch_clone_current(process_t *prc,void *newStack,uintptr_t stackSize);
+/*
+ * Initialize architecture specific device drivers.
+ * Called after base kernel structures intiailized and before the standard kernel drivers being booted.
+*/
+void arch_init_drivers();
 #endif

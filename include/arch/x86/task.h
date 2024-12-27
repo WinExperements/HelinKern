@@ -13,6 +13,7 @@ typedef struct x86_task {
     registers_t *userTaskRegisters;
     // Signals!
     registers_t *signalReturn; // used by sys_sigexit
+    registers_t *syscallRegs; // used for signal processing....
 } x86_task_t;
 #if defined(__x86_64__)
 typedef struct x64_task {

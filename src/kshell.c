@@ -56,7 +56,7 @@ void kshell_main() {
     vfs_node_t *devM = vfs_find("/dev");
     if (!devM) {
         kprintf("No /dev found!\n");
-	devM = vfs_creat(vfs_getRoot(),"dev",VFS_DIRECTORY);
+	devM = vfs_creat(self->root,"dev",VFS_DIRECTORY);
 	if (!devM) {
 		kprintf("Failed to create /dev!\r\n");
 		while(1) {}
@@ -69,8 +69,16 @@ void kshell_main() {
     }
 	keyboard = vfs_find("/dev/keyboard");
 	if (!keyboard) {
-		kprintf("No keyboard found, exit\r\n");
-		thread_killThread(self,1);
+		keyboard = vfs_find("/dev/serial");
+		if (!keyboard) {
+			kprintf("No keyboard found or serial device, exit\r\n");
+			//threa	_killThread(self,1,true);
+			kwait(5000);
+			kprintf("Poweroff?\n");
+			arch_poweroff();
+			kprintf("HM. can't shutdown! Hahah\n");
+			while(1) {}
+		}
 	}
     	kprintf("Activation some command(FAT32 driver test)...\r\n");
 	char *buff = kmalloc(100);
@@ -94,7 +102,7 @@ void kshell_main() {
 	}
 	kfree(buff);
     kfree(argv);
-	thread_killThread(self,0);
+	thread_killThread(self,0,true);
 }
 static void parseCommand(int argc,char *cmd[]) {
     if (strcmp(cmd[0],"ls")) {
@@ -108,14 +116,15 @@ static void parseCommand(int argc,char *cmd[]) {
                     kprintf("ls: %s: no such file or directory\n");
                 }
             }
-            struct dirent *d;
+            struct dirent *d = kmalloc(sizeof(struct dirent));
             int i = 0;
-            while((d = vfs_readdir(in,i)) != 0) {
+            while(vfs_readdir(in,i,d) != 0) {
                 if (d->name[0] != 0) {
                        kprintf("%s\n",d->name);
                 } else break;
                 i++;
             }
+	    kfree(d);
         }
     } else if (strcmp(cmd[0],"reboot")) {
         arch_reset();
@@ -130,9 +139,9 @@ static void parseCommand(int argc,char *cmd[]) {
 	if (me->fds[0] == NULL) {
 		vfs_node_t *tty = vfs_find("/dev/tty");
 		if (!tty) return;
-		thread_openFor(me,tty);
-		thread_openFor(me,tty);
-		thread_openFor(me,tty);
+		thread_openFor(me,tty,FD_RDWR);
+		thread_openFor(me,tty,FD_RDWR);
+		thread_openFor(me,tty,FD_RDWR);
 	}
 	int (*exec)(char *,int,char **,char **) = ((int (*)(char *,int,char **,char **))syscall_get(13));
     	char *environ[] = {NULL};
@@ -164,7 +173,7 @@ static void parseCommand(int argc,char *cmd[]) {
     } else if (strcmp(cmd[0],"kill")) {
         if (argc > 1) {
             int pid = atoi(cmd[1]);
-            thread_killThread(thread_getThread(pid),0);
+            thread_killThread(thread_getThread(pid),0,true);
         }
     } else if (strcmp(cmd[0],"cat")) {
         if (argc > 1) {
@@ -332,7 +341,7 @@ static void parseCommand(int argc,char *cmd[]) {
 	    kprintf("Stack -> 0x%x		name -> %s\r\n",prc->stack,prc->name);
 	    kprintf("PID -> %d		arch_info -> 0x%x\r\n",prc->pid,prc->arch_info);
 	    kprintf("Address Space -> 0x%x	state -> %d\r\n",prc->aspace,prc->state);
-	    kprintf("Wait time -> %d	last died child -> %d\r\n",prc->wait_time,prc->died_child);
+	    kprintf("Type of creation -> %d	last died child -> %d\r\n",prc->substate,prc->exit_code);
 	    kprintf("Type -> %d		FPU state ptr -> 0x%x\r\n",prc->type,prc->fpu_state);
 	    kprintf("Parent -> 0x%x	child -> 0x%x\r\n",prc->parent,prc->child);
 	    kprintf("Process Quota %d	reschedule %d\r\n",prc->quota,prc->reschedule);
@@ -410,14 +419,14 @@ static void th_m() {
 		kprintf("failed to bind client socket!\n");
 		client->destroy(client);
 		kfree(client);
-		thread_killThread(thread_getThread(thread_getCurrent()),0);
+		thread_killThread(thread_getThread(thread_getCurrent()),0,true);
 	}
 	strcpy(addr->sa_data,"/sock");
 	if (client->connect(client,0,addr,0) < 0) {
 		kprintf("Failed to connect to server!\n");
 		client->destroy(client);
 		kfree(client);
-		thread_killThread(thread_getThread(thread_getCurrent()),0);
+		thread_killThread(thread_getThread(thread_getCurrent()),0,true);
 	}
 	char *msg = "hi";
 	char result[3];
@@ -427,7 +436,7 @@ static void th_m() {
 	client->destroy(client);
 	kfree(client);
 	kprintf("Done\n");
-	thread_killThread(thread_getThread(thread_getCurrent()),0);
+	thread_killThread(thread_getThread(thread_getCurrent()),0,true);
 }
 static uint64_t testdev_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
 	if (elf_buffer == NULL) {

@@ -11,6 +11,10 @@
 
 typedef int time_t;
 // Newlib structure :)
+#define SEC_PER_MIN 60
+#define SEC_PER_HOUR (60 * SEC_PER_MIN)
+#define SEC_PER_DAY (24 * SEC_PER_HOUR)
+#define SEC_PER_YR (265 * SEC_PER_DAY)
 struct tm
 {
   int	tm_sec;
@@ -36,5 +40,5 @@ int hw_clock_set(struct tm *time);
  * System starts counting time after boot, so we need to separate function
  * to get the system software time, not hardware one.
 */
-int clock_get(struct tm *time);
+uint64_t clock_get();
 #endif

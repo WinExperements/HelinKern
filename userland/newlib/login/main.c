@@ -9,26 +9,28 @@
 #include <sys/ioctl.h>
 #include <signal.h>
 #include <termios.h>
-
+#include <pwd.h>
+#include <fcntl.h>
 // HelinOS specific stuff.
 #define FLAG_ECHO 0000001
-#define SH_PATH "/bin/sh"
-
-char *users[] = {"root","user"};
-char *passwords[] = {"toor","yes"}; // when libc add support for the shadow password storing, then i delete this.
 int uids[] = {0,1000};
 extern char **environ;
 // More POSIX portable :)
-
-void runShell() {
-	char *sh_path = SH_PATH;
-	char *sh_argv[] = {SH_PATH,NULL};
+void runShell(char *whichOne) {
+	char *sh_path = whichOne;
+	char *sh_argv[] = {whichOne,NULL};
 	int pid = fork();
 	if (pid == 0) {
 		execv(sh_path,sh_argv);
+                perror("failed to run shell");
 		exit(1);
 	} else {
-		waitpid(pid,NULL,0);
+		while(1) {
+			if (waitpid(pid,NULL,0) > 0) {
+				break;
+			}
+			// Interrupted syscall?
+		}
 	}
 }
 void disableEcho() {
@@ -43,7 +45,22 @@ void enableEcho() {
 	term.c_lflag |= ECHO;
 	tcsetattr(fileno(stdin),0,&term);
 }
-int main() {
+int main(int argc,char **argv) {
+  if (argc > 1) {
+    int devFd = open(argv[1],O_RDWR);
+    if (devFd < 0) {
+      perror("device open error");
+      return 1;
+    }
+    close(0);
+    close(1);
+    close(2);
+    dup2(devFd,0);
+    dup2(devFd,1);
+    dup2(devFd,2);
+    printf("login: Perfoming TTY login on %s\n",argv[1]);
+    runShell("/bin/bash");
+  }
 	char login[100];
 	char password[100];
   	char hostname[100];
@@ -59,18 +76,43 @@ int main() {
 		enableEcho();
 		printf("\r\n");
 		int logged = 0;
-		for (int i = 0; i < 2; i++) {
-			if (!strcmp(login,"poweroff")) {
-				kill(1,SIGINT);
-			}
-			if (!strcmp(login,users[i])) {
-				if (!strcmp(password,passwords[i])) {
-					setuid(uids[i]);
-					runShell();
+		struct passwd *p;
+#if !defined(__x86_64__)
+		while((p = getpwent()) > 0) {
+			if (!strcmp(login,p->pw_name)) {
+				if (!strcmp(password,p->pw_passwd)) {
+					setuid(p->pw_uid);
+                                        // open /etc/motd.
+                                        int motd_fd = open("/etc/motd",O_RDONLY);
+                                        if (motd_fd < 0) {
+                                                goto runShell;
+                                        }
+                                        struct stat st;
+                                        if (fstat(motd_fd,&st) < 0) {
+                                                goto runShell;
+                                        }
+                                        char *buff = malloc(1024);
+                                        int ho = st.st_size;
+                                        while(ho > 0) {
+                                                read(motd_fd,buff,1024);
+                                                printf(buff);
+                                                ho-=1024;
+                                        }
+                                        fflush(stdout);
+                                        free(buff);
+                                        close(motd_fd);
+runShell:
+					runShell("/bin/sh");
 					logged = 1;
 				}
 			}
 		}
+#else
+		if (!strcmp(login,"root") && !strcmp(password,"toor")) {
+			logged = 1;
+			runShell("/bin/bash");
+		}
+#endif
 		if (!logged) {
 			printf("Incorrect login\r\n");
 		}

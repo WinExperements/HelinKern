@@ -1,6 +1,6 @@
-diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/config.sub gcc-7.5.0/config.sub
---- gcc-original/gcc-7.5.0/gcc-7.5.0/config.sub	2016-12-29 13:04:53.721993000 +0200
-+++ gcc-7.5.0/config.sub	2023-06-18 13:54:36.000000000 +0300
+diff -ur gcc-7.5.0/config.sub src/config.sub
+--- gcc-7.5.0/config.sub	2016-12-29 13:04:53.721993000 +0200
++++ src/config.sub	2024-09-26 16:01:29.176771500 +0300
 @@ -1409,7 +1409,7 @@
  	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
  	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
@@ -10,9 +10,9 @@ diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/config.sub gcc-7.5.0/config.sub
  	# Remember, each alternative MUST END IN *, to match a version number.
  		;;
  	-qnx*)
-diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/fixincludes/mkfixinc.sh gcc-7.5.0/fixincludes/mkfixinc.sh
---- gcc-original/gcc-7.5.0/gcc-7.5.0/fixincludes/mkfixinc.sh	2016-06-22 00:57:20.986088000 +0300
-+++ gcc-7.5.0/fixincludes/mkfixinc.sh	2023-06-18 14:05:31.000000000 +0300
+diff -ur gcc-7.5.0/fixincludes/mkfixinc.sh src/fixincludes/mkfixinc.sh
+--- gcc-7.5.0/fixincludes/mkfixinc.sh	2016-06-22 00:57:20.986088000 +0300
++++ src/fixincludes/mkfixinc.sh	2024-09-26 16:01:29.193437950 +0300
 @@ -11,6 +11,8 @@
  
  # Check for special fix rules for particular targets
@@ -22,19 +22,19 @@ diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/fixincludes/mkfixinc.sh gcc-7.5.0/fixi
      i?86-*-cygwin* | \
      i?86-*-mingw32* | \
      x86_64-*-mingw32* | \
-Лише у gcc-7.5.0/gcc/config: helin.h
-diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/gcc/config.gcc gcc-7.5.0/gcc/config.gcc
---- gcc-original/gcc-7.5.0/gcc-7.5.0/gcc/config.gcc	2019-11-01 22:20:47.455419000 +0200
-+++ gcc-7.5.0/gcc/config.gcc	2023-06-18 13:56:57.000000000 +0300
+Лише у src/gcc/config: helin.h
+diff -ur gcc-7.5.0/gcc/config.gcc src/gcc/config.gcc
+--- gcc-7.5.0/gcc/config.gcc	2019-11-01 22:20:47.455419000 +0200
++++ src/gcc/config.gcc	2024-09-26 16:03:04.422960393 +0300
 @@ -1490,6 +1490,12 @@
  i[34567]86-*-freebsd*)
  	tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h ${fbsd_tm_file} i386/freebsd.h"
  	;;
 +i[34567]86-*-helin*)
-+    tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h newlib-stdint.h i386/i386elf.h"
++    tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h newlib-stdint.h i386/i386elf.h helin.h"
 +    ;;
 +x86_64-*-helin*)
-+    tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h newlib-stdint.h i386/i386elf.h i386/x86-64.h"
++    tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h newlib-stdint.h i386/i386elf.h i386/x86-64.h helin.h"
 +    ;;
  x86_64-*-freebsd*)
  	tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h ${fbsd_tm_file} i386/x86-64.h i386/freebsd.h i386/freebsd64.h"
@@ -52,9 +52,10 @@ diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/gcc/config.gcc gcc-7.5.0/gcc/config.gc
  i[34567]86-*-linux* | i[34567]86-*-kfreebsd*-gnu | i[34567]86-*-gnu* | i[34567]86-*-kopensolaris*-gnu)
  			# Intel 80386's running GNU/*
  			# with ELF format using glibc 2
-diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/libgcc/config.host gcc-7.5.0/libgcc/config.host
---- gcc-original/gcc-7.5.0/gcc-7.5.0/libgcc/config.host	2019-11-01 22:44:32.533642000 +0200
-+++ gcc-7.5.0/libgcc/config.host	2023-06-18 16:04:27.000000000 +0300
+Лише у src: gmp
+diff -ur gcc-7.5.0/libgcc/config.host src/libgcc/config.host
+--- gcc-7.5.0/libgcc/config.host	2019-11-01 22:44:32.533642000 +0200
++++ src/libgcc/config.host	2024-09-26 16:01:29.193437950 +0300
 @@ -641,6 +641,14 @@
  	;;
  i[34567]86-*-lynxos*)
@@ -70,10 +71,10 @@ diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/libgcc/config.host gcc-7.5.0/libgcc/co
  i[34567]86-*-nto-qnx*)
  	tmake_file="$tmake_file i386/t-nto t-libgcc-pic"
  	extra_parts=crtbegin.o
-Лише у gcc-7.5.0/libstdc++-v3: autom4te.cache
-diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/libstdc++-v3/configure gcc-7.5.0/libstdc++-v3/configure
---- gcc-original/gcc-7.5.0/gcc-7.5.0/libstdc++-v3/configure	2019-05-23 18:34:42.710797000 +0300
-+++ gcc-7.5.0/libstdc++-v3/configure	2023-06-18 14:52:07.000000000 +0300
+Лише у src/libstdc++-v3: autom4te.cache
+diff -ur gcc-7.5.0/libstdc++-v3/configure src/libstdc++-v3/configure
+--- gcc-7.5.0/libstdc++-v3/configure	2019-05-23 18:34:42.710797000 +0300
++++ src/libstdc++-v3/configure	2024-09-26 16:01:33.343385219 +0300
 @@ -78449,6 +78449,5983 @@
      $as_echo "#define HAVE_TANHF 1" >>confdefs.h
  
@@ -6058,9 +6059,9 @@ diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/libstdc++-v3/configure gcc-7.5.0/libst
    *)
      as_fn_error "No support for this host/target combination." "$LINENO" 5
     ;;
-diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/libstdc++-v3/crossconfig.m4 gcc-7.5.0/libstdc++-v3/crossconfig.m4
---- gcc-original/gcc-7.5.0/gcc-7.5.0/libstdc++-v3/crossconfig.m4	2018-07-04 16:59:17.277588000 +0300
-+++ gcc-7.5.0/libstdc++-v3/crossconfig.m4	2023-06-18 14:51:37.000000000 +0300
+diff -ur gcc-7.5.0/libstdc++-v3/crossconfig.m4 src/libstdc++-v3/crossconfig.m4
+--- gcc-7.5.0/libstdc++-v3/crossconfig.m4	2018-07-04 16:59:17.277588000 +0300
++++ src/libstdc++-v3/crossconfig.m4	2024-09-26 16:01:29.466767718 +0300
 @@ -307,6 +307,12 @@
      AC_DEFINE(HAVE_TANF)
      AC_DEFINE(HAVE_TANHF)
@@ -6074,3 +6075,4 @@ diff -ur gcc-original/gcc-7.5.0/gcc-7.5.0/libstdc++-v3/crossconfig.m4 gcc-7.5.0/
    *)
      AC_MSG_ERROR([No support for this host/target combination.])
     ;;
+Лише у src: mpfr

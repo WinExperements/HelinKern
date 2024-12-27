@@ -27,7 +27,7 @@ void ClearScreenWith(uint32_t *fb,int startX,int startY,int w,int h,int color) {
 
 void arch_entry_point(void *arg) {
 	// Hahaha, we now have the fricking custom bootloader
-	#ifdef MSM_SCREEN
+	#ifdef HELINBOOT_USED
 	bootDesc = (kernelInfo *)arg;
 	if (bootDesc->magic != HELINBOOT_KERNINFO_MAGIC) {
 		// Why you trying to boot this kernel by non compatable bootloader?
@@ -58,9 +58,11 @@ void arch_poweroff() {
 	// Analogichno z arch_reset
 }
 bool arch_getFBInfo(fbinfo_t *info) {
-	#ifdef MSM_SCREEN
+	#ifdef HELINBOOT_USED
 	if (bootDesc == NULL) return false;
-	info->addr = (void *)bootDesc->framebufferAddress;
+	if (bootDesc->framebufferWidth == NULL) return false;
+	info->paddr = (void *)bootDesc->framebufferAddress;
+	info->vaddr = info->paddr;
 	info->width = (int)bootDesc->framebufferWidth;
 	info->height = (int)bootDesc->framebufferHeight;
 	info->bpp = 32;
@@ -71,7 +73,7 @@ bool arch_getFBInfo(fbinfo_t *info) {
 	return false;
 	#endif
 }
-int arch_getMemSize() {
+uintptr_t arch_getMemSize() {
 #ifdef HELINBOOT_USED
 	// Nah, okay, the kernel supports a ton of boot methods, so this is why it's here.
 	// By the realization, we need....
@@ -98,7 +100,7 @@ int arch_getMemSize() {
 void arch_switchContext(void *prSt) {
 	// We don't have a MMU......how we able even have multitasking on this platform?
 }
-void *arch_prepareContext(int entry,bool isUser) {
+void *arch_prepareContext(void *entry,bool isUser) {
 	// i don't listen youuuu
 	return NULL;
 }
@@ -107,12 +109,12 @@ void *arch_preapreArchStack(bool isUser) {
 	return NULL;
 }
 void arch_syscall_init() {}
-int arch_getModuleAddress() {
+uint64_t arch_getModuleAddress() {
 	// The bootloader doesn't support it :(
 	return 0;
 }
-int arch_getKernelEnd() {
-	return (int)kernel_end;
+uint64_t arch_getKernelEnd() {
+	return (uint64_t)(uint32_t)&kernel_end;
 }
 void arch_destroyContext(void *context) {
 	// I SAY: Destroy yourself! Watch, he doesn't listen me....so i can't do it
@@ -137,10 +139,10 @@ void arch_detect() {
 void arch_sysinfo() {
 	// This method not even is called anymore in the kernel, so it's useless now.
 }
-void arch_putArgs(process_t *prc,int argc,char **argv) {
+void arch_putArgs(process_t *prc,int argc,char **argv,char **environ) {
 	// Bereh i kladeh tudi, cho ne zrozymilo?
 }
-void arch_trace() {
+void arch_trace(uintptr_t t) {
 	kprintf("Buggy platform: Just a ARMv7-A device, i don't know really what this platform is even is\r\n");
 }
 void arch_prepareProcess(process_t *prc) {
@@ -154,7 +156,7 @@ void arch_fpu_restore(void *from) {
 	// Who are you?
 }
 /* Actually get syscall caller return address */
-int arch_syscall_getCallerRet() {
+uintptr_t arch_syscall_getCallerRet() {
 	// It's hard to explain why i am lazzy to implement this.....
 	return 0;
 }
@@ -170,3 +172,7 @@ bool arch_elf_check_header(Elf32_Ehdr *hdr) {
 	// nah, potim
 	return false;
 }
+void arch_processSignal(process_t *prc,ProcessSignal handler,...) {}
+void arch_exitSignal(process_t *prc,ProcessSignal *to) {}
+uintptr_t arch_getMemStart() {return 0;}
+void arch_clone_current(process_t *prc,void *newStack,uintptr_t stackSize) {}

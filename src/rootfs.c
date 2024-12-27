@@ -9,7 +9,7 @@ static vfs_fs_t *rootfs_fs;
 static struct dirent rootfs_dirent;
 static int files = 0;
 static uint64_t rootfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
-static struct dirent *rootfs_readdir(vfs_node_t *in,uint32_t index);
+static int rootfs_readdir(vfs_node_t *in,uint32_t index,struct dirent *to);
 static vfs_node_t *rootfs_finddir(vfs_node_t *root,char *name);
 static vfs_node_t *rootfs_creat(vfs_node_t *node,char *name,int flags);
 static uint64_t rootfs_write(vfs_node_t *node,uint64_t offset,uint64_t how,void *buf);
@@ -50,21 +50,22 @@ static uint64_t rootfs_read(vfs_node_t *node,uint64_t offset,uint64_t how,void *
     }
     return how;
 }
-static struct dirent *rootfs_readdir(vfs_node_t *in,uint32_t index) {
+int rootfs_readdir(vfs_node_t *in,uint32_t index,struct dirent *to) {
     // find node
     uint32_t i = 0;
     vfs_node_t *n = in->first_child;
     while(n != NULL) {
         if (i == index) {
-            memset(&rootfs_dirent,0,sizeof(rootfs_dirent));
-            rootfs_dirent.node = n->inode;
-            strcpy(rootfs_dirent.name,n->name);
-            return &rootfs_dirent;
+	    memset(to,0,sizeof(struct dirent));
+            to->node = n->inode;
+            strcpy(to->name,n->name);
+	    to->type = n->flags;
+            return 1;
         }
         n = n->next_child;
         ++i;
     }
-    return NULL;
+    return 0;
 }
 static vfs_node_t *rootfs_finddir(vfs_node_t *root,char *name) {
     vfs_node_t *n = root->first_child;

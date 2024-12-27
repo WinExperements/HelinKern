@@ -11,7 +11,7 @@ const char *PciClassName(unsigned int classCode, unsigned int subclass, unsigned
 
 // PCI Vendors
 #define VENDOR_INTEL                    0x8086
-
+#define VENDOR_AMD			0x1002
 // PCI Classes
 #define PCI_CLASS_LEGACY                0x00
 #define PCI_CLASS_STORAGE               0x01

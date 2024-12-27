@@ -1,0 +1,21 @@
+Only in mpc-1.0.1: build
+diff --color -crB orig/mpc-1.0.1/config.sub mpc-1.0.1/config.sub
+*** orig/mpc-1.0.1/config.sub	2012-07-22 18:40:22.000000000 +0300
+--- mpc-1.0.1/config.sub	2024-12-20 14:06:23.476721651 +0200
+***************
+*** 1368,1374 ****
+  	      | -os2* | -vos* | -palmos* | -uclinux* | -nucleus* \
+  	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
+  	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
+! 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops* | -es*)
+  	# Remember, each alternative MUST END IN *, to match a version number.
+  		;;
+  	-qnx*)
+--- 1368,1374 ----
+  	      | -os2* | -vos* | -palmos* | -uclinux* | -nucleus* \
+  	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
+  	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
+! 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops* | -es* | -helin*)
+  	# Remember, each alternative MUST END IN *, to match a version number.
+  		;;
+  	-qnx*)

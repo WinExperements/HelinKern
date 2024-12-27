@@ -27,11 +27,12 @@
 #include <signal.h>
 #include <sys/syscall.h> // syscall table, for better code style.
 #include <sys/resource.h>
-/* I finally managed to open the POSIX specifications */ 
+/* I finally managed to open the POSIX specifications */
 #include <spawn.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/msg.h>
+#include <grp.h>
 #define PATH_MAX 40
 // Structure from src/thread.c from kernel source
 
@@ -55,12 +56,16 @@ int helin_syscall(int num,uintptr_t p1,uintptr_t p2,uintptr_t p3,uintptr_t p4,ui
 void (*prep_forkHandler)(void);
 void (*parent_forkHandler)(void);
 void (*child_forkHandler)();
-void _exit() {
-    helin_syscall(2,0,0,0,0,0);
+void _exit(int retcode) {
+    helin_syscall(2,retcode,0,0,0,0);
 }
 int close(int file) {
-	if (file <= 2) return 0;
-    return helin_syscall(8,file,0,0,0,0);
+    int ret =  helin_syscall(8,file,0,0,0,0);
+    if (ret < 0) {
+	    errno = ret * -1;
+	    return -1;
+	}
+    return 0;
 }
 char **environ; /* pointer to array of char * strings that define the current environment variables */
 int execve(char *name, char **argv, char **env) {
@@ -75,15 +80,18 @@ int execve(char *name, char **argv, char **env) {
     return -1;
 }
 int fork() {
-	if (prep_forkHandler != NULL) {
+	if (prep_forkHandler != NULL && (uintptr_t)prep_forkHandler > 0x1000 &&
+			(uintptr_t)prep_forkHandler <= 0x50000000) {
 		prep_forkHandler();
 	}
     	int ret = helin_syscall(49,0,0,0,0,0);
 	if (ret == 0) {
-		if (child_forkHandler != NULL) {
+		if (child_forkHandler != NULL && (uintptr_t)child_forkHandler > 0x1000 &&
+				(uintptr_t)child_forkHandler <= 0x50000000) {
 			child_forkHandler();
 		}
-	} else if (parent_forkHandler != NULL) {
+	} else if (parent_forkHandler != NULL && (uintptr_t)parent_forkHandler > 0x1000 &&
+			(uintptr_t)parent_forkHandler < 0x50000000) {
 		parent_forkHandler();
 	}
 	return ret;
@@ -123,14 +131,51 @@ static void convertKrnStat(struct kernelStat *from,struct stat *to) {
 	to->st_blksize = from->st_blksize;
 	to->st_blocks = from->st_blocks;
 }
+static struct kernelStat *krnStat;
 int fstat(int file, struct stat *st) {
-    struct kernelStat krnStat;
-    errno = helin_syscall(SYS_stat,file,(uintptr_t)&krnStat,0,0,0);
+    errno = helin_syscall(SYS_fstat,file,(uintptr_t)krnStat,0,0,0);
     if (errno > 0) {
 	return -1;
     }
-    convertKrnStat(&krnStat,st);
+    convertKrnStat(krnStat,st);
     return 0;
+}
+// 14.09.2024: Extension to add full sys/stat.h support.
+int utimes(const char *name,const struct timeval *times) {
+	// HelinKern only accepts file descriptors....
+	int fd = open(name,O_RDWR);
+	if (fd < 0) {
+		return -1;
+	}
+	int ret = helin_syscall(SYS_utime,fd,(uintptr_t)times,0,0,0);
+	if (ret < 0) {
+		close(fd);
+		errno = ret * -1;
+		return -1;
+	}
+	close(fd);
+	return 0;
+}
+int futimens(int fd,const struct timespec *times) {
+	int ret = helin_syscall(SYS_utime,fd,(uintptr_t)times,0,0,0);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return 0;
+}
+int utimensat(int dirfd,const char *name,const struct timespec *times,int flags) {
+	int fd = openat(dirfd,name,O_RDWR);
+	if (fd < 0) {
+		return -1;
+	}
+	int ret = helin_syscall(SYS_uname,fd,(uintptr_t)&times,flags,0,0);
+	close(fd);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return 0;
 }
 int getpid(){
     return helin_syscall(4,0,0,0,0,0);
@@ -139,10 +184,23 @@ int getuid() {
 	return helin_syscall(SYS_getuid,0,0,0,0,0);
 }
 int isatty(int file){
-    return false;
+	int checksum;
+	if (ioctl(file,4,&checksum) < 0) {
+		errno = ENOTTY;
+		return -1;
+	}
+	if (checksum != 10) {
+		errno = ENOTTY;
+		return -1;
+	}
+	return 1;
 }
 int kill(int pid, int sig){
-    helin_syscall(3,pid,sig,0,0,0);
+    int ret = helin_syscall(3,pid,sig,0,0,0);
+    if (ret < 0) {
+      errno = ret * -1;
+      return -1;
+    }
     return 0;
 }
 int link(char *old, char *new){
@@ -158,7 +216,11 @@ int lseek(int file, int ptr, int dir){
 int open(const char *name, int flags, ...){
 	int ret = helin_syscall(SYS_open,(uintptr_t)name,flags,0,0,0);
 	if (ret < 0) {
-		errno = ret * -1;
+		ret = ret * -1;
+		errno = ret;
+		if (errno != ret) {
+			printf("WHATAHEL");
+		}
 		return -1;
 	}
 	return ret;
@@ -172,21 +234,20 @@ int read(int file, char *ptr, int len){
 	return how;
 }
 caddr_t sbrk(int incr){
-    return (caddr_t)helin_syscall(35,incr,0,0,0,0);
+    caddr_t ret = (caddr_t)helin_syscall(35,incr,0,0,0,0);
+    if ((uintptr_t)ret < 0) {
+      errno = (int)ret * -1;
+      return -1;
+    }
+    return ret;
 }
 int stat(const char *file, struct stat *st){
-	int fd = open(file,O_RDONLY);
-	if (fd < 0) {
-		return -1;
-	}
-	struct kernelStat krnStat;
-	int ret = helin_syscall(SYS_stat,fd,(uintptr_t)&krnStat,0,0,0);
+	int ret = helin_syscall(SYS_stat,(uintptr_t)file,(uintptr_t)krnStat,0,0,0);
 	if (ret > 0) {
 		errno = ret;
 		return -1;
 	}
-	convertKrnStat(&krnStat,st);
-	close(fd);
+	convertKrnStat(krnStat,st);
 	return 0;
 }
 clock_t times(struct tms *buf){}
@@ -198,7 +259,7 @@ int unlink(char *name){
 	return 0;
 }
 int wait(int *status){
-  return waitpid(-1,&status,0);
+  return waitpid(-1,status,0);
 }
 int write(int file, char *ptr, int len){
     int how = helin_syscall(10,file,0,len,(uintptr_t)ptr,0);
@@ -211,13 +272,13 @@ int write(int file, char *ptr, int len){
 int gettimeofday(struct timeval *__restrict __p,
                           void *__restrict __tz){
 	// same as clock_gettime.
-	struct timespec t;
-	int ret = clock_gettime(CLOCK_REALTIME,&t);
+	struct timespec *t = malloc(sizeof(struct timespec));
+	int ret = clock_gettime(CLOCK_REALTIME,t);
 	if (ret < 0) {
 		return -1;
 	}
-	__p->tv_sec = t.tv_sec;
-	__p->tv_usec = t.tv_nsec * 1000000;
+	__p->tv_sec = t->tv_sec;
+	__p->tv_usec = t->tv_nsec * 1000000;
 	return 0;
 }
 int ioctl(int fd,unsigned long request,...) {
@@ -229,16 +290,17 @@ int ioctl(int fd,unsigned long request,...) {
 }
 void *mmap(void *addr,size_t len,int prot,int flags,int fd,off_t offset) {
     int ret = helin_syscall(29,fd,(uintptr_t)addr,len,offset,flags);
-    /*if (ret < 0) {
+    if (ret < 0 && ret > -255) {
 	    errno = ret * -1;
 	    return (void*)-1;
-	}*/
+	  }
     void *ptr = (void *)(uintptr_t)(uint32_t)ret;
     return ptr;
 }
 DIR *opendir(const char *path) {
     int fd = helin_syscall(18,(uintptr_t)path,0,0,0,0);
     if (fd < 0) {
+	    errno = fd * -1;
         return NULL;
     }
     DIR *ret = (DIR *)malloc(sizeof(DIR));
@@ -256,13 +318,21 @@ struct dirent *readdir(DIR *d) {
     if (!d) return NULL;
     // get platform specific dirent then convert it to system
     int ret = helin_syscall(20,d->_fd,d->_pos,(uintptr_t)d->native_ptr,0,0);
-    if (ret == -1) {
+    if (ret < 0) {
+	    errno = ret * -1;
 	    return NULL;
-    }
+    } else if (ret == 0) {
+	    errno = 0;
+	    return NULL;
+	}
     // Increment the file position
     d->_pos++;
     struct dirent *dire = (struct dirent *)d->pointer;
-    dire->d_name = d->native_ptr->name;
+    // Copy the name
+    strncpy(dire->d_name,d->native_ptr->name,256);
+    dire->d_type = d->native_ptr->type;
+    dire->d_off = d->_pos;
+    //printf("helinlibc: readdir: ok\n");
     return dire;
 }
 
@@ -295,10 +365,13 @@ int readdir_r(DIR *dir,struct dirent *entry,struct dirent **result) {
 		errno = 9;
 		return -1;
 	}
-	*result = readdir(dir);
-	if (*result == NULL) {
-		return -1;
+	struct dirent *r = readdir(dir);
+	if (r == NULL) {
+		*result = NULL;
+		return 0;
 	}
+	memcpy(entry,r,sizeof(struct dirent));
+	memcpy(*result,r,sizeof(struct dirent));
 	return 0;
 }
 void rewinddir(DIR *dir) {
@@ -336,21 +409,24 @@ int setuid(int uid) {
     helin_syscall(SYS_setuid,uid,0,0,0,0);
 }
 char *getcwd (char *__buf, size_t __size) {
-    return (char *)helin_syscall(16,(uintptr_t)__buf,__size,0,0,0);
+	// glib extension
+	if (__buf == NULL) {
+		__buf = malloc(__size);
+	}
+    	int ret = helin_syscall(16,(uintptr_t)__buf,__size,0,0,0);
+    	if (ret < 0) {
+	    	errno = ret * -1;
+	    	return NULL;
+	}
+    	return __buf;
 }
 
 int mount(const char *source,const char *target,
               const char *filesystemtype,unsigned long mountflags,
               const void *data) {
     int ret = helin_syscall(21,(uintptr_t)source,(uintptr_t)target,(uintptr_t)filesystemtype,mountflags,(uintptr_t)data);
-    if (ret == -1) {
-    	errno = ENOENT;
-    } else if (ret == -2) {
-    	errno = ENODEV;
-    } else if (ret == -3) {
-    	errno = EINVAL;
-    }
     if (ret < 0) {
+	    errno = ret * -1;
     	return -1;
     }
     return ret;
@@ -361,21 +437,38 @@ int getfsstat(struct statfs *buf,long bufsize,int mode) {
 }
 // waitpid
 pid_t waitpid(pid_t pid,int *status,int options) {
-    helin_syscall(22,pid,0,0,0,0);
+    return helin_syscall(22,pid,(uintptr_t)status,options,0,0);
 }
 // Need to port dash shell to our OS
 int dup(int oldfd) {
-	return helin_syscall(36,oldfd,0,0,0,0);
+	return helin_syscall(36,oldfd,0,1,0,0);
 }
 int dup2(int oldfd, int newfd) {
-	return helin_syscall(36,oldfd,newfd,0,0,0);
+	return helin_syscall(36,oldfd,newfd,2,0,0);
 }
 int execvp(const char *file, char *const argv[]) {
-	if (file == NULL || argv == NULL) return -1;
-	return execve(file,argv,environ);
+  // Read manual carefully!
+  // exevp types of libc calls acts like shell programs, trying to search the executable by it's name.
+  char *pat = strdup(getenv("PATH"));
+  // Now go.
+  char *start = strtok(pat,":");
+  char *execBuff = malloc(100);
+  struct stat st;
+  while(start != NULL) {
+    snprintf(execBuff, 100, "%s/%s",start,file);
+    // check if file exist.
+    if (stat(execBuff,&st) == 0) {
+      return execv(execBuff,argv);
+    }
+    start = strtok(NULL,":");
+  }
+  free(pat);
+  free(execBuff);
+  errno = ENOENT;
+  return -1;
 }
 int execv(const char *path, char *const argv[]) {
-	return execvp(path,argv);
+	return execve(path,argv,environ);
 }
 int pipe(int pipefd[2]) {
   // Use IPC manager API.
@@ -408,7 +501,7 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
 			}
 		}
 		start_routine(arg);
-		exit(1);
+		_exit(1);
 	}
 	// Wait for start via sys_waitForStart
 	helin_syscall(38,pid,0,0,0,0);
@@ -417,7 +510,8 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
 
 void pthread_exit(void* retval) {
 	// Just exit
-	exit(0);
+	// WE ARE THREADS! WE CAN'T USE 'exit' BECAUSE IT WILL BROKE EVERYTHING!
+	_exit(0);
 }
 
 int pthread_join(pthread_t thread, void** retval) {
@@ -438,14 +532,13 @@ int tcgetattr(int fd,struct termios* tio) {
 	return 0;
 }
 int     tcsetattr(int fd, int type, const struct termios *term) {
-	if (type != 0) {
-		errno = ENOSYS;
-		return -1;
-	}
 	ioctl(fd,2,(uintptr_t)term);
 	return 0;
 }
-
+int tcflow(int fd,int action) {
+	errno = ENOSYS;
+	return -1;
+}
 int access(const char *pathname,int mode) {
 	return helin_syscall(SYS_access,(uintptr_t)pathname,mode,0,0,0);
 }
@@ -490,13 +583,9 @@ mode_t umask(mode_t mask) {
 
 int chmod(const char *pathname, mode_t mode) {
 	// SYS_chmod require at least the file descriptor, so first open
-	int fd = open(pathname,O_RDWR);
-	if (fd < 0) {
-		errno = ENOENT;
-		return -1;
-	}
-	errno = helin_syscall(SYS_chmod,fd,mode,0,0,0);
-	if (errno > 0) {
+  int ret = helin_syscall(SYS_chmod,(uintptr_t)pathname,mode,0,0,0);
+	if (ret < 0) {
+    errno = ret * -1;
 		return -1;
 	}
 	return 0;
@@ -520,7 +609,7 @@ int rmdir(const char *pathname) {
 
 
 extern struct mntent *getmntent (FILE *__stream) {
-  // We need to have at least 
+  // We need to have at least
 	return 0;
 }
 int truncate(const char *path, off_t length) {
@@ -546,6 +635,11 @@ int getegid() {
 
 int sigaction(int signum, const struct sigaction *act,
                      struct sigaction *oldact) {
+        int r = helin_syscall(SYS_sigaction,signum,(uintptr_t)act,(uintptr_t)oldact,0,0);
+        if (r > 0) {
+                errno = r;
+                return -1;
+        }
 	return 0;
 }
 
@@ -568,16 +662,23 @@ uint32_t ntohl(uint32_t netlong) {return netlong;}
 
 uint16_t ntohs(uint16_t netshort) { return netshort;}
 int pclose(FILE *stream) {
-	return 0;
+	if (stream == NULL) return -1;
+	int fd = fileno(stream);
+	return close(fd);
 }
 static struct passwd empty;
 static struct passwd *passwdRet;
+static FILE *passwdFile = NULL;
+static struct group *groupRet;
+static FILE *groupFile = NULL;
 struct passwd *getpwuid(uid_t uid) {
   // UNIX file structure :)
-  FILE *passwd = fopen("/etc/passwd","r");
-  if (!passwd) {
-    errno = ENOENT;
-    return errno;
+  if (passwdFile == NULL) {
+	passwdFile = fopen("/etc/passwd","r");
+  	if (!passwdFile) {
+    		errno = ENOENT;
+    		return errno;
+  	}
   }
   // Parse passwd.
   if (passwdRet == NULL) {
@@ -585,7 +686,7 @@ struct passwd *getpwuid(uid_t uid) {
     memset(passwdRet,0,sizeof(struct passwd));
   }
   char internalBuffer[100];
-  while(fgets(internalBuffer,100,passwd)) {
+  while(fgets(internalBuffer,100,passwdFile)) {
     /*if (passwdRet->pw_name != NULL) {
       // Free all element that previously filled.
       free(passwdRet->pw_name);
@@ -601,15 +702,212 @@ struct passwd *getpwuid(uid_t uid) {
     passwdRet->pw_gecos = strtok(NULL,":");
     passwdRet->pw_dir = strtok(NULL,":");
     passwdRet->pw_shell = strtok(NULL,":");
+    // Remove newline from latest strtok.
+    passwdRet->pw_shell[strlen(passwdRet->pw_shell)-1] = 0;
     if (passwdRet->pw_uid == uid) {
-      fclose(passwd);
+	    fseek(passwdFile,0,SEEK_SET); // restore the pointer.
       return passwdRet;
     }
   }
-  fclose(passwd);
+  fseek(passwdFile,0,SEEK_SET);
   return NULL;
 }
-
+void endpwent() {
+	if (passwdFile != NULL) {
+		fclose(passwdFile);
+		passwdFile = NULL;
+	}
+}
+struct passwd *getpwent() {
+	if (passwdFile == NULL) {
+		passwdFile = fopen("/etc/passwd","r");
+		if (!passwdFile) {
+			return -1;
+		}
+	}
+	if (passwdRet == NULL) {
+		passwdRet = malloc(sizeof(struct passwd));
+		memset(passwdRet,0,sizeof(struct passwd));
+	}
+	char internalBuffer[100];
+	while(fgets(internalBuffer,100,passwdFile)) {
+		char *element = strtok(internalBuffer,":");
+		passwdRet->pw_name = element;
+		passwdRet->pw_passwd = strtok(NULL,":");
+		passwdRet->pw_uid = atoi(strtok(NULL,":"));
+		passwdRet->pw_gid = atoi(strtok(NULL,":"));
+		passwdRet->pw_gecos = strtok(NULL,":");
+		passwdRet->pw_dir = strtok(NULL,":");
+		passwdRet->pw_shell = strtok(NULL,":");
+		passwdRet->pw_shell[strlen(passwdRet->pw_shell)-1] = 0;
+		return passwdRet;
+	}
+	// Okay, restore the pointer.
+	fseek(passwdFile,0,SEEK_SET);
+	return NULL;
+}
+struct passwd *getpwnam(const char *name) {
+	// just like getpwuid.
+	if (passwdFile == NULL) {
+        passwdFile = fopen("/etc/passwd","r");
+        if (!passwdFile) {
+                errno = ENOENT;
+                return errno;
+        }
+  }
+  // Parse passwd.
+  if (passwdRet == NULL) {
+    passwdRet = malloc(sizeof(struct passwd));
+    memset(passwdRet,0,sizeof(struct passwd));
+  }
+  char internalBuffer[100];
+  while(fgets(internalBuffer,100,passwdFile)) {
+    char *element = strtok(internalBuffer,":");
+    passwdRet->pw_name = element;
+    passwdRet->pw_passwd = strtok(NULL,":");
+    passwdRet->pw_uid = atoi(strtok(NULL,":"));
+    passwdRet->pw_gid = atoi(strtok(NULL,":"));
+    passwdRet->pw_gecos = strtok(NULL,":");
+    passwdRet->pw_dir = strtok(NULL,":");
+    passwdRet->pw_shell = strtok(NULL,":");
+    // Remove newline from latest strtok.
+    passwdRet->pw_shell[strlen(passwdRet->pw_shell)-1] = 0;
+    if (!strcmp(passwdRet->pw_name,name)) {
+            fseek(passwdFile,0,SEEK_SET); // restore the pointer.
+      return passwdRet;
+    }
+  }
+  fseek(passwdFile,0,SEEK_SET);
+  return NULL;
+}
+int getpwnam_r(const char *name, struct passwd *pwd, char *buff,
+                   size_t bufflen, struct passwd **result) {
+	errno = ENOSYS;
+	return -1;
+}
+void setpwent() {
+	if (passwdFile == NULL) {
+		// Okay. Maybe this is first call or the endpwent called before us.
+		passwdFile = fopen("/etc/passwd","r");
+		if (passwdFile == NULL) return;
+	}
+	fseek(passwdFile,0,SEEK_SET);
+}
+// grp.h
+// fill the group structure based on the source string. We just want clearer code.
+static void makeGroupEntry(struct group *to,char *source) {
+	if (to == NULL) return;
+	to->gr_name = strtok(source,":");
+	// Skip the unused password entry.
+	strtok(NULL,":");
+	to->gr_gid = atoi(strtok(NULL,":"));
+	// Now. Calculate count of members in this group.
+	char *members = strtok(NULL,":");
+	char *ptr = members;
+	int count = 1;
+	while(*ptr) {
+		if (*ptr == ',') {
+			count++;
+		}
+		*ptr++;
+	}
+	// Now...allocate the array? But firstly we need to free previous entry array.
+	if (to->gr_mem != NULL) {
+		free(to->gr_mem);
+		to->gr_mem = NULL;
+	}
+	to->gr_mem = malloc(sizeof(char *) * count);
+	to->gr_mem[0] = strtok(members,",");
+	for (int i = 1; i < count; i++) {
+		to->gr_mem[i] = strtok(NULL,",");
+	}
+}
+void endgrent() {
+	// ...close and free the return structure?
+	if (groupFile != NULL) {
+		fclose(groupFile);
+	}
+	if (groupRet != NULL) {
+		free(groupRet->gr_mem);
+		free(groupRet);
+	}
+}
+struct group *getgrent() {
+	// Open group file if not done already.
+	if (groupFile == NULL) {
+		groupFile = fopen("/etc/group","r");
+		if (groupFile == NULL) {
+			return NULL;
+		}
+	}
+	// Allocate return group structure if doesn't done already.
+	if (groupRet == NULL) {
+		groupRet = malloc(sizeof(struct group));
+		memset(groupRet,0,sizeof(struct group));
+	}
+	char buff[100];
+	if (fgets(buff,100,groupFile) != NULL) {
+		// Okay, we still can't read something. Convert buffer into actual group structure.
+		makeGroupEntry(groupRet,buff);
+		return groupRet;
+	}
+	return NULL;
+}
+struct group *getgrgid(gid_t gid) {
+	if (groupFile == NULL) {
+                groupFile = fopen("/etc/group","r");
+                if (groupFile == NULL) {
+                        return NULL;
+                }
+        }
+        // Allocate return group structure if doesn't done already.
+        if (groupRet == NULL) {
+                groupRet = malloc(sizeof(struct group));
+                memset(groupRet,0,sizeof(struct group));
+        }
+	char buff[100];
+	while(fgets(buff,100,groupFile)) {
+		makeGroupEntry(groupRet,buff);
+		if (groupRet->gr_gid == gid) {
+			fseek(groupFile,0,SEEK_SET);
+			return groupRet;
+		}
+	}
+	fseek(groupRet,0,SEEK_SET);
+	return NULL;
+}
+struct group *getgrnam(const char *name) {
+	if (groupFile == NULL) {
+                groupFile = fopen("/etc/group","r");
+                if (groupFile == NULL) {
+                        return NULL;
+                }
+        }
+        // Allocate return group structure if doesn't done already.
+        if (groupRet == NULL) {
+                groupRet = malloc(sizeof(struct group));
+                memset(groupRet,0,sizeof(struct group));
+        }
+        char buff[100];
+        while(fgets(buff,100,groupFile)) {
+                makeGroupEntry(groupRet,buff);
+                if (!strcmp(groupRet->gr_name,name)) {
+                        fseek(groupFile,0,SEEK_SET);
+                        return groupRet;
+                }
+        }
+        fseek(groupRet,0,SEEK_SET);
+        return NULL;
+}
+void setgrent() {
+	if (groupFile == NULL) {
+		groupFile = fopen("/etc/group","r");
+		if (groupFile == NULL) {
+			return;
+		}
+	}
+	fseek(groupFile,0,SEEK_SET);
+}
 FILE *popen(const char *command, const char *type) {
 	return NULL; // no pipe support :(
 }
@@ -649,8 +947,9 @@ int daemon(int nochdir, int noclose) {
 }
 
 int fchmod(int fd, mode_t mode) {
-	errno = helin_syscall(SYS_chmod,fd,mode,0,0,0);
-	if (errno > 0) {
+	int ret = helin_syscall(SYS_fchmod,fd,mode,0,0,0);
+	if (errno < 0) {
+    errno = ret * -1;
 		return -1;
 	}
 	return 0;
@@ -670,22 +969,32 @@ int scandir(const char *dirp, struct dirent ***namelist,
 
 unsigned int minor(dev_t dev) {return 2;}
 
-ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {return 0;}
-//struct group g_empt;
-struct group *getgrnam(const char *name) {
-  	FILE *groupFile = fopen("/etc/group","r");
-
-	return NULL;
+ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
+	int ret = helin_syscall(SYS_readlink,(uintptr_t)pathname,(uintptr_t)buf,bufsiz,0,0);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return 0;
 }
-struct passwd *getpwnam(const char *name) {
-	return NULL;
+ssize_t readlinkat(int dirfd,const char *pathname,char *buff,int buffsize) {
+	int ret = helin_syscall(SYS_readlinkat,(uintptr_t)pathname,dirfd,(uintptr_t)buff,buffsize,0);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return 0;
 }
-struct group *getgrgid(gid_t gid) {return NULL;}
 pid_t setsid(void) {
 	return -1;
 }
 int mkdir(const char *path, mode_t mode) {
-	return helin_syscall(53,(uintptr_t)path,mode,0,0,0);
+	int ret =  helin_syscall(SYS_creat,(uintptr_t)path,DT_DIR | mode,0,0,0);
+  if (ret > 0) {
+    errno = ret;
+    return -1;
+  }
+  return 0;
 }
 int creat(const char *path, mode_t mode) {
 	int ret = helin_syscall(SYS_creat,(uintptr_t)path,mode,0,0,0);
@@ -695,15 +1004,12 @@ int creat(const char *path, mode_t mode) {
 	}
 	return 0;
 }
-int sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
-	return 0;
-}
 int execlp(const char *file, const char *arg, ...) {
 	char *args[64]; // Maximum 64 arguments (adjust as needed)
-    
+
     args[0] = (char *)file; // The first argument is the file name
     args[1] = (char *)arg;  // The second argument is the initial argument
-    
+
     va_list ap;
     va_start(ap, arg);
 
@@ -760,8 +1066,12 @@ int     accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 }
 
 int select(int nfds, fd_set *readfds, fd_set *writefds,
-                  fd_set *exceptfds, struct timeval *timeout) 
+                  fd_set *exceptfds, struct timeval *timeout)
 {
+  if (readfds == NULL && writefds == NULL && exceptfds == NULL) {
+    errno = ENOSYS;
+    return -1;
+  }
 	for (int i = 0; i < FD_SETSIZE; i++) {
 		if (FD_ISSET(i,readfds)) {
 			// check if it socket and if it is ready to accept
@@ -796,7 +1106,12 @@ pid_t vfork() {
 }
 
 int umount(char *target) {
-    return helin_syscall(56,(uintptr_t)target,0,0,0,0);
+    int ret = helin_syscall(SYS_umount,(uintptr_t)target,0,0,0,0);
+    if (ret < 0) {
+      errno = ret * -1;
+      return -1;
+    }
+    return 0;
 }
 
 int reboot(int reason) {
@@ -850,15 +1165,31 @@ sighandler_t signal(int signum,sighandler_t handler) {
 	// Because i erased this build, rewrite!
 	helin_syscall(11,signum,(uintptr_t)handler,0,0,0);
 }
+int sigwait(const sigset_t *set,int *sig) {
+	int r = helin_syscall(SYS_sigwait,(uintptr_t)set,(uintptr_t)sig,0,0,0);
+	if (r < 0) {
+		errno = r * -1;
+		return -1;
+	}
+	return 0;
+}
+int pthread_sigmask(int how,const sigset_t *set,sigset_t *oset) {
+	errno = ENOSYS;
+	return -1;
+}
+int sigprocmask(int how,const sigset_t *set,sigset_t *oset) {
+	errno - ENOSYS;
+	return -1;
+}
 // Timer functions.
 int clock_gettime(clockid_t clock_id, struct timespec *tp) {
-	struct tm time;
-	errno = helin_syscall(SYS_gettime,clock_id,(uintptr_t)&time,0,0,0);
+	uint64_t time;
+	errno = helin_syscall(SYS_clock,clock_id,(uintptr_t)&time,0,0,0);
 	if (errno > 0) {
 		return -1;
 	}
 	// convert this to unix timestamp
-	tp->tv_sec = mktime(&time);
+	tp->tv_sec = (time_t)time;
 	tp->tv_nsec = tp->tv_sec * 1000000000;
 	return 0;
 }
@@ -1005,11 +1336,18 @@ int fchown(int fd,int owner,int group) {
 	}
 	return 0;
 }
-
+int openat(int dirfd,const char *path,int mode,...) {
+	int ret = helin_syscall(SYS_openat,dirfd,(uintptr_t)path,mode,0,0);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return ret;
+}
 int fchownat(int _dirfd,char *path,int mode,int group,int flags) {
 	// We need to use stat(2)
 	// open the file.
-	/*int fd = openat(_dirfd,path,mode);
+	int fd = openat(_dirfd,path,mode);
 	if (fd < 0) {
 		return -1;
 	}
@@ -1017,7 +1355,7 @@ int fchownat(int _dirfd,char *path,int mode,int group,int flags) {
 	close(fd);
 	if (errno > 0) {
 		return -1;
-	}*/
+	}
 	return 0;
 }
 void fexecve(int __fd, char * const __argv[], char * const __envp[]) {
@@ -1166,7 +1504,7 @@ int setgroups(int ngroups, const gid_t *grouplist ) {
 	return -1;
 }
 int setpgid(int pid,int to) {
-	return setgid(to);
+	return 0;
 }
 void setpgrp() {}
 int setregid(gid_t __rgid, gid_t __egid) {
@@ -1241,12 +1579,16 @@ int setdtablesize(int p1) {
 	return -1;
 }
 int symlinkat(const char *p1, int p2, const char *p3) {
-	errno = 38;
+	//int ret = helin_syscall(SYS_symlinkat,
 	return -1;
 }
-int	unlinkat(int p1, const char *p2, int p3) {
-	errno = 38;
-	return -1;
+int	unlinkat(int dirfd, const char *path, int flags) {
+  int ret = helin_syscall(SYS_unlinkat,dirfd,(uintptr_t)path,flags,0,0);
+  if (ret < 0) {
+    errno = ret * -1;
+    return -1;
+  }
+  return 0;
 }
 void sync() {
 	helin_syscall(SYS_sync,0,0,0,0,0);
@@ -1268,14 +1610,14 @@ int posix_spawn(pid_t *restrict pid, const char *restrict path,
   }
   return ret;
 }
-// time.h 
+// time.h
 int clock_nanosleep(clockid_t clock, int flags, const struct timespec *to,
                struct timespec *remain) {
   // Currently kernel only support millisecond sleeps.
   errno = 38;
   return -1;
 }
-// shed.h 
+// shed.h
 int sched_get_priority_max() {
   return 6;
 }
@@ -1423,42 +1765,121 @@ int pthread_attr_setstacksize(pthread_attr_t *attr,int stackSize) {
 // Pthread mutexes.
 // Kernel currently doesn't support in-kernel mutexes. So software only.
 typedef struct _software_mutex {
+	int type;
 	int val;
+	int owner;
+	int locked;
 } SoftwareMutex;
-static SoftwareMutex *gl_mutex;
+typedef struct _software_cond {
+	int owner;
+	int signaled;
+	pthread_mutex_t *mutex;
+} SoftwareCond;
 int pthread_mutex_init(pthread_mutex_t *mutex,
           const pthread_mutexattr_t *parameters) {
-	// mutex is an int!
+	// mutex is an int
 	if (mutex == NULL) {
-		gl_mutex = malloc(sizeof(SoftwareMutex));
-		memset(gl_mutex,0,sizeof(SoftwareMutex));
+		errno = EINVAL;
+		return -1;
 	}
+	SoftwareMutex *mtx = malloc(sizeof(SoftwareMutex));
+	memset(mtx,0,sizeof(SoftwareMutex));
+	if (mutex != NULL && *mutex != 0) {
+		mtx->type = *mutex;
+	}
+	*mutex = (int)mtx;
 	return 0;
 }
+pthread_t pthread_self(void);
 int pthread_mutex_lock(pthread_mutex_t *mutex) {
-	if (gl_mutex != NULL) {
-		if (gl_mutex->val) {
-			while(gl_mutex->val);
-		}
-		gl_mutex->val = 1;
+	SoftwareMutex *mtx = (SoftwareMutex *)mutex;
+	if (mtx == NULL) {
+		errno = EINVAL;
+		return -1;
 	}
+	switch(mtx->type) {
+		case 0:
+		case _PTHREAD_MUTEX_INITIALIZER: {
+			if (mtx->locked) {
+				while(mtx->locked) {
+					usleep(500);
+				}
+				mtx->locked = 1;
+			}
+		} break;
+		case 2:
+			if (mtx->locked) {
+				errno = EDEADLK;
+				return -1;
+			}
+			mtx->locked = 1;
+			break;
+		case 4:
+			mtx->val++;
+			break;
+	}
+	mtx->owner = pthread_self();
 	return 0;
 }
 int pthread_mutex_unlock(pthread_mutex_t *mutex) {
-	if (gl_mutex != NULL) {
-		gl_mutex->val = 0;
+	SoftwareMutex *mtx = (SoftwareMutex *)mutex;
+	if (mtx == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	switch(mtx->type) {
+		case 0:
+		case _PTHREAD_MUTEX_INITIALIZER:
+			mtx->locked = 0;
+			break;
+		case 2:
+			// Check if the thread owner is the same as the caller.
+			if (mtx->owner != pthread_self())  {
+				return;
+			}
+			break;
 	}
 	return 0;
 }
 int pthread_mutex_destroy(pthread_mutex_t *mt) {
-	if (gl_mutex != NULL) {
-		free(gl_mutex);
-		gl_mutex = NULL;
-	}
+	free(mt);
 	return 0;
 }
-
-
+int pthread_detach(pthread_t pth) {
+	return 0;
+}
+int pthread_cancel(pthread_t pth) {
+	// pthread_t in HelinKern is actually the process id.
+	kill(pth,SIGKILL);
+}
+int pthread_cond_init(pthread_cond_t *cond,const pthread_condattr_t *attrs) {
+	SoftwareCond *cnd = malloc(sizeof(SoftwareCond));
+	memset(cnd,0,sizeof(SoftwareCond));
+	cnd->mutex = malloc(sizeof(int *));
+	cnd->owner = pthread_self();
+	pthread_mutex_init(cnd->mutex,NULL);
+	*cond = (pthread_cond_t *)cnd;
+	return 0;
+}
+int pthread_cond_broadcast(pthread_cond_t *cond) {
+	return 0;
+}
+int pthread_cond_destroy(pthread_cond_t *cnd) {
+	// Destroy mutex.
+	SoftwareCond *cond = (SoftwareCond *)cnd;
+	pthread_mutex_destroy(cond->mutex);
+	free(cond);
+	return 0;
+}
+int pthread_cond_signal(pthread_cond_t *cnd) {
+	return 0;
+}
+int pthread_cond_timedwait(pthread_cond_t *cnd,pthread_mutex_t *mtx,const struct timespec *time) {
+	return 0;
+}
+int pthread_cond_wait(pthread_cond_t *cnd,pthread_mutex_t *mtx) {
+	return 0;
+}
 // message queue!
 typedef struct _usrMsg {
 	int key; // unique key.
@@ -1500,7 +1921,7 @@ ssize_t   msgrcv(int msgQueueID, void *buffer, size_t size, long msgType, int ms
         if (ret < 0) {
                 errno = ret * -1;
                 return -1;
-        }       
+        }
         return ret;
 }
 int       msgsnd(int msgQueueID, const void *buffer, size_t size, int msgFlags) {
@@ -1514,6 +1935,94 @@ int       msgsnd(int msgQueueID, const void *buffer, size_t size, int msgFlags) 
         if (ret < 0) {
                 errno = ret * -1;
                 return -1;
-        }       
+        }
         return ret;
+}
+// sys/stat.h extension.
+int fchmodat(int _dirfd,const char *name,mode_t mode,int flags) {
+	int ret = helin_syscall(SYS_fchmodat,_dirfd,(uintptr_t)name,mode,0,0);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return 0;
+}
+int mkdirat(int dirfd,const char *name,mode_t mode) {
+	int ret = helin_syscall(SYS_mkdirat,dirfd,(uintptr_t)name,mode,0,0);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return 0;
+}
+int fstatat(int dirfd,const char *name,struct stat *buff,int flags) {
+	int fd = openat(dirfd,name,O_RDONLY);
+	if (fd < 0) {
+		return -1;
+	}
+	int ret = fstat(fd,buff);
+	close(fd);
+	return ret;
+}
+int mknod(const char *name,mode_t mode,dev_t dev) {
+	int res = helin_syscall(SYS_mknod,(uintptr_t)name,mode,dev,0,0);
+	if (res < 0) {
+		errno = res * -1;
+		return -1;
+	}
+	return 0;
+}
+int mknodat(int dirfd,const char *name,mode_t mode,dev_t dev) {
+	int ret = helin_syscall(SYS_mknodat,dirfd,(uintptr_t)name,mode,dev,0);
+	if (ret < 0) {
+		errno = ret * -1;
+		return -1;
+	}
+	return 0;
+}
+int mkfifo(const char *path,mode_t mode) {
+	return 0;
+}
+int mkfifoat(int dirfd,const char *path,mode_t mode) {
+	return 0;
+}
+void helin_syscalls_init() {
+	prep_forkHandler = NULL;
+	child_forkHandler = NULL;
+	parent_forkHandler = NULL;
+	krnStat = malloc(sizeof(struct kernelStat));
+	memset(krnStat,0,sizeof(struct kernelStat));
+}
+pid_t wait3(int wstatus, int options,
+                   struct rusage rusage) {
+	return waitpid(-1,wstatus,options);
+}
+int sigsuspend(const sigset_t *mask) {
+	return 0;
+}
+// Realtime.
+/*int posix_memalign(void **memptr,size_t align,size_t size) {
+	if (memptr == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	*memptr = memalign(align,size);
+	if (*memptr == NULL) {
+		return -1;
+	}
+	return 0;
+}*/
+pthread_t pthread_self(void) {
+	return getpid();
+}
+int pthread_kill(pthread_t th,int sig) {
+        return kill(th,sig);
+}
+int sigaltstack(const stack_t *ss,stack_t *old_ss) {
+        int r = helin_syscall(SYS_signalstack,(uintptr_t)ss,(uintptr_t)old_ss,0,0,0);
+        if (r > 0) {
+                errno = r;
+                return -1;
+        }
+        return 0;
 }

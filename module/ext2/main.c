@@ -17,7 +17,7 @@
  * Thanks for all there projects for it's drivers code
 */
 
-struct dirent *ext2_readdir(struct vfs_node *dir,uint32_t index);
+static int ext2_readdir(struct vfs_node *dir,uint32_t index,struct dirent *to);
 
 static void read(vfs_node_t *node, int pos, void *buffer, uint32_t sizee) {
     vfs_read(node,pos,sizee,buffer);
@@ -375,17 +375,12 @@ struct vfs_node *ext2_finddir(struct vfs_node *in,char *name) {
 
 static struct dirent *ff = 0;
 
-struct dirent *ext2_readdir(struct vfs_node *dir,uint32_t index) {
+static int ext2_readdir(struct vfs_node *dir,uint32_t index,struct dirent *to) {
 	ext2_pr *pr = (ext2_pr *)dir->priv_data;
         struct ext2_inode *inode = ext2_read_inode(pr->disk,pr->inode_id);
 	if (!inode) {
 		kprintf("%s: invalid dir\n",__func__);
-		return NULL;
-	}
-	if (ff == NULL) {
-		//kprintf("Allocation ff\n");
-		ff = (struct dirent *)sbrk(thread_getThread(thread_getCurrent()),sizeof(struct dirent));/*kmalloc(sizeof(struct dirent));*/
-		memset(ff,0,sizeof(struct dirent));
+		return -EBADF;
 	}
         char *filename;
         struct ext2_directory_entry *dentry;
@@ -398,21 +393,16 @@ struct dirent *ext2_readdir(struct vfs_node *dir,uint32_t index) {
                 filename[dentry->name_len] = 0;                      
                 if (index == 0) {
 			//kprintf("Returning node, %s, 0x%x\n",filename,ff);
-			strcpy(ff->name,filename);
+			strcpy(to->name,filename);
 			kfree(filename);
-			return ff;
+			return 1;
 		}
                 kfree(filename);
 		index--;
-        dsize -= dentry->rec_len;
-        dentry = (struct ext2_directory_entry *) ((char *) dentry + dentry->rec_len);
-    }
-	//kprintf("Returning zero :(\n");
-	if (ff != NULL) {
-		kfree(ff);
-		ff = NULL;
-	}
-	return NULL;
+        	dsize -= dentry->rec_len;
+        	dentry = (struct ext2_directory_entry *) ((char *) dentry + dentry->rec_len);
+    	}
+	return 0;
 }
 
 static uint64_t ext2_fs_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {

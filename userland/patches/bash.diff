@@ -1,0 +1,24 @@
+diff --color -Naru bash-5.0/lib/sh/getcwd.c ../bash-5.0/lib/sh/getcwd.c
+--- bash-5.0/lib/sh/getcwd.c	2012-03-10 17:48:50.000000000 +0200
++++ ../bash-5.0/lib/sh/getcwd.c	2024-11-30 23:24:11.771380501 +0200
+@@ -20,7 +20,7 @@
+ 
+ #include <config.h>
+ 
+-#if !defined (HAVE_GETCWD)
++#if 0
+ 
+ #if !defined (__GNUC__) && !defined (HAVE_ALLOCA_H) && defined (_AIX)
+   #pragma alloca
+diff --color -Naru bash-5.0/support/config.sub ../bash-5.0/support/config.sub
+--- bash-5.0/support/config.sub	2018-11-16 22:34:44.000000000 +0200
++++ ../bash-5.0/support/config.sub	2024-11-30 23:15:20.058891219 +0200
+@@ -1359,7 +1359,7 @@
+ 	     | morphos* | superux* | rtmk* | windiss* \
+ 	     | powermax* | dnix* | nx6 | nx7 | sei* | dragonfly* \
+ 	     | skyos* | haiku* | rdos* | toppers* | drops* | es* \
+-	     | onefs* | tirtos* | phoenix* | fuchsia* | redox* | bme* \
++	     | onefs* | tirtos* | phoenix* | fuchsia* | redox* | helin* | bme* \
+ 	     | midnightbsd*)
+ 	# Remember, each alternative MUST END IN *, to match a version number.
+ 		;;

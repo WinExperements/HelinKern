@@ -73,8 +73,12 @@ typedef struct pathT {
 	char extendAttr;
 	int32_t lba_extend;
 	int16_t count;
-	char dirName[20];
+	char dirName[];
 } PathTable;
+// Used  by priv_data.
+typedef struct _cacheDir {
+  vfs_node_t *cacheNode;
+} CacheDir;
 static vfs_fs_t *iso9660_fs = NULL;
 // ISO9660 FS specific functions.
 static struct dirent *ret_dirent = NULL;
@@ -83,24 +87,18 @@ void convertToLower(char *str) {
 		*str = tolower(*str);
 	}
 }
-static struct dirent *iso9660_readdir(vfs_node_t *node,unsigned int index) {
+static vfs_node_t *cacheNode = NULL;
+static int iso9660_readdir(vfs_node_t *node,unsigned int index,struct dirent *to) {
 	//arch_sti();
 	int i = 0;
 	int size = (node->size > 0 ? node->size : CDROM_SECTOR);
 	void *sectorBuffer = kmalloc(size);
 	vaddr_t offset = (vaddr_t)sectorBuffer;
-	void *aspace = arch_mmu_getAspace();
-	arch_mmu_switch(arch_mmu_getKernelSpace());
 	for (int i = 0; i < size / CDROM_SECTOR; i++) {
 		if (!vfs_readBlock((vfs_node_t *)node->device,node->inode+i,CDROM_SECTOR,(void *)offset)) {
 			return NULL;
 		}
 		offset+=CDROM_SECTOR;
-	}
-	arch_mmu_switch(aspace);
-	if (ret_dirent == NULL) {
-		ret_dirent = sbrk(thread_getThread(thread_getCurrent()),sizeof(struct dirent));
-		memset(ret_dirent,0,sizeof(struct dirent));
 	}
 	offset = (vaddr_t)sectorBuffer;
 	while(1) {
@@ -117,18 +115,18 @@ static struct dirent *iso9660_readdir(vfs_node_t *node,unsigned int index) {
 			if (rec->extent_start_LSB == node->inode) goto search;
 			if (i == index) {
 				// Okay, we are here.
-				memcpy(ret_dirent->name,rec->name,rec->name_len);
-				ret_dirent->name[rec->name_len] = 0;
-				if (strchr(ret_dirent->name,'.')) {
-					ret_dirent->name[rec->name_len-2] = 0;
-					if (ret_dirent->name[rec->name_len-3] == '.') {
-						ret_dirent->name[rec->name_len-3] = 0;
+				memcpy(to->name,rec->name,rec->name_len);
+				to->name[rec->name_len] = 0;
+				if (strchr(to->name,'.')) {
+					to->name[rec->name_len-2] = 0;
+					if (to->name[rec->name_len-3] == '.') {
+						to->name[rec->name_len-3] = 0;
 					}
 				}
-				convertToLower(ret_dirent->name);
-				ret_dirent->node = rec->extent_start_LSB;
+				convertToLower(to->name);
+				to->node = rec->extent_start_LSB;
 				kfree(sectorBuffer);
-				return ret_dirent;
+				return 1;
 			} else {
 				i++;
 			}
@@ -139,19 +137,16 @@ retry:
 		if ((offset - (vaddr_t)sectorBuffer) >= node->size) {break;}
 	}
 	kfree(sectorBuffer);
-	return NULL;
+	return 0;
 
 }
-vfs_node_t *iso9660_finddir(vfs_node_t *node,char *f_name) {
+static struct tm tm;
+vfs_node_t *iso9660_finddir_real(vfs_node_t *node,char *f_name) {
 	/* Just like iso9660_readdir */
-	//arch_sti();
 	void *sectorBuffer = kmalloc(node->size);
-	void *aspace = arch_mmu_getAspace();
-	arch_mmu_switch(arch_mmu_getKernelSpace());
 	if (!vfs_readBlock(node->device,node->inode,node->size,sectorBuffer)) {
 		return NULL;
 	}
-	arch_mmu_switch(aspace);
 	vaddr_t offset = (vaddr_t)sectorBuffer;
 	while(1) {
 		DirectoryRecord *rec = (DirectoryRecord *)offset;
@@ -168,17 +163,19 @@ vfs_node_t *iso9660_finddir(vfs_node_t *node,char *f_name) {
 		}
 		if ((rec->flags & 0x01) == 0x01) goto search;
 		char name[128];
+		int cmplen = rec->name_len;
 		// Format the name.
 		memcpy(name,rec->name,rec->name_len);
 		name[rec->name_len] = 0;
 		if (strchr(name,'.')) {
 			name[rec->name_len-2] = 0;
+			cmplen-=2;
 			if (name[rec->name_len-3] == '.') {
 				name[rec->name_len-3] = 0;
 			}
 		}
 		convertToLower(name);
-		if (strcmp(name,f_name)) {
+		if (!strncmp(name,f_name,cmplen)) {
 			// Create inode.
 			vfs_node_t *ret = kmalloc(sizeof(vfs_node_t));
 			memset(ret,0,sizeof(vfs_node_t));
@@ -189,8 +186,21 @@ vfs_node_t *iso9660_finddir(vfs_node_t *node,char *f_name) {
 			ret->device = node->device;
 			ret->fs_mountOptions = (void *)10;
 			ret->mask = ((S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH) | S_IXOTH);
-			if (!(rec->flags & 0x02)) {
+			// Convert date?
+			tm.tm_year = 1900 + rec->record_date[0] - 1;
+			tm.tm_mon = rec->record_date[1];
+			tm.tm_mday = rec->record_date[2];
+			tm.tm_hour = rec->record_date[3];
+			tm.tm_min = rec->record_date[4];
+			tm.tm_sec = rec->record_date[5];
+			ret->ctime = clock_convertTime(&tm);
+			ret->mtime = ret->atime = ret->ctime;
+			if ((rec->flags & 2) == 2) {
 				ret->flags = VFS_DIRECTORY;
+                                // Directory? Allocate the cache.
+                                CacheDir *cacheDir = kmalloc(sizeof(CacheDir));
+                                memset(cacheDir,0,sizeof(CacheDir));
+                                ret->priv_data = cacheDir;
 			}
 			return ret;
 		}
@@ -202,20 +212,64 @@ retry:
 	kfree(sectorBuffer);
 	return NULL;
 }
+static vfs_node_t *iso9660_finddir(vfs_node_t *dir,char *f_name) {
+  // Check for cache existence.
+  CacheDir *cache = (CacheDir *)dir->priv_data;
+  if (cache->cacheNode == NULL) {
+    // Cache was NEVER initialized. Initialize it and call iso9660_finddir_real.
+    cache->cacheNode = kmalloc(sizeof(vfs_node_t));
+    memset(cache->cacheNode,0,sizeof(vfs_node_t));
+    vfs_node_t *realNode = iso9660_finddir_real(dir,f_name);
+  searchInISO:
+    if (realNode == NULL) {
+      return NULL;
+    } else {
+      memcpy(cache->cacheNode,realNode,sizeof(vfs_node_t));
+      kfree(realNode);
+      return cache->cacheNode;
+    }
+  } else if (cacheNode->name == NULL) {
+    // Cache node WAS initialized, but the required node was NOT found in the ISO9660 itself. Repeat process.
+    goto searchInISO;
+  } else {
+    // REAL Fallback?
+    // Scan the cache directory.
+    vfs_node_t *start = cache->cacheNode;
+    while(start != NULL) {
+      if (strcmp(start->name,f_name)) {
+        return start;
+      }
+      start = start->next_child;
+    }
+    // Not found in cache. Try to found inside iso9660.
+    vfs_node_t *realNode = iso9660_finddir_real(dir,f_name);
+    if (realNode == NULL) {
+      return NULL;
+    }
+    vfs_node_t *newCache = kmalloc(sizeof(vfs_node_t));
+    memset(newCache,0,sizeof(vfs_node_t));
+    memcpy(newCache,realNode,sizeof(vfs_node_t));
+    kfree(realNode);
+    // Put into cache.
+    start = cache->cacheNode;
+    while(start->next_child != NULL) {
+      start = start->next_child;
+    }
+    start->next_child = newCache;
+    return newCache;
+  }
+  // Nather in the cache nather in the ISO itself.
+  return NULL;
+}
 void iso9660_close(vfs_node_t *node) {
-	if ((uintptr_t)node->fs_mountOptions != 10) return;
-	kfree(node->name);
-	kfree(node);
+
 }
 bool cdrom_readBlock(vfs_node_t *from,int blockNo,void *buffer) {
-	void *aspace = arch_mmu_getAspace();
-	arch_mmu_switch(arch_mmu_getKernelSpace());
 	bool ret = vfs_readBlock(from,blockNo,CDROM_SECTOR,buffer);
-	arch_mmu_switch(aspace);
 	return ret;
 }
 uint64_t iso9660_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffer) {
-	//arch_sti();
+  if (offset > node->size) return 0;
 	int offsetIndex = offset / CDROM_SECTOR;
 	int remainOffset = offset % CDROM_SECTOR;
 	int remain = size % CDROM_SECTOR;
@@ -223,18 +277,18 @@ uint64_t iso9660_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffe
 	//kprintf("Data block: %d, offset: %d\r\n",dataBlock,remainOffset);
 	int sectors = size / CDROM_SECTOR;
 	void *sector = kmalloc(CDROM_SECTOR);
+  if (size > node->size) {size = node->size;}
+  uint64_t rSize = size;
 	if (sectors == 0) {
-		void *aspace = arch_mmu_getAspace();
-		arch_mmu_switch(arch_mmu_getKernelSpace());
+		// Stop! Align only what remain!
+		int realSize = min(node->size,size);
 		if (!vfs_readBlock((vfs_node_t*)node->device,dataBlock,2048,sector)) {
-			arch_mmu_switch(aspace);
 			kfree(sector);
 			return -1;
 		}
-		arch_mmu_switch(aspace);
-		memcpy(buffer,sector+remainOffset,size);
+		memcpy(buffer,sector+remainOffset,realSize);
 		kfree(sector);
-		return size;
+		return realSize;
 	}
 	vfs_node_t *from = (vfs_node_t *)node->device;
 	if (remainOffset != 0) {
@@ -304,13 +358,13 @@ uint64_t iso9660_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *buffe
 		}
 	}
 	kfree(sector);
-	return size;
+	return rSize;
 }
 
 bool iso9660_mount(vfs_node_t *dev,vfs_node_t *mountPoint,void *parameters) {
 	PrimVolumeDesc *desc = kmalloc(sizeof(PrimVolumeDesc));
 	memset(desc,0,sizeof(PrimVolumeDesc));
-	if (!vfs_readBlock(dev,0x10,1,desc)) {
+	if (!vfs_readBlock(dev,0x10,CDROM_SECTOR,desc)) {
 		kprintf("Target device I/O error\r\n");
 		return false;
 	}
@@ -328,14 +382,18 @@ bool iso9660_mount(vfs_node_t *dev,vfs_node_t *mountPoint,void *parameters) {
 		kfree(desc);
 		return false;
 	}
+        kprintf("iso9660: volume %s on %s mounted successfully.\n",desc->volumeIdent,dev->name);
 	DirectoryRecord *root = (DirectoryRecord *)&desc->directory_entry;
 	int inode = root->extent_start_LSB;
 	kfree(desc);
+        CacheDir *c = kmalloc(sizeof(CacheDir));
+        memset(c,0,sizeof(CacheDir));
 	mountPoint->fs = iso9660_fs;
 	mountPoint->mount_flags = VFS_MOUNT_RO; // ISO9660 always read-only.
 	mountPoint->device = dev;
 	mountPoint->inode = inode;
 	mountPoint->size = root->dataSize_l;
+        mountPoint->priv_data = c;
 	return true;
 }
 

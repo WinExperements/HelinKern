@@ -10,7 +10,9 @@
 # Prepare system to mount the directories
 #mkdir proc
 #mkdir sys
+hostname test
 mount /dev /dev devfs
+mount /tmp /tmp tmpfs
 #mount /mnt /mnt rootfs
 service login 1 /bin/login
 #service useless 0 /bin/useless

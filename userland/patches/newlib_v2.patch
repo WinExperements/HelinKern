@@ -1,0 +1,17 @@
+--- orig/i686-helin/newlib/libc/sys/helin/Makefile	2024-10-19 12:39:41.287574868 +0300
++++ i686-helin/newlib/libc/sys/helin/Makefile	2024-10-19 12:40:07.461267843 +0300
+@@ -415,14 +415,7 @@
+ 	maintainer-clean-generic mostlyclean mostlyclean-compile \
+ 	mostlyclean-generic pdf pdf-am ps ps-am tags uninstall \
+ 	uninstall-am
+-
+- 
+- 
+- 
+- 
+ all: crt0.o
+- 
+-
+ # Tell versions [3.59,3.63) of GNU make to not export all variables.
+ # Otherwise a system limit (for SysV at least) may be exceeded.
+ .NOEXPORT:

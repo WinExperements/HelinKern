@@ -19,6 +19,8 @@ static vfs_node_t *new_node(const char *name,struct cpio_hdr *hdr,size_t sz,size
     node->name = strdup(name);
     node->mount_flags = VFS_MOUNT_RO;
     node->inode = inode_index;
+    node->ctime = (time_t)(hdr->mtime[0] << 16) | hdr->mtime[1];
+    node->mtime = node->atime = node->ctime;
     child_cpio->node = node;
     child_cpio->data = data;
     node->priv_data = child_cpio;
@@ -52,9 +54,9 @@ static bool cpio_mount(struct vfs_node *dev,struct vfs_node *mountpoint,void *pa
     if (me == NULL) goto cont;
     vfs_node_t *home = me->workDir;
     struct cpio_hdr hdr;
-cont:
     int offset = 0;
     int size = 0;
+cont:
     root = mountpoint;
     d = dev;
     root->fs = cpio_fs;
@@ -114,7 +116,7 @@ cont:
 
 static uint64_t cpio_read(struct vfs_node *node,uint64_t offset,uint64_t how,void *buf) {
    if ((size_t)offset >= (uint64_t)node->size) return 0;
-    how = min(how,node->size - offset);
+    how = (offset+how >= node->size ? node->size-offset : how);
     struct cpio *p = node->priv_data;
     //kprintf("Reading %d bytes, file size: %d\n",how,node->size);
     vfs_read(d,p->data + offset,how,buf);
@@ -133,8 +135,8 @@ struct vfs_node *cpio_finddir(struct vfs_node *di,char *name) {
     void *switchTo = arch_mmu_getKernelSpace();
     prc->aspace = switchTo;
     arch_mmu_switch(switchTo);
-search:
     struct cpio *p = (struct cpio *)di->priv_data;
+search:
     for (; p != NULL; p = p->child) {
 	    if ((paddr_t)p->node >= KERN_HEAP_END) continue;
 	    if ((paddr_t)p->child >= KERN_HEAP_END) continue;
@@ -155,15 +157,16 @@ search:
     kfree(krnName);
     return NULL;
 }
-static struct dirent find_d;
-struct dirent *cpio_readdir(struct vfs_node *di,uint32_t index) {
+static int cpio_readdir(struct vfs_node *di,uint32_t index,struct dirent *to) {
         if (index == 0) {
-            strcpy(find_d.name,".");
-            return &find_d;
+            strcpy(to->name,".");
+	    to->type = VFS_DIRECTORY;
+            return 1;
         }
     if (index == 1) {
-        strcpy(find_d.name,"..");
-        return &find_d;
+        strcpy(to->name,"..");
+	to->type = VFS_DIRECTORY;
+        return 1;
     }
     index -= 2;
     struct cpio *p = (struct cpio *)di->priv_data;
@@ -177,23 +180,24 @@ struct dirent *cpio_readdir(struct vfs_node *di,uint32_t index) {
 		    continue;
 		}
 	    if (i == index) {
-		    strcpy(find_d.name,pa->node->name);
-		    return &find_d;
+		    strcpy(to->name,pa->node->name);
+		    to->type = pa->node->flags;
+		    return 1;
 		}
 	    pa = pa->child;
 	}
-    return NULL;
+    return 0;
 }
 
 static void cpio_close(vfs_node_t *n) {}
 
 void cpio_load(void *initrd,int dev_size) {
-    
+
 }
 vfs_node_t *cpio_creat(vfs_node_t *in,char *name,int flags) {
 	// Yes.
 	if (flags != 3) {
-		kprintf("cpio: only UNIX sockets can be created :)\r\n");
+		// Only sockets can be currently created.
 		return NULL;
 	}
 	vfs_node_t *node = kmalloc(sizeof(vfs_node_t));

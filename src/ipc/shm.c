@@ -9,6 +9,8 @@
 #include <thread.h>
 #include <vfs.h>
 #include <arch/mmu.h>
+#include <arch.h>
+#include <lib/queue.h>
 struct shm_obj {
 	process_t *owner;
 	int uid;
@@ -18,7 +20,8 @@ struct shm_obj {
 	int id;
 	int key;
 	int size;
-	paddr_t pageBegin;	// Address of first page that is allocated for this shared-memory object.
+	queue_t *pageQueue;	// Queue to track the page numbers per SHM, used because in some cases we can corrupt the whole
+				// system memory if we don't do it.
 	int atCnt;	// Track count of attaches. If it's value will be zero and the shmdt will be called, then the kernel
 			// will free the resources.
 	bool destroyed;
@@ -64,11 +67,17 @@ int shm_create(process_t *caller,void *args) {
 	}
 	st->size = msg->size;
 	if (st->size > 0) {
+		arch_cli();
 		// Allocate this chunk of memory.
-		st->pageBegin = alloc_getPage();
-		for (int i = 1; i < (st->size / 4096)+1; i++) {
-			alloc_getPage();
+		st->pageQueue = queue_new();
+		for (int i = 0; i < (st->size/4096)+1; i++) {
+			uintptr_t page = alloc_getPage();
+			if (page == -1) {
+				PANIC("Please clean our up");
+			}
+			enqueue(st->pageQueue,(void *)page);
 		}
+		arch_sti();
 	}
 	enqueue(shmQueue,st);
 createNode:
@@ -78,7 +87,7 @@ createNode:
 	shmNode->fs = shmFs;
 	shmNode->priv_data = st;
 	shmNode->inode = shm_id;
-	thread_openFor(caller,shmNode);
+	thread_openFor(caller,shmNode,FD_RDWR);
 	return st->id;
 }
 struct shm_obj *shm_find(int id) {
@@ -112,8 +121,12 @@ int shm_command(process_t *caller,int cmd,void *args) {
 				  // Find memory hole where we can fit.
 				  // 32-bit integer due to some extreme address given if don't use it.
 				  uint32_t where = arch_mmu_query(NULL,(uintptr_t)(uint32_t)USER_MMAP_START,obj->size+4096);
-				  for (int i = 0; i < (obj->size / 4096)+1; i++) {
-					  arch_mmu_mapPage(NULL,where+(i*4096),obj->pageBegin+(i*4096),7);
+				  uint32_t off = 0;
+				  int map_flags = arch_mmu_processFlags(PROT_WRITE | PROT_READ | PROT_USER);
+				  queue_for(sh,obj->pageQueue) {
+					  paddr_t pagePtr = (paddr_t)sh->value;
+					  arch_mmu_mapPage(NULL,where+off,pagePtr,7);
+					  off+=4096;
 				  }
 				  obj->atCnt++;
 				  return where;
@@ -126,7 +139,9 @@ int shm_command(process_t *caller,int cmd,void *args) {
 				  // Now find the SHM object.
 				  queue_for(sh,shmQueue) {
 					  struct shm_obj *shobj = (struct shm_obj *)sh->value;
-					  if (shobj->pageBegin == (paddr_t)phys_addr) {
+					  if (shobj->pageQueue == NULL) continue;
+					  paddr_t valuePtr = (paddr_t)shobj->pageQueue->head->value;
+					  if (valuePtr == (paddr_t)phys_addr) {
 						  obj = shobj;
 						  break;
 					  }
@@ -134,11 +149,14 @@ int shm_command(process_t *caller,int cmd,void *args) {
 				  if (obj == NULL) return -1;
 				  obj->atCnt--;
 				  arch_mmu_unmap(NULL,(vaddr_t)(uint32_t)argsAddr,(obj->size/4096)+1);
-				  if (obj->atCnt < 0) {
+				  if (obj->atCnt <= 0) {
 					  kprintf("[shm]: Freeing resources used by this SHM segment\r\n");
-					  for (int i = 0; i < (obj->size/4096)+1; i++) {
-						  alloc_freePage(obj->pageBegin+(i*4096));
+					  queue_for(sh,obj->pageQueue) {
+						  paddr_t pagePtr = (paddr_t)sh->value;
+						  alloc_freePage(pagePtr);
 					  }
+					  while(dequeue(obj->pageQueue));
+					  kfree(obj->pageQueue);
 					  queue_remove(shmQueue,obj);
 					  // Notify the object that it has been already destroyed(see shm_fs_close)
 					  obj->destroyed = true;
@@ -149,12 +167,15 @@ int shm_command(process_t *caller,int cmd,void *args) {
 				 // Destroy this object.
 				 obj = shm_find(msg->key);
 				 if (obj == NULL) return -1;
-				 queue_remove(shmQueue,obj);
 				 // Check if we don't need to clean this thing.
 				 if (obj->atCnt <= 0) {
-					 for (int i = 0; i < (obj->size/4096)+1; i++) {
-						 alloc_freePage(obj->pageBegin+(i*4096));
-					 }
+					 queue_for(sh,obj->pageQueue) {                  
+                                                  paddr_t pagePtr = (paddr_t)sh->value;
+                                                  alloc_freePage(pagePtr);
+                                          }       
+                                          while(dequeue(obj->pageQueue));
+                                          kfree(obj->pageQueue);
+					 queue_remove(shmQueue,obj);
 					 obj->destroyed = true;
 				 }
 			 } break;
@@ -187,12 +208,15 @@ void shm_fs_close(vfs_node_t *node) {
 	// Unmap this area from process virtual memory(first actual use of arch_mmu_unmap)
 //	arch_mmu_unmap(NULL,USER_MMAP_START,(obj->size/4096)+1);
 	if (obj->destroyed) return;
+	arch_cli();
 	if (thread_getCurrent() == obj->owner->pid) {
 		// Free memory used by this object.
-		alloc_freePage(obj->pageBegin);
-		for (int i = 1; i < obj->size / 4096; i++) {
-			alloc_freePage(obj->pageBegin+(i*4096));
-		}
+		queue_for(sh,obj->pageQueue) {                 
+			paddr_t pagePtr = (paddr_t)sh->value;
+                	alloc_freePage(pagePtr);
+                }       
+                while(dequeue(obj->pageQueue));
+                kfree(obj->pageQueue);
 		queue_remove(shmQueue,obj);
 		kfree(obj);
 	}

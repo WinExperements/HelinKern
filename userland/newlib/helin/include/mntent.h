@@ -12,9 +12,12 @@ struct mntent
     int mnt_freq;               /* Dump frequency (in days).  */
     int mnt_passno;             /* Pass number for `fsck'.  */
   };
-
+#ifdef __cpusplus
 extern "C" {
+#endif
 	extern struct mntent *getmntent (FILE *__stream);
+#ifdef __cpusplus
 }
+#endif
 
 #endif

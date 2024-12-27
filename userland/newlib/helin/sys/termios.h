@@ -5,7 +5,8 @@ extern "C" {
 #endif
 typedef unsigned short tcflag_t;
 typedef unsigned int speed_t;
-
+typedef unsigned int cc_t;
+#define NCCS    10
 struct termios {
 	tcflag_t c_iflag;
 	tcflag_t c_oflag;

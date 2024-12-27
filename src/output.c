@@ -1,6 +1,7 @@
 // Global implementation
 #include <output.h>
 #include <stdarg.h>
+#include <thread.h>
 char *ringBuff;
 int ringBuffPtr;
 int ringBuffSize;
@@ -53,7 +54,10 @@ void output_printHex(uintptr_t num) {
 }
 void kprintf(char *format,...) {
 	//if (disableOutput) return;
-    va_list arg;
+        output_write("[");
+        output_writeInt(clock_getUptimeMsec());
+        output_write("] ");
+        va_list arg;
 	va_start(arg,format);
 	while (*format != '\0') {
 		if (*format == '%') {

@@ -2,7 +2,7 @@
 #include <dev/fb.h>
 
 #ifdef QEMUBOARD
-#define UART0_BASE 0x1c090000
+#define UART0_BASE 0x09000000
 #endif
 
 static bool redirectToFb = false;
@@ -27,7 +27,7 @@ void output_changeToFB() {
 	redirectToFb = true;
 }
 
-void putc(char c) {
+void output_putc(char c) {
     if (redirectToFb) {
     	fb_putc(c);
     } else {

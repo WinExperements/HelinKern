@@ -72,6 +72,7 @@ typedef struct PciBar
 // ------------------------------------------------------------------------------------------------
 typedef struct PciDeviceInfo
 {
+    uint32_t baseID;
     uint16_t vendorId;
     uint16_t deviceId;
     uint8_t classCode;
@@ -83,7 +84,7 @@ typedef struct PciDriver
 {
     void (*init)(unsigned int id, PciDeviceInfo *info);
 } PciDriver;
-
+void PciForeach(bool (*Handler)(PciDeviceInfo *dev));
 // ------------------------------------------------------------------------------------------------
 extern const PciDriver g_pciDriverTable[];
 

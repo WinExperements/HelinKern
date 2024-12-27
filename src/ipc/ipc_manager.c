@@ -32,6 +32,7 @@ int ipc_add(Ipc *ipc) {
   }
   // Just place into queue.
   enqueue(registredIPC,ipc);
+  return 1;
 }
 int ipc_destroy(int magic) {
   Ipc *ms = findIPC(magic);

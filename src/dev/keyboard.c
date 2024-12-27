@@ -30,7 +30,13 @@ static char keymap[] = {
     0, 0, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', '\t',
     'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', 0, 'a',
     's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\', 'z', 'x', 'c',
-    'v', 'b', 'n', 'm', ',', '>', '/', 0, '*', 0, ' ', 0
+    'v', 'b', 'n', 'm', ',', '.', '/', 0, '*', 0, ' ', 0
+};
+static char keymap_big[] = {
+  0,0,'!','@','#','$','%','^','&','*','(',')','_','+','\b','\t',
+  'Q','W','E','R','T','Y','U','I','O','P','{','}','\n',0,'A',
+  'S','D','F','G','H','J','K','L',':','|','~',0,'|','Z','X','C',
+  'V','B','N','M','<','>','?',0,'*',0,' ',0
 };
 extern int tty_flags;
 void keyboard_init() {
@@ -84,26 +90,39 @@ static uintptr_t keyboard_handler(uintptr_t stack) {
                 } else if ('1' <= character && character <= '0') {
                     character = "!@#$%^&*()"[character - '1'];
                 }
-                shift = false; // Reset shift
             }
             
             if (ctrl) {
                 // Handle Ctrl + key combinations
-                ctrl = false; // Reset ctrl
+                output_putc('^');
+                process_t *caller = thread_getThread(thread_getCurrent());
+                if (caller->state == STATUS_ZOMBIE || caller->pid == 1) {
+                    return stack;
+                }
+                output_putc(character-32);
+                if (keymap[key] == 'c') {
+                  // Lets the kernel deside the process fate.
+                  enqueue((queue_t *)caller->signalQueue,(void *)1);
+                }
             }
-            
             keyboard_keyHandler(character);
         }
+    } else if (key > 0x80) { // release key events.
+      if (key == 0xAA || key == 0xB6) {
+        shift = false;
+      } else if (key == 0x9D || key == 0xE0) {
+        ctrl = false;
+      }
     }
     return stack;
 }
 
 static void keyboard_keyHandler(char key) {
     // Ці елементи більше не потрібні!
-    enqueue(keys,(void *)(int)key);
+    enqueue(keys,(void *)(int)key);	  
     if ((tty_getFlags() & FLAG_ECHO) == FLAG_ECHO) {
-		  output_putc(key);
-    }
+	    output_putc(key);
+	}
 }
 static uint64_t keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t how, void *buf) {
     if (how <= 0 || buf == NULL)
@@ -119,6 +138,7 @@ static uint64_t keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t h
     if (how == 1) 
     {
 	    /* 64 bit kernel hack */
+	    while(keys->size == 0);
 	    char key = (char)((uintptr_t)dequeue(keys) & 0xFF);
 	    if (key > 0) {
 		    buff[0] = key;
@@ -130,7 +150,9 @@ static uint64_t keyboard_read(struct vfs_node *node, uint64_t offset, uint64_t h
         while (keys->size == 0);
 
         char c = (char)((uintptr_t)dequeue(keys) & 0xFF);
-
+	/*if ((tty_getFlags() & FLAG_ECHO) == FLAG_ECHO) {
+		output_putc(c);
+	}*/
         if (c >= 8 && c <= 0x7e) {
             buff[i] = c;
             i++;

@@ -28,7 +28,7 @@ static bool mbr_dev_readBlock(vfs_node_t *node,int blockNo,int how,void *buf) {
     mbr_dev_t *dev = (mbr_dev_t *)node->device;
     if (dev->lba_start == 0) return false;
     int off = dev->lba_start;
-    kprintf("DEBUG: Reading from sector %d(origin is %d)\r\n",dev->lba_start+blockNo,dev->lba_start);
+//    kprintf("DEBUG: Reading from sector %d(origin is %d)\r\n",dev->lba_start+blockNo,dev->lba_start);
     off+=blockNo;
     return vfs_readBlock((vfs_node_t *)dev->harddrive_addr,off,how,buf);
 }
@@ -93,6 +93,7 @@ static void mbr_registerDevice(vfs_node_t *harddrive,int lba_start,uint64_t sect
 static void parseGPT(vfs_node_t *hard) {
 	// Yes, we now support GPT partition table
     GPTHeader *header = kmalloc(sizeof(GPTHeader));
+    memset(header,0,sizeof(GPTHeader));
     /*
      * Some hard disk drivers can fail for reading the real size of GPT partiton table
      * due to the bug of some functions. So we create an alternative method to do this.
@@ -109,7 +110,7 @@ static void parseGPT(vfs_node_t *hard) {
     vfs_read(hard,start,size,array);
     for (int i = 0; i < header->numberOfPartitionEntries; i++) {
         if (array[i].partitionTypeGUID[0] == 0) {
-            continue;
+            break;
         }
         /*kprintf("Partiton: ");
         uint16_t *buff = array[i].partitionName;

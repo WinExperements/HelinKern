@@ -105,27 +105,27 @@ bool elf_load_file(vfs_node_t *node,process_t *caller) {
     }
     if (caller != NULL) {
         arch_mmu_switch(prc->aspace);
-	arch_cli();
         thread_recreateStack(prc,header->e_entry,true);
-	arch_mmu_switch(space);
-    }
+	      arch_mmu_switch(space);
+    } else {
+	    // The address space probably needeed to be created, right?
+	    void *newSpace = arch_mmu_newAspace();
+	    arch_mmu_duplicate(arch_mmu_getKernelSpace(),newSpace);
+	    prc->aspace = newSpace;
+	}
     prc->state = STATUS_CREATING;
     /*size_t elf_base = (size_t)addr; */
     size_t memEnd = elf_get_end_in_memory(node);
     // Switch to the new process memory map
-    if (caller == NULL) {
-	    // clone kernel address space
-	    arch_mmu_duplicate(arch_mmu_getKernelSpace(),prc->aspace);
-	}
     void *prc_aspace = prc->aspace; // some drivers have bugs :)
     arch_mmu_switch(prc_aspace);
-    if (caller != NULL) {
+    /*if (caller != NULL) {
 	    fb_map();
-	}
+	}*/
     if (memEnd == 0) {
 	    kprintf("CAUTION! ELF End address reported AS zero! WARRNING! WARRNING!\r\n");
 	    kfree(header);
-	    thread_killThread(caller,0);
+	    thread_killThread(caller,0,true);
 	    return false;
 	}
     alloc_initProcess(prc,memEnd - USER_OFFSET);
@@ -133,33 +133,32 @@ bool elf_load_file(vfs_node_t *node,process_t *caller) {
     memset(p_entry,0,sizeof(Elf32_Phdr));
     for (pe = 0; pe < header->e_phnum; pe++) {
         //Elf32_Phdr *p_entry = (void *)(header->e_phoff + elf_base + pe * header->e_phentsize);
-	if (vfs_read(node,header->e_phoff + pe * header->e_phentsize,sizeof(Elf32_Phdr),p_entry) < 0) {
-		kfree(header);
-		kfree(p_entry);
-		thread_killThread(prc,10);
-		return 1;
-	}
+	      if (vfs_read(node,header->e_phoff + pe * header->e_phentsize,sizeof(Elf32_Phdr),p_entry) < 0) {
+		        kfree(header);
+		        kfree(p_entry);
+		        thread_killThread(prc,10,true);
+		        return 1;
+	      }
         uintptr_t v_begin = p_entry->p_vaddr;
         if (p_entry->p_type == 1) {
-            if (p_entry->p_memsz == 0) {
-                continue; // skip
-            }
             //kprintf("v_begin: 0x%x, how: %d, offset: %d\r\n",v_begin,p_entry->p_filesz,p_entry->p_offset);
             //memcpy((void *) v_begin,(void *)(elf_base + p_entry->p_offset), p_entry->p_filesz);
-	    if (vfs_read(node,p_entry->p_offset,p_entry->p_filesz,(void *)v_begin) < 0) {
-		    kfree(header);
-		    kfree(p_entry);
-		    thread_killThread(prc,10);
-	    }
-            if (p_entry->p_memsz > p_entry->p_filesz)
-            {
-                char* p = (char *) p_entry->p_vaddr;
-                for (int i = p_entry->p_filesz; i < (int)(p_entry->p_memsz); i++)
-                {
-                    p[i] = 0;
-                }
-            }
-        }            
+        // Initialize the address space.
+        /*for (uintptr_t addr = p_entry->p_vaddr; addr <= p_entry->p_vaddr+p_entry->p_memsz; addr+=4096) {
+          uintptr_t paddr = alloc_getPage();
+          arch_mmu_mapPage(NULL,addr,paddr,7 | 0x00000200); // latest is a fucking PG_USED flag!
+          prc->brk_next_unallocated_page_begin+=4096;
+          prc->brk_end+=4096;
+        }*/
+	      if (vfs_read(node,p_entry->p_offset,p_entry->p_filesz,(void *)v_begin) < 0) {
+		        kfree(header);
+		        kfree(p_entry);
+		        thread_killThread(prc,10,true);
+	      }
+        for (int i = p_entry->p_filesz; i < p_entry->p_memsz; ++i) {
+         *(char *)(p_entry->p_vaddr + i) = 0;
+        }
+      }
     }
     // back to original space
     arch_mmu_switch(space);
@@ -176,15 +175,20 @@ bool elf_load_file(vfs_node_t *node,process_t *caller) {
     if (caller == NULL) {
     	vfs_node_t *ke = keyboard;
     	if (ke) {
-	    	thread_openFor(prc,ke);
-	    	thread_openFor(prc,ke);
-	    	thread_openFor(prc,ke); // yeah 3 times
+	    	thread_openFor(prc,ke,FD_RDWR);
+	    	thread_openFor(prc,ke,FD_RDWR);
+	    	thread_openFor(prc,ke,FD_RDWR); // yeah 3 times
     	}
     }
     //kfree(addr);
     kfree(header);
     kfree(p_entry);
     prc->state = STATUS_RUNNING;
+    /*
+     * As part of substate extension, the process that will created within elf_load_file
+     * will always be with substate of EXEC. As this is method how this process born.
+    */
+    prc->substate = SUBSTATE_EXEC;
     arch_sti();
     return true;
 }
@@ -221,9 +225,10 @@ size_t elf_get_module_bytes(vfs_node_t *n) {
     int required_space = section_headers_size + shstrtab_size;
 
     // Multiply the required space by the factor (e.g., 2048) to ensure full loading
-    int factor = 4096;
+    int factor = 2048;
     required_space *= factor;
 
     return required_space;
+//return 0;
 }
 

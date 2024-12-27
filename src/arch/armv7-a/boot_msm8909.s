@@ -9,6 +9,7 @@ stack_top:
 .type _start, %function
 _start:
     ldr sp, =stack_top
+    mov r0,r1
     bl arch_entry_point
 1:
     b 1b

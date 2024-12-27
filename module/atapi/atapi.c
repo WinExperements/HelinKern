@@ -20,7 +20,7 @@
 */
 // === Add module name here ===
 // === Internal functions here ===
-__attribute__((section(".modname"))) char *name = "atapi";
+//__attribute__((section(".modname"))) char *name = "atapi";
 
 
 typedef struct {
@@ -123,11 +123,12 @@ static uint64_t ata_vdev_read(struct vfs_node *node,uint64_t offset,uint64_t how
 static bool ata_vdev_writeBlock(struct vfs_node *node,int blockNo,int how,void *buf);
 int ata_print_error(ata_device_t *dev);
 static bool ata_vdev_readBlock(vfs_node_t *node,int blockNo,int how, void *buf);
-static uint64_t ata_vdev_ioctl(vfs_node_t *node,int request,char *buf);
+static uint64_t ata_vdev_ioctl(vfs_node_t *node,int request,va_list args);
 static char ata_start_char = 'a';
 static char ata_cdrom_char = 'a';
 static uint64_t next_lba = 0;
 static char atapiBuffer[2048];
+static char diskBuffer[512];
 static ata_device_t *inter_ata;
 uintptr_t ata_irq_handler(uintptr_t stack);
 void ata_io_wait(ata_device_t *dev) {
@@ -432,8 +433,16 @@ static bool ata_vdev_readBlock(vfs_node_t *node,int lba,int how, void *buf) {
         ata_device_t *dev = node->device;
         if (dev->type == IDE_ATAPI) {
                 // We can have different type of address spaces.
-		return atapi_readBlock(dev,lba,buf);
-        }
+                int blocks = (how/2048);
+                if (blocks == 0) blocks = 1;
+                for (int i = 0,la = lba; i<blocks; i++,la++) {
+		              if (!atapi_readBlock(dev,la,buf)) {
+                    return false;
+                  }
+                  buf+=2048;
+                }
+                return true;
+          }
 	int numsects = how / 512;
 	if (numsects == 0) {
 		numsects = 1;
@@ -525,10 +534,17 @@ static bool ata_vdev_readBlock(vfs_node_t *node,int lba,int how, void *buf) {
 		kprintf("ATA_SR_DRY not set?\r\n");
 		return false;
 	}
-	uint8_t *bu = (uint8_t *)buf;
+	bool cp = false;
+	if (how < 512) {
+		cp = true;
+	}
+	uint8_t *bu = (uint8_t *)cp ? diskBuffer : buf;
 	for (int i = 0; i < numsects; i++) {
 		insw(dev->base,bu,256);
 		bu+=256;
+	}
+	if (cp) {
+		memcpy(buf,diskBuffer,how);
 	}
 }
 
@@ -724,7 +740,7 @@ int ata_print_error(ata_device_t *dev) {
 	return type;
 }
 
-static uint64_t ata_vdev_ioctl(vfs_node_t *node,int request,char *buf) {
+static uint64_t ata_vdev_ioctl(vfs_node_t *node,int request,va_list args) {
 	ata_device_t *dev = node->device;
 	if (dev == NULL || dev->base == 0) return -1;
 	switch (request) {

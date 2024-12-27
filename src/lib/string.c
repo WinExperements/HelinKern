@@ -3,13 +3,10 @@
 #include <output.h>
 static char *oldword = 0;
 bool showByte = false; // help!!!!!!
-void memcpy(void *vd, const void *vs, unsigned length) {
+void memcpy(void *vd, const void *vs, unsigned int length) {
 	char *d = vd;
 	const char *s = vs;
-	while(length) {
-		if (showByte) {
-			kprintf("memcpy: remaining: %d, byte: 0x%x\n",length,*d);
-		}
+	while(length > 0) {
 		*d = *s;
 		d++;
 		s++;

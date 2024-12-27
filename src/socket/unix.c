@@ -22,7 +22,7 @@ ssize_t unix_recv(struct _socket* socket, int sockfd, void *buf, size_t len, int
 int unix_connect(struct _socket* socket, int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 bool unix_isReady(struct _socket *socket);
 static vfs_node_t *nanoXS; // TEST!
-/* 
+/*
  * Create new UNIX socket instance.
  * Usually called by sys_socket via socket methods that used when we register our sockets into one database
  * We need to allocate the socket structure and our socket specific data, then we need to fill it and now we can return it user
@@ -79,10 +79,17 @@ void unix_register() {
 
 // Each socket methods
 int unix_bind(struct _socket* socket, int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-	if (vfs_find(addr->sa_data) != NULL) return -1; // we already exists
+        char *cp = strdup(addr->sa_data);
+	if (vfs_find(cp) != NULL) return -1; // we already exists
 	//kprintf("SOCKET: %s\n",addr->sa_data);
-	// Create VFS entry
-	socket->node = vfs_creat(vfs_getRoot(),addr->sa_data,3); // socket
+	// Create VFS entry(very stupid method!)
+        kfree(cp);
+        cp = strdup(addr->sa_data);
+	int r = vfs_createFile(cp,VFS_SOCKET); // socket
+        kfree(cp);
+        cp = strdup(addr->sa_data);
+        socket->node = vfs_find(cp);
+        kfree(cp);
 	if (socket->node == NULL) {
 		// Failed to create vfs node
 		return -1;
@@ -103,7 +110,7 @@ int unix_listen(struct _socket* socket, int sockfd, int backlog) {
 int unix_accept(struct _socket* socket, int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	arch_sti();
 //	Non block sockets doesn't wait for anything.
-	bool nonBlock = socket->flags & /*O_NONBLOCK == O_NONBLOCK ? 1 : 0;*/16384 == 16384;
+	bool nonBlock = (socket->flags & 16384) == 16384;
 	// -1 cause the for to be endless.
 	int until = 2;
 	while(until > 1) {
@@ -125,12 +132,12 @@ int unix_accept(struct _socket* socket, int sockfd, struct sockaddr *addr, sockl
 				vfs_node_t *n = kmalloc(sizeof(vfs_node_t));
 				memset(n,0,sizeof(vfs_node_t));
 				n->name = strdup("conn");
-				n->flags = 4;
+				n->flags = VFS_SOCKET;
 				n->priv_data = new_socket;
 				// Security!
 				n->mask = (S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
 				//arch_sti();
-				return thread_openFor(thread_getThread(thread_getCurrent()),n);
+				return thread_openFor(thread_getThread(thread_getCurrent()),n,FD_RDWR);
 			}
 		}
 		if (nonBlock) until--; // if non block flag ISN'T set, then we act like endless loop.
@@ -142,10 +149,16 @@ int unix_connect(struct _socket* socket, int sockfd, struct sockaddr *addr, sock
 	arch_sti();
 	if (strlen(addr->sa_data) == 0) return -1;
 	if (socket->conn != NULL) return -1;
-	vfs_node_t *node = vfs_finddir(vfs_getRoot(),addr->sa_data);
+        char *cp = strdup(addr->sa_data);
+	vfs_node_t *node = vfs_finddir(vfs_getRoot(),cp);
+        kfree(cp);
 	if (!node) {
 		// Maybe Nano-X?
 		node = nanoXS;
+	}
+	if (!node) {
+		// double check!
+		return -1;
 	}
 	Socket *so = (Socket*)node->priv_data;
 	if (so->acceptQueue == NULL) return -1;
@@ -166,8 +179,10 @@ ssize_t unix_send(struct _socket* socket, int sockfd, const void *buf, size_t le
     while(1) {
 	uint32_t free = queueSize_get_free(socket->sended);
 	if (free > 0) {
+		arch_cli();
 		uint32_t sm = min(free,len);
 		uint32_t b = queueSize_enqueue(socket->sended,(uint8_t *)buf,sm);
+		arch_sti();
 		return b;
 	}
 	/*

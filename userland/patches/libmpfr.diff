@@ -1,0 +1,21 @@
+Only in mpfr-2.4.2: build
+diff --color -crB orig/mpfr-2.4.2/config.sub mpfr-2.4.2/config.sub
+*** orig/mpfr-2.4.2/config.sub	2009-11-30 04:44:02.000000000 +0200
+--- mpfr-2.4.2/config.sub	2024-12-20 14:04:20.725872156 +0200
+***************
+*** 1290,1296 ****
+  	      | -os2* | -vos* | -palmos* | -uclinux* | -nucleus* \
+  	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
+  	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
+! 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops*)
+  	# Remember, each alternative MUST END IN *, to match a version number.
+  		;;
+  	-qnx*)
+--- 1290,1296 ----
+  	      | -os2* | -vos* | -palmos* | -uclinux* | -nucleus* \
+  	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
+  	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
+! 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops* | -helin*)
+  	# Remember, each alternative MUST END IN *, to match a version number.
+  		;;
+  	-qnx*)

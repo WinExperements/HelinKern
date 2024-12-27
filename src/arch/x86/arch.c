@@ -21,6 +21,21 @@
 #include <arch/mmu.h>
 #include <arch/x86/mmu.h>
 #include <dev/x86/serialdev.h>
+#include <arch/x86/firmware.h>
+#include <dev/keyboard.h>
+#include <dev/ps2mouse.h>
+#include <atapi/atapi.h>
+#include <ahci/ahci.h>
+#include <ext2/ext2.h>
+#include <pci/pci.h>
+#include <arch/x86/idt.h>
+#include <net/amd_am79c973/amd_am79c973.h>
+#include <gpu/amdgpu/amdgpu.h>
+#include <usb/usb.h>
+#include <audio/ac97/ac97.h>
+#include <fat32/fat32.h>
+#include <mbr/mbr.h>
+#include <iso9660/iso9660.h>
 // The firmware can boot the kernel using HelinBoot Protocol.
 #include <helinboot.h>
 #if defined(__x86_64__)
@@ -93,7 +108,7 @@ extern char kernel_end[];
 extern void x86_switchToNew(int esp);
 extern void vga_change();
 static bool dontFB = false;
-static bool dontVGA = true;
+static bool dontVGA = false;
 static void thread_main(uintptr_t entryPoint,int esp,bool isUser);
 extern void x86_switch(registers_t *to);
 extern void x86_jumpToUser(int entryPoint,int userstack);
@@ -135,13 +150,8 @@ void arch_entry_point(void *arg) {
 }
 void arch_reset() {
     arch_cli();
-    uint8_t good = 0x02;
-    while (good & 0x02)
-        good = inb(0x64);
-    outb(0x64, 0xFE);
-loop:
-    asm volatile ("hlt"); 
-	goto loop;
+    kprintf("causing triple fault\n");
+    arch_mmu_switch((void *)0x10);
 }
 void arch_pre_init() {
     // Nothing pre-init currently
@@ -199,8 +209,8 @@ bool arch_getFBInfo(fbinfo_t *fb_info) {
     if (helinboot != NULL) {
 	    // Okay, our custom boot protocol, that i developed when tryed to boot headless version of kernel on ARM EFI device(real HW)
 	    if (helinboot->framebufferAddress == 0) return false;
-	    fb_info->paddr = (void *)helinboot->framebufferAddress;
-	    fb_info->paddr = fb_info->vaddr;	// HelinBoot passes physical address.
+	    fb_info->paddr = (void *)(paddr_t)helinboot->framebufferAddress;
+	    fb_info->vaddr = fb_info->paddr;	// HelinBoot passes physical address.
 	    fb_info->width = (uint32_t)helinboot->framebufferWidth;
 	    fb_info->height = (uint32_t)helinboot->framebufferHeight;
 	    fb_info->pitch = (uint32_t)helinboot->framebufferPitch;
@@ -365,25 +375,41 @@ static uintptr_t syscall_handler(uintptr_t _regs) {
 		// invalid syscall.
 		return _regs;
 	}
+	x64_task_t *tsk = (x64_task_t *)runningTask->arch_info;
+	if (tsk->syscallRegs == NULL) {
+		//kprintf("Updating task syscall regs(for %s)...",runningTask->name);
+		tsk->syscallRegs = kmalloc(sizeof(registers_t));
+		//kprintf("done\n");
+	}
+	memcpy(tsk->syscallRegs,regs,sizeof(registers_t));
 	uintptr_t ret = 0;
 	uintptr_t location = syscall_get(regs->rax);
-	asm volatile("	push %6;	\
+	asm volatile("  push %6;	\
 			push %5;	\
 			push %4;	\
 			push %3;	\
 			push %2;	\
 			push %1;	\
+			sti;		\
 			pop %%rdi; 	\
 			pop %%rsi; 	\
 			pop %%rdx; 	\
 			pop %%rcx; 	\
 			pop %%r8; 	\
 			pop %%r9; 	\
-			call *%%r9;" : "=a"(ret) : "r" (regs->rdx),"r"(regs->rcx),"r"(regs->r8),"r"(regs->rdi),"r"(regs->rsi),"r"(location));
+			call *%%r9;	\
+			cli;" : "=a"(ret) : "r" (regs->rdx),"r"(regs->rcx),"r"(regs->r8),"r"(regs->rdi),"r"(regs->rsi),"r"(location));
 	regs->rax = ret;
 	return (uintptr_t)regs;
 #else
     registers_t *regs = (registers_t *)_regs;
+    if (runningTask != NULL) {
+	    x86_task_t *t = (x86_task_t *)runningTask->arch_info;
+	    if (t->syscallRegs == NULL) {
+		    t->syscallRegs = kmalloc(sizeof(registers_t));
+		}
+	    memcpy(t->syscallRegs,regs,sizeof(registers_t));
+    }
     if (regs->eax > (uint32_t)syscall_num) return _regs;
     int location = syscall_get(regs->eax);
     // Call the handler
@@ -394,13 +420,14 @@ static uintptr_t syscall_handler(uintptr_t _regs) {
     push %3; \
     push %4; \
     push %5; \
+    sti;	\
     call *%6; \
+    cli;	\
     pop %%ebx; \
     pop %%ebx; \
     pop %%ebx; \
     pop %%ebx; \
-    pop %%ebx; \
-    " : "=a" (ret) : "r" (regs->esi), "r" (regs->edi), "r" (regs->ebx), "r"(regs->ecx),"r"(regs->edx),"r"(location));
+    pop %%ebx;" : "=a" (ret) : "r" (regs->esi), "r" (regs->edi), "r" (regs->ebx), "r"(regs->ecx),"r"(regs->edx),"r"(location));
     regs->eax = ret;
     return (uintptr_t)regs;
 #endif
@@ -429,7 +456,9 @@ uint64_t arch_getModuleAddress() {
 }
 uint64_t arch_getKernelEnd() {
     if (helinboot != NULL) {
-	    if (helinboot->moduleCount == 0) return (uintptr_t)kernel_end;
+	    if (helinboot->moduleCount == 0) {
+		    return (uintptr_t)helinboot + (sizeof(MemoryMapEntry) * (helinboot->memoryMapCount + 1));
+	    }
 	    return (uintptr_t)helinboot->mod[helinboot->moduleCount-1].end;
     }
 #if defined(__x86_64__)
@@ -466,14 +495,20 @@ void arch_destroyArchStack(void *stack) {
 #else
     x86_task_t *task = (x86_task_t *)stack;
     if (task->kesp_start != 0) {
-        kfree((void *)task->kesp_start);
+        if ((uintptr_t)task->kesp_start < KERN_HEAP_END) {
+          kfree((void *)task->kesp_start);
+        }
     }
-    
+
     kfree((void *)task->stack);
     /*
      * User ESP pointer is automatically freed in arch_mmu_destroyAspace
     */
     if (task->argc != 0) {
+	if ((uintptr_t)task->argv > KERN_HEAP_BEGIN && task->argv > KERN_HEAP_END) {
+		kfree(stack);
+		return;
+	}
         kfree((void *)task->argv);
     }
     kfree(stack);
@@ -484,6 +519,25 @@ void arch_post_init() {
 	if (helinboot != NULL) {
 		arch_mmu_mapPage(NULL,(vaddr_t)helinboot,(vaddr_t)helinboot,3);
 	}
+  // Check if CPU supports SSE and SSE2.
+  uint32_t eax,ebx,ecx,edx;
+  cpuid(0x1,&eax,&ebx,&ecx,&edx);
+  if ((edx & EDX_SSE) == EDX_SSE) {
+    // CPU supports SSE. Enable.
+    uintptr_t cr0;
+    uintptr_t cr4;
+    // Read required registers.
+    asm volatile("mov %%cr0, %0" : "=r"(cr0));
+    asm volatile("mov %%cr4, %0" : "=r"(cr4));
+    // Enable SSE.
+    cr0 &= ~(1<<2);
+    cr0 |= (1<<1);
+    cr4 |= (1<<9);
+    cr4 |= (1<<10);
+    // Write values back to make changes working.
+    asm volatile("mov %0, %%cr0" : : "r"(cr0));
+    asm volatile("mov %0, %%cr4" : : "r"(cr4));
+  }
 	symbols_init(info);
 #if defined(__x86_64__)
 	uintptr_t physAddr = (uintptr_t)&framebuffer_request;
@@ -510,20 +564,10 @@ void arch_post_init() {
 	// Map the response.
 	physAddr = (uintptr_t)hhdm_req.response - virtualOffset;
 	arch_mmu_mapPage(NULL,(uintptr_t)hhdm_req.response,physAddr,3);
-	uintptr_t cr0;
-	uintptr_t cr4;
-	asm volatile("mov %%cr0, %0" : "=r"(cr0));
-	asm volatile("mov %%cr4, %0" : "=r"(cr4));
-	// Clear EM bit.
-	cr0 &= ~(1 << 2);
-	// Set MP, OSFXSR and OSXMMEXCPT bits.
-	cr0 |= (1 << 1);
-	cr4 |= (1 << 9);
-	cr4 |= (1 << 10);
-	// Write values back.
-	asm volatile("mov %0, %%cr0" : : "r"(cr0));
-	asm volatile("mov %0, %%cr4" : : "r"(cr4));
 	asm volatile("finit"); // initialize FPU.
+#else
+        // Initialize mem i/o region.
+        arch_mmu_createTables(0xf0000000,0xff000000);
 #endif
 	//apic_init();
 	//smp_init();
@@ -599,6 +643,9 @@ void arch_post_init() {
 		kprintf("Multiboot located at 0x%x, mmap: 0x%x, module: 0x%x, kernel start: 0x%x, initrd 0x%x, kernel_end: 0x%x\r\n",info,info->mmap_addr,info->mods_addr,(paddr_t)kernel_start,initrdAddr,kernel_end);
 	}
 #endif
+  x86_smbios_init();
+  x86_smbios_printInfo(0);
+  //x86_smbios_printInfo(4);
 }
 bool arch_relocSymbols(module_t *mod,void *ehdr) {
 #if defined(__x86_64__)
@@ -620,6 +667,8 @@ bool arch_relocSymbols(module_t *mod,void *ehdr) {
 		return false;
 	}
 	entsize = s->sh_entsize;
+        s = (Elf32_Shdr *)((char *)e + e->e_shoff + e->e_shentsize * s->sh_link);
+        const char *str = (char *) e + s->sh_offset;
 	for (i = 0,s = (Elf32_Shdr *)((char *)e + e->e_shoff); i < e->e_shnum;
 		i++,s = (Elf32_Shdr *)((char *)s + e->e_shentsize)) {
 			if (s->sh_type == SHT_REL) {
@@ -654,9 +703,16 @@ bool arch_relocSymbols(module_t *mod,void *ehdr) {
 							case R_386_GOTOFF:
 								kprintf("R_386_GOTOFF didn't supported!\n");
 								return false;
-							case R_386_GOTPC:
+							case R_386_GOTPC: {
+                                                                // Check if this symbol isn't GOT.
+                                                                char *aa = (char *)str + s->sh_name;
+                                                                if (aa[0] == '_') {
+                                                                        kprintf("Hm. Got Global Offset table. skip\n");
+                                                                        continue;
+                                                                }
 								kprintf("R_386_GOTPC didn't supported!\n");
-								return false; // need to be added!
+								return false;  // need to be added!
+							} break;
 							default:
 							kprintf("Unknown relocation type!\n");
 							break;
@@ -742,9 +798,13 @@ static void thread_main(uintptr_t entryPoint,int esp,bool isUser) {
 		tsk->userModeRegs->rsi = (uint64_t)tsk->argv;
 		tsk->userModeRegs->rdx = (uint64_t)tsk->environ;
 	}
-	uintptr_t rsp = (uintptr_t)sbrk(prc,4096);
-	memset((void *)rsp,0,4096);
-	tsk->userModeRegs->useresp = rsp+4095;
+	uintptr_t rsp = (uintptr_t)sbrk(prc,70*4096);
+	memset((void *)rsp,0,70*4096);
+	uintptr_t aligned = rsp+(50*4096)-1;
+	// Required by some software that USE SSE optimizations.
+	aligned &= ~0x0F;
+	aligned += 8;
+	tsk->userModeRegs->useresp = aligned;
 jump:
 	x86_switch(tsk->userModeRegs);
 #else
@@ -760,15 +820,18 @@ jump:
 
     }
     // На данний момент часу ми працюємо в кільці ядра!
-    //int stackSize = 50*4096;
-    int _esp = (int)sbrk(prc,4096);
+    int stackSize = 70*4096;
+    int _esp = (int)sbrk(prc,stackSize);
     //if (isUser) arch_mmu_map(NULL,_esp,stackSize,7 | 0x00000200);
     //int _esp = (int)kmalloc(4096);
     x86_task_t *archStack = (x86_task_t *)prc->arch_info;
     archStack->userESP = _esp;
     // clean memory
-    memset((void *)_esp,0,4096);
-    uint32_t stack = (uint32_t )_esp+4096;
+    memset((void *)_esp,0,stackSize);
+    uint32_t stack = (uint32_t )_esp+stackSize;
+    stack-=1;
+    stack &= ~0x0F;
+    stack += 8;
     archStack->userESP_top = stack;
     PUSH(stack,char **,(char **)(uintptr_t)archStack->environ);
     PUSH(stack,char **,(char **)(uintptr_t)archStack->argv);
@@ -833,9 +896,13 @@ void arch_trace(uintptr_t stackPtr) {
 		stk = stk->rbp;
 	}
 #else
+    if (runningTask != NULL) {
+    	kprintf("Last exextued task was %s(%d)\n",runningTask->name,runningTask->pid);
+    }
     struct stackframe *stk;
-    asm ("movl %%ebp,%0" : "=r"(stk) ::);    
+    asm ("movl %%ebp,%0" : "=r"(stk) ::);
     for(unsigned int frame = 0; stk && frame < 10; ++frame) {
+	    if ((uintptr_t)stk > KERN_HEAP_END) break;
         kprintf("0x%x in %s\r\n",stk->eip,symbols_findName(stk->eip));
         stk = stk->ebp;
     }
@@ -844,7 +911,7 @@ void arch_trace(uintptr_t stackPtr) {
 void arch_prepareProcess(process_t *prc) {
 	// Allocate the FPU context
 	// Save current FPU context, before initializing new
-	/*void *current_fpu_state = 0;
+	void *current_fpu_state = 0;
     	arch_fpu_save(current_fpu_state);
 	prc->fpu_state = kmalloc(512 + 15); // Default 32-bit FPU context size
 	uintptr_t addr = (uintptr_t)prc->fpu_state;
@@ -854,7 +921,7 @@ void arch_prepareProcess(process_t *prc) {
 	arch_fpu_restore(prc->fpu_state);
 	asm volatile("finit");
 	arch_fpu_save(prc->fpu_state);
-	arch_fpu_restore(current_fpu_state);*/
+	arch_fpu_restore(current_fpu_state);
 }
 
 static void set_fpu_cw(const uint16_t cw) {
@@ -950,51 +1017,144 @@ void arch_switchToUserMode() {
 
 /* Oh.....the fucking signals..... */
 /* first ever long name of function */
-void arch_processSignal(process_t *nextTask,uintptr_t address,...) {
+// Define the fucking process signal handler inside the kernel, because we don't want to distrub the libc, that may not even prepared
+// for this.
+typedef void (*sigh)(int);
+static void i686_sigreturn(int sig) {
+	// It's time to do some magic!!!!
+	// Використаємо асемблерну мову, адже це єдиний шлях зробити те що потрібно
+#if defined(__x86_64__)
+	uintptr_t r = 0;
+	int ret = 0;
+	asm volatile("movq %%r12, %0" : "=r"(r));
+	asm volatile("int %1;\n" : "=a"(ret) : "i"(0x80), "a"(12),"d"(r));
+#else
+	int ret = 0;
+	asm volatile("int %1;\n" : "=a"(ret) : "i"(0x80), "a"(12),"d"(sig));
+#endif
+}
+static void i686_userHandler() {
+	// Регістр ECX містить номер сигналу(EAX перезаписується цим кодом, а ECX ні)
+	// Регістр EDX містить адресу самого обробника у користувацькій програмі.
+	// Нам потрібно збільшити вказівник стеку рівно на 8КіБ інакше у нас буде пошкодження стеку.
+	// This is well be abolute mess....
+  // Please don't decrease the size of bytes that we add to stack pointer here,
+  // otherwise this corrupt the whole kernel memory!
+#if defined(__x86_64__)
+	asm volatile("addq $8192,%rsp");
+#else
+	//asm volatile("addl $4100,%esp");
+#endif
+	// Make sure we working right address space.
+	// Все, тепер ми спокійно можемо модифікувати стек(він все одно перезапишеться після поввернення)
+	uintptr_t signum = 0;
+	uintptr_t to = 0;
+	// Запишемо дані з регістрів у наші константи.
+	ProcessSignal *sig = NULL;
+#if defined(__x86_64__)
+	asm volatile("mov %%rdi, %0" : "=r"(signum));
+#else
+	asm volatile("movl %%ecx, %0" : "=r"(signum));
+#endif
+	x86_task_t *tsk = runningTask->arch_info;
+	asm volatile("movl %0, %%esp" : : "r"(tsk->kernelESP-2048));
+  // Part of ARCH processing signal code.
+	sig = &runningTask->signal_handlers[signum];
+        if (sig->handler == 0 && signum == 1) {
+                thread_killThread(thread_getThread(thread_getCurrent()),-signum,true);
+        } else if (sig->handler == 0) {
+                x86_switch(sig->returnStack);
+        }
+        registers_t *ra = (registers_t *)sig->returnStack;
+	uintptr_t st = ra->useresp;
+        // Check if we HAVE alternative stack for processing.
+        if ((sig->flags & 2) == 2) {
+                // WE DO.
+                st = (uintptr_t)runningTask->sigStack->stack;
+        }
+	PUSH(st,uintptr_t,signum);
+	PUSH(st,uintptr_t,signum);
+	PUSH(st,uintptr_t,(uintptr_t)i686_sigreturn);
+	// Now. A little bit of strange design.
+	/*
+	 * So. Because our registers_t is tempararly data, it can be overwritten by
+	 * signal handler without any issues.
+	*/
+	registers_t *reg = (registers_t *)sbrk(runningTask,sizeof(registers_t));
+	memset(reg,0,sizeof(registers_t));
+#if !defined(__x86_64__)
+	reg->eip = sig->handler;
+	reg->useresp = st;
+	reg->cs = 0x1b;
+	reg->ds = reg->ss = 0x23;
+#else
+	reg->rip = sig->handler;
+	// SystemV AMD64 Calling convertion.
+	reg->rsi = signum;
+	reg->rdi = reg->rsi;
+	reg->r12 = reg->rsi;
+	reg->cs = 0x1b;
+	reg->ds = reg->ss = 0x23;
+	reg->useresp = st;
+#endif
+	// Викличемо реальний обробник.
+	// Jump using assembler.
+        x86_switch(reg);
+}
+void arch_processSignal(process_t *nextTask,ProcessSignal handler,...) {
     // Extract the signal number
+    arch_cli();
     va_list list;
-    va_start(list,address);
+    va_start(list,handler);
     int num = va_arg(list,int);
     va_end(list);
 #if !defined(__x86_64__)
     x86_task_t *task = (x86_task_t *)nextTask->arch_info;
-    if (task->signalReturn == NULL) {
-	    task->signalReturn = kmalloc(sizeof(registers_t));
-            memcpy(task->signalReturn,task->userTaskRegisters,sizeof(registers_t));
-	} else {
-		memcpy(task->signalReturn,task->userTaskRegisters,sizeof(registers_t));
-	}
-    task->userTaskRegisters->eip = address;
-    task->userTaskRegisters->eax = num; // to be handled by newlib or other libc.
+    //kprintf("Copying\n");
+    bool c = false;
+    if (handler.returnStack == NULL) {
+	    handler.returnStack = kmalloc(sizeof(registers_t));
+    } else {
+            c = true;
+    }
+    // Update handler?
+    nextTask->signal_handlers[num] = handler;
+    if (!c || handler.exited) {
+        memcpy(handler.returnStack,task->syscallRegs,sizeof(registers_t));
+    }
+    task->userTaskRegisters->eip = (uintptr_t)i686_userHandler;
+    task->userTaskRegisters->ecx = num;
+    task->userTaskRegisters->edx = (uintptr_t)&handler;
+    //kprintf("Task changed. Switching\n");
 #else
     // x86_64 code begins here
     x64_task_t *task = (x64_task_t *)nextTask->arch_info;
-    if (task->sigReturn == NULL) {
-	    task->sigReturn = kmalloc(sizeof(registers_t));
-	}
-    memcpy(task->sigReturn,task->userModeRegs,sizeof(registers_t));
-    task->syscallRegs->rdi = (uint64_t)num;
-    task->syscallRegs->rip = address;
-    memcpy(task->userModeRegs,task->syscallRegs,sizeof(registers_t));
+    //kprintf("task = 0x%x, task->sigReturn = 0x%x, userModeRegs = 0x%x, syscall regs -> 0x%x\n",task,task->sigReturn,task->userModeRegs,task->syscallRegs);
+    if (handler.returnStack == NULL) {
+	    handler.returnStack = kmalloc(sizeof(registers_t));
+    }
+    nextTask->signal_handlers[num] = handler;
+    if (task->syscallRegs == NULL) {
+	    // What? Okay. Change the fucking userModeRegs.
+	    kprintf("Serious kernel bug!!!!!! OR the process in endless loop and DOESN'T call any kind of syscall or the KERNEL HAS BUG!");
+	  return;
+    }
+    memcpy(handler.returnStack,task->syscallRegs,sizeof(registers_t));
+    task->userModeRegs->rdi = (uint64_t)num;
+    task->userModeRegs->rip = (uintptr_t)i686_userHandler;
 #endif
 }
-void arch_exitSignal(process_t *prc) {
+void arch_exitSignal(process_t *prc,ProcessSignal *to) {
 #if !defined(__x86_64__)
-	x86_task_t *task = (x86_task_t *)prc->arch_info;
-	if (task->signalReturn == NULL) {
-		kprintf("W??\r\n");
-		return;
-	}
-	memcpy(task->userTaskRegisters,task->signalReturn,sizeof(registers_t));
-	x86_switch(task->userTaskRegisters);
+	if (to->returnStack == NULL) return;
+	//memcpy(task->userTaskRegisters,task->signalReturn,sizeof(registers_t));
+	x86_switch(to->returnStack);
 #else
-	x64_task_t *tsk = (x64_task_t *)prc->arch_info;
-	if (tsk->sigReturn == NULL) {
+	if (to->returnStack == NULL) {
 		kprintf("Impossible to process signal return if the signal never processed\r\n");
 		return;
 	}
-	memcpy(tsk->userModeRegs,tsk->sigReturn,sizeof(registers_t));
-	x86_switch(tsk->userModeRegs);
+	x86_switch(to->returnStack);
 #endif
 
 }
@@ -1041,15 +1201,15 @@ void arch_clone_current(process_t *prc,void *stackPtr,uintptr_t stackSize) {
 	uintptr_t offset = syscall_regs->useresp - copyAddr;
 	if (stackPtr == NULL || stackSize == 0) {
 		// Allocate new stack.
-		uintptr_t rsp = (uintptr_t)sbrk(prc,4096);
-		memset((void *)rsp,0,4096);
+		uintptr_t rsp = (uintptr_t)sbrk(prc,50*4096);
+		memset((void *)rsp,0,50*4096);
 		regs->useresp = rsp;
 	} else {
 		regs->useresp = (uintptr_t)stackPtr;
 	}
 	// Copy the stack otherwise we get em, stack corruption?
 	uintptr_t dstAddr = (uintptr_t)regs->useresp;
-	memcpy((void *)dstAddr,(void *)copyAddr,4096);
+	memcpy((void *)dstAddr,(void *)copyAddr,50*4096);
 	regs->useresp = dstAddr + offset;
 #if defined(__x86_64__)
 	regs->rax = 0;
@@ -1058,4 +1218,20 @@ void arch_clone_current(process_t *prc,void *stackPtr,uintptr_t stackSize) {
 	regs->eax = 0;
 	tsk->forkESP = (int)regs;
 #endif
+}
+void arch_init_drivers() {
+    keyboard_init();
+    fbdev_init();
+    ps2mouse_init();
+    pci_init();
+    mbr_init();
+    //ahci_init();
+    //fat_init();
+    ext2_main();
+    iso9660_init();
+    atapi_init();
+    amdnet_init();
+    amdgpu_init();
+    //usb_ehci_init();
+    ac97_init();
 }

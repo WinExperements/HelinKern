@@ -32,9 +32,9 @@
 #endif
 static int RESERVED_AREA = 0; //16 mb
 static int KERN_PD_AREA_BEGIN = 0x0; //12 mb
-static int KERN_PD_AREA_END = 0x0; 
+static int KERN_PD_AREA_END = 0x0;
 #if defined(__x86_64__)
-static uint64_t kernel_pdpt[512] __attribute__((aligned(4096))); 
+static uint64_t kernel_pdpt[512] __attribute__((aligned(4096)));
 static uint64_t kernel_pml4[512]__attribute__((aligned(4096)));
 static uint64_t kernel_pg[512] __attribute__((aligned(4096)));
 static uint64_t kernel_pt[512] __attribute__((aligned(4096)));
@@ -66,8 +66,9 @@ uintptr_t liminePhys(void *ptr) {
 #endif
 void arch_mmu_init() {
     // Reserve specific memory
-    KERN_PD_AREA_BEGIN = 0x00F00000;
-    KERN_PD_AREA_END = 0x0100000A;
+    KERN_PD_AREA_BEGIN = /*0x00F00000*/arch_getKernelEnd() + 8192;
+    KERN_PD_AREA_BEGIN = (KERN_PD_AREA_BEGIN + 4095) & ~4095;
+    KERN_PD_AREA_END = KERN_PD_AREA_BEGIN + 0x10000a;
     RESERVED_AREA = arch_getKernelEnd();
     alloc_reserve(0,RESERVED_AREA);
     if (arch_getKernelEnd() > RESERVED_AREA) {
@@ -110,8 +111,8 @@ void arch_mmu_init() {
     for (i = 0; i < end_index; ++i)
     {
 	    // TODO: Remove PG_USER and fix all #PG after it
-        kernel_pg[i] = (i * PAGESIZE_4M | (PG_PRESENT | PG_WRITE | PG_4MB));//add PG_USER for accesing kernel code in user mode
-	
+        kernel_pg[i] = (i * PAGESIZE_4M | (PG_PRESENT | PG_WRITE | PG_4MB | PG_USER));//add PG_USER for accesing kernel code in user mode
+
     }
     for (i = end_index; i < 1024; ++i)
     {
@@ -134,15 +135,13 @@ void arch_mmu_init() {
 #endif
 }
 static void add_page_to_pd(void *v_addr,paddr_t p_addr,int flags) {
-#if !defined(__x86_64__)	
+#if !defined(__x86_64__)
     int pd_index = (((uintptr_t) v_addr & 0xFFFFFFFF) >> 22);
     int pt_index = (((uintptr_t) v_addr & 0xFFFFFFFF) >> 12) & 0x03FF;
 
     uint32_t* pd = (uint32_t*)0xFFFFF000;
 
     uint32_t* pt = ((uint32_t*)0xFFC00000) + (0x400 * pd_index);
-
-    uint32_t cr3 = 0;
 
     /*if (v_addr < (void *)KERN_HEAP_END)
     {
@@ -173,11 +172,6 @@ static void add_page_to_pd(void *v_addr,paddr_t p_addr,int flags) {
 
     pt[pt_index] = (p_addr) | (flags & 0xFFF);
     INVALIDATE(v_addr);
-    if (0 != cr3)
-    {
-        //restore
-        CHANGE_PD(cr3);
-    }
 #else
     // get indexes.
     vaddr_t vaddr = (vaddr_t)v_addr;
@@ -292,6 +286,11 @@ static void remove_page(void *v_addr) {
 	if ((pml4[pdpIndex] & PG_PRESENT) != PG_PRESENT) return;
 	if ((pdp[pdIndex] & PG_PRESENT) != PG_PRESENT) return;
 	if ((pd[ptIndex] & PG_PRESENT) != PG_PRESENT) return;
+	if ((pt[pageIndex] & PG_OWNED) == PG_OWNED) {
+		uint64_t physAddr = pt[pageIndex];
+		physAddr &= ~0xfff; // remove all flags.
+		alloc_freePage(physAddr);
+	}
 	pt[pageIndex] = 0;
 	INVALIDATE(v_addr);
 #else
@@ -335,31 +334,37 @@ size_t arch_mmu_unmap(aspace_t *aspace,vaddr_t vaddr,uint32_t pageCount) {
 /*
  * Return virtual address in which required size can fit.
 */
-int arch_mmu_query(aspace_t *aspace,vaddr_t start,uintptr_t size) {
+uintptr_t arch_mmu_query(aspace_t *aspace,vaddr_t start,uintptr_t size) {
 #if !defined(__x86_64__)
 	int pd_index = PAGE_DIRECTORY_INDEX(start);
 	int pt_index = PAGE_TABLE_INDEX(start);
 	int sizeInPages = size / 4096;
+        if (sizeInPages == 0) {
+                sizeInPages = 1;
+        }
 	int *pd = (int *)0xFFFFF000;
 	int foundedPages = 0;
 	uint32_t* pt = ((uint32_t*)0xFFC00000) + (0x400 * pd_index);
+        uintptr_t fndPt = 0;
 	for (; pd_index <= 1024; pd_index++) {
 		if (pd[pd_index] == 0) {
 			// Page directory doesn't allocated.
-			kprintf("%s: page directory doesn't allocated, so we found it at 0x%x\r\n",__func__,start);
-			return start;
+			return GET_VIRTUAL_ADDRESS(pd_index,pt_index,0);
 		}
 		for (; pt_index < 1024; pt_index++) {
 			if (pt[pt_index] == 0) {
+                                if (fndPt == 0) {
+                                        fndPt = pt_index;
+                                }
 				foundedPages++;
 			} else {
 				// Reset.
 				foundedPages = 0;
+                                fndPt = 0;
 			}
 			start+=4096;
 			if (foundedPages == sizeInPages) {
-				kprintf("FOUND! At 0x%x!\r\n",start);
-				return start;
+				return GET_VIRTUAL_ADDRESS(pd_index,pt_index,0);
 			}
 		}
 		pt = ((uint32_t*)0xFFC00000) + (0x400 * pd_index);
@@ -367,62 +372,6 @@ int arch_mmu_query(aspace_t *aspace,vaddr_t start,uintptr_t size) {
 	}
 	return -1;
 #else
-	/*void *v_addr = (void *)start;
-	vaddr_t vaddr = (vaddr_t)v_addr;
-        vaddr_t indv = (vaddr_t)v_addr;
-        indv >>= 12;
-        int pageIndex = indv & 0x1ff;
-        indv >>= 9;
-        int ptIndex = indv & 0x1ff;
-        indv >>= 9;
-        int pdIndex = indv & 0x1ff;
-        indv >>= 9;
-        uint64_t pdpIndex = indv & 0x1ff;
-        uint64_t *pml4 = (uint64_t *) 0xffffff7fbfdfe000; // we use recursive strategy, so this is our active PML4 address.
-        uint64_t pdpAddr = 0xffffff7fbfc00000 + (0x1000 * pdpIndex);
-        uint64_t pdAddr = 0xffffff7f80000000 + (0x200000 * pdpIndex) + (0x1000 * pdIndex);
-        uint64_t ptAddr = 0xffffff0000000000;
-        uint64_t ptOffset = (0x40000000 * pdpIndex);
-        ptAddr += ptOffset; 
-        ptAddr += (0x200000 * pdIndex);
-        ptAddr += (0x1000 * ptIndex);
-        uint64_t *pdp = (uint64_t *)pdpAddr;
-        uint64_t *pd = (uint64_t *)pdAddr;
-        uint64_t *pt = (uint64_t *)ptAddr;
-	int pages = size / 4096;
-	int pagesFound = 0;
-	// Check each page level for the existance of tables.
-	if ((pml4[pdpIndex] & PG_PRESENT) != PG_PRESENT) return start;
-	if ((pdp[pdIndex] & PG_PRESENT) != PG_PRESENT) return start;
-	if ((pd[ptIndex] & PG_PRESENT) != PG_PRESENT) return start;
-
-	// Now check some tables?
-	for (; pdIndex < 511; pdIndex++) {
-		if (pdp[pdIndex] == 0) return start;
-		for (; ptIndex <= 509; ptIndex++) {
-			if (pd[ptIndex] == 0) return start;
-			for (int i = 0; i < 509; i++) {
-				if (pt[i] == 0) {
-					pagesFound++;
-				} else {
-					pagesFound = 0;
-				}
-				start+=4096;
-				if (pagesFound == pages) {
-					return start;
-				}
-			}
-			ptAddr = 0xffffff0000000000;
-        		ptOffset = (0x40000000 * pdpIndex);
-        		ptAddr += ptOffset; 
-        		ptAddr += (0x200000 * pdIndex);
-        		ptAddr += (0x1000 * ptIndex);
-			pt = (uint64_t*)ptAddr;
-			ptIndex = 0;
-		}
-		pdAddr = 0xffffff7f80000000 + (0x200000 * pdpIndex) + (0x1000 * pdIndex);
-		pd = (uint64_t *)pdAddr;
-	}*/
 	int pages = size / 4096;
 	void *v_addr = (void *)start;
         vaddr_t vaddr = (vaddr_t)v_addr;
@@ -447,16 +396,17 @@ int arch_mmu_query(aspace_t *aspace,vaddr_t start,uintptr_t size) {
 	uint64_t pdPhys = pdpt[0];
 	pdPhys &= ~0xfff;
 	int pagesFound = 0;
+	int pageID = 0;
 	for (; pdpIndex < 7; pdpIndex++) {
 		pdpAddr = 0xffffff7fbfc00000 + (0x1000 * pdpIndex);
 		pdpt = (uint64_t *)pdpAddr;
-		if (pml4[pdpIndex] == 0) return start;	// nothing here
+		if (pml4[pdpIndex] == 0) return GET_VIRTUAL_ADDRESS(pdpIndex,pdIndex,ptIndex,0,0);	// nothing here
 		for (; pdIndex < 510; pdIndex++) {
-			if ((pdpt[pdIndex] & PG_PRESENT) != PG_PRESENT) return start;
+			if ((pdpt[pdIndex] & PG_PRESENT) != PG_PRESENT) return GET_VIRTUAL_ADDRESS(pdpIndex,pdIndex,ptIndex,0,0);
 			pdAddr = 0xffffff7f80000000 + (0x200000 * pdpIndex) + (0x1000 * pdIndex);
 			pd = (uint64_t*)pdAddr;
 			for (; ptIndex < 510; ptIndex++) {
-				if ((pd[ptIndex] & PG_PRESENT) != PG_PRESENT) return start;
+				if ((pd[ptIndex] & PG_PRESENT) != PG_PRESENT) return GET_VIRTUAL_ADDRESS(pdpIndex,pdIndex,ptIndex,0,0);
 				uint64_t ptOffset = 0x40000000 * pdpIndex;
 				ptAddr = 0xffffff0000000000;
     				ptAddr += ptOffset;
@@ -465,13 +415,19 @@ int arch_mmu_query(aspace_t *aspace,vaddr_t start,uintptr_t size) {
 				pt = (uint64_t*)ptAddr;
 				for (int pgIndex = 0; pgIndex < 511; pgIndex++) {
 					if (pt[pgIndex] == 0) {
+						if (pageID == 0) {
+							pageID = pgIndex;
+						}
 						pagesFound++;
 					} else {
 						pagesFound = 0;
+						pageID = 0;
 					}
 					start+=4096;
 					if (pages == pagesFound) {
-						return start;
+						if (pageID != 0) {
+							return GET_VIRTUAL_ADDRESS(pdpIndex,pdIndex,ptIndex,pageID,0);
+						}
 					}
 				}
 			}
@@ -532,8 +488,11 @@ void *arch_mmu_newAspace() {
             for (int i = 0; i < 256; i++) {
                 pd[i] = kernel_pg[i] & ~PG_OWNED;
             }
-            for (int i = 256; i < 1024; i++) {
+            for (int i = 256; i < 960; i++) {
                 pd[i] = 0;
+            }
+            for (int i = 960; i < 1023; i++) {
+                    pd[i] = kernel_pg[i] & ~PG_OWNED;
             }
             pd[1023] = address | PG_PRESENT | PG_WRITE;
             return pd;
@@ -559,12 +518,15 @@ void arch_mmu_destroyAspace(aspace_t *space, bool all) {
     uint32_t* pd = (uint32_t*)0xFFFFF000;
 
     uint32_t cr3 = read_cr3();
-
+    int before = alloc_getUsedPhysMem() / 1024;
     CHANGE_PD(space);
-
+    int destroyedPages = 0;
+    int to = 576; // Mostly here all the hardware mapping begins....
+    //if (all) to = 1023;
     //this 1023 is very important
     //we must not touch pd[1023] since PD is mapped to itself. Otherwise we corrupt the whole system's memory.
-    for (int pd_index = 256; pd_index < 1023; ++pd_index)
+    // We must destroy only some sort process address space as we can destroy some kernel required data(like framebuffer)
+    for (int pd_index = 256; pd_index < to; ++pd_index)
     {
         if ((pd[pd_index] & PG_PRESENT) == PG_PRESENT)
         {
@@ -573,28 +535,28 @@ void arch_mmu_destroyAspace(aspace_t *space, bool all) {
             for (int pt_index = 0; pt_index < 1024; ++pt_index)
             {
                 if ((pt[pt_index] & PG_PRESENT) == PG_PRESENT)
-                {
+            {
                     bool allowed = (all ? true : ((pt[pt_index] & PG_WRITE) == PG_WRITE));
                     if ((pt[pt_index] & PG_OWNED) == PG_OWNED && allowed)
                     {
                         uint32_t physicalFrame = pt[pt_index] & ~0xFFF;
                         alloc_freePage(physicalFrame);
+			destroyedPages++;
+                        pt[pt_index] = 0;
                     }
                 }
-                pt[pt_index] = 0;
             }
-
-            if ((pd[pd_index] & PG_OWNED) == PG_OWNED)
+            if (((pd[pd_index] & PG_OWNED) == PG_OWNED))
             {
                 uint32_t physicalFramePT = pd[pd_index] & ~0xFFF;
                 alloc_freePage(physicalFramePT);
+                pd[pd_index] = 0;
             }
         }
-
-        pd[pd_index] = 0;
     }
     //return to caller's Page Directory
     CHANGE_PD(cr3);
+    //kprintf("Destroyed pages: %d. Used before: %d KiB. Now: %d\n",destroyedPages,before,alloc_getUsedPhysMem()/1024);
 #else
     	uint64_t curCr3 = read_cr3();
 	CHANGE_PD(space);
@@ -609,15 +571,24 @@ void arch_mmu_destroyAspace(aspace_t *space, bool all) {
 	pdptPhys &= ~0xfff;
 	uint64_t pdPhys = pdpt[0];
 	pdPhys &= ~0xfff;
-	for (int pdpIndex = 0; pdpIndex < 7; pdpIndex++) {
+	int pdpTo = 1;
+	int pdTo = 2;
+	int ptTo = 128;
+	if (all) {
+		pdpTo = 2;
+		pdTo = 510;
+		ptTo = 511;
+	}
+	int pdIndex = 1;
+	for (int pdpIndex = 0; pdpIndex < pdpTo; pdpIndex++) {
 		pdpAddr = 0xffffff7fbfc00000 + (0x1000 * pdpIndex);
 		pdpt = (uint64_t *)pdpAddr;
 		if (pml4[pdpIndex] == 0) continue;	// nothing here
-		for (int pdIndex = 0; pdIndex < 510; pdIndex++) {
+		for (; pdIndex < pdTo; pdIndex++) {
 			if ((pdpt[pdIndex] & PG_PRESENT) != PG_PRESENT) continue;
 			pdAddr = 0xffffff7f80000000 + (0x200000 * pdpIndex) + (0x1000 * pdIndex);
 			pd = (uint64_t*)pdAddr;
-			for (int ptIndex = 0; ptIndex < 510; ptIndex++) {
+			for (int ptIndex = 0; ptIndex < ptTo; ptIndex++) {
 				if ((pd[ptIndex] & PG_PRESENT) != PG_PRESENT) continue;
 				uint64_t ptOffset = 0x40000000 * pdpIndex;
 				ptAddr = 0xffffff0000000000;
@@ -625,7 +596,7 @@ void arch_mmu_destroyAspace(aspace_t *space, bool all) {
     				ptAddr += (0x200000 * pdIndex);
     				ptAddr += (0x1000 * ptIndex);
 				pt = (uint64_t*)ptAddr;
-				for (int pgIndex = 0; pgIndex < 511; pgIndex++) {
+				for (int pgIndex = 0; pgIndex < ptTo; pgIndex++) {
 					if (((pt[pgIndex] & PG_OWNED) == PG_OWNED)) {
 						if (!all) {
 							if ((pt[pgIndex] & PG_WRITE) != PG_WRITE) {
@@ -638,13 +609,28 @@ void arch_mmu_destroyAspace(aspace_t *space, bool all) {
 						alloc_freePage(phys);
 						pt[pgIndex] = 0;
 					}
-				}	
+				}
+				if (all) {
+					if ((pd[ptIndex] & PG_OWNED) == PG_OWNED) {
+						uint64_t ptPhys = pd[ptIndex] & ~0xFFF;
+						alloc_freePage(ptPhys);
+					}
+				}
+			}
+			if (all) {
+				if ((pdpt[pdIndex] & PG_OWNED) == PG_OWNED) {
+					uint64_t pdPhys = pdpt[pdIndex] & ~0xFFF;
+					alloc_freePage(pdPhys);
+				}
 			}
 		}
+		pdIndex = 0;
 	}
 	// Destroy the pdpt and pd at index 0.
-	alloc_freePage(pdptPhys);
-	alloc_freePage(pdPhys);
+	if (all) {
+		alloc_freePage(pdptPhys);
+		alloc_freePage(pdPhys);
+	}
 	CHANGE_PD(curCr3);
 #endif
 }
@@ -705,14 +691,22 @@ void *arch_mmu_getPhysical(void *virtual) {
     int *ptable = (int *)0xFFFFF000;
     int index = PAGE_DIRECTORY_INDEX(vaddr);
     int page_index = PAGE_TABLE_INDEX(vaddr);
-
+    if (index < 0 || page_index < 0) {
+    return NULL;
+  }
     if (index >= 1024 || page_index >= 1024)
         return NULL; // Invalid virtual address
-
     if (ptable[index] == 0) {
 	    return NULL;
 	}
     int *table = ((uint32_t*)0xFFC00000) + (0x400 * index);
+    if ((table[page_index] & PG_PRESENT) != PG_PRESENT) {
+	    // Maybe this is 4M page?
+	    if ((paddr_t)virtual <= (paddr_t)kernel_end) {
+		    // Kernel pages are mapped as linear.
+		    return virtual;
+		}
+    }
     int physAddr = table[page_index] & ~0xfff;
     int align = vaddr & 0xfff;
 
@@ -739,32 +733,40 @@ bool arch_mmu_duplicate(aspace_t *parent, aspace_t *child) {
         CHANGE_PD(parent);
 	    int index = 256;
         for (int pd_index = index; pd_index < 1023; ++pd_index)
-        {                                                     
+        {
                 if ((pd[pd_index] & PG_PRESENT) == PG_PRESENT)
-                {                                                                   
+                {
                         uint32_t* pt = ((uint32_t*)0xFFC00000) + (0x400 * pd_index);
-                                                                           
+
                         for (int pt_index = 0; pt_index < 1024; ++pt_index)
-                        {                                                     
+                        {
                                 if ((pt[pt_index] & PG_PRESENT) == PG_PRESENT)
-                                {                                                 
+                                {
                                         if ((pt[pt_index] & PG_OWNED) == PG_OWNED)
-                                        {      
+                                        {
 
 
 
                                                 uint32_t physicalFrame = pt[pt_index] & ~0xFFF;
-						                        uint32_t virtual = GET_VIRTUAL_ADDRESS(pd_index,pt_index,0);
-						                        //uint32_t child_phys = alloc_getPage();
-									            //copy_page_physical(physicalFrame,child_phys);
-						                        //kprintf("%s: copy address 0x%x, 0x%x\n",__func__,virtual,physicalFrame);
+						uint32_t virtual = GET_VIRTUAL_ADDRESS(pd_index,pt_index,0);
+						//uint32_t child_phys = alloc_getPage();
+						//copy_page_physical(physicalFrame,child_phys);
+						//kprintf("%s: copy address 0x%x, 0x%x\n",__func__,virtual,physicalFrame);
 
-						                        /* Copy-On-Write! */
-						                        CHANGE_PD(child);
-						                        arch_mmu_mapPage(NULL,virtual,physicalFrame,PG_PRESENT | PG_USER | PG_OWNED);
-						                        CHANGE_PD(parent);
-									            arch_mmu_mapPage(NULL,virtual,physicalFrame,PG_PRESENT | PG_USER | PG_OWNED);
-                                        }
+						/* Copy-On-Write! */
+						CHANGE_PD(child);
+						arch_mmu_mapPage(NULL,virtual,physicalFrame,PG_PRESENT | PG_USER | PG_OWNED);
+						CHANGE_PD(parent);
+						arch_mmu_mapPage(NULL,virtual,physicalFrame,PG_PRESENT | PG_USER | PG_OWNED);
+                                        } else {
+						// just map the page.
+						int flags = pt[pt_index] & 0xFFF;
+						int phys = pt[pt_index] & ~0xFFF;
+						int virt = GET_VIRTUAL_ADDRESS(pd_index,pt_index,0);
+						CHANGE_PD(child);
+						arch_mmu_mapPage(NULL,virt,phys,flags);
+						CHANGE_PD(parent);
+					}
                                 }
                         }
                 }
@@ -784,11 +786,13 @@ bool arch_mmu_duplicate(aspace_t *parent, aspace_t *child) {
 	uint64_t *pdpt = (uint64_t *)pdpAddr;
 	uint64_t *pd = (uint64_t *)pdAddr;
 	uint64_t *pt = (uint64_t *)ptAddr;
+	int a = 0;
+	int pdIndex = 1;
 	for (int pdpIndex = 0; pdpIndex < 7; pdpIndex++) {
 		pdpAddr = 0xffffff7fbfc00000 + (0x1000 * pdpIndex);
 		pdpt = (uint64_t *)pdpAddr;
 		if (pml4[pdpIndex] == 0) continue;	// nothing here
-		for (int pdIndex = 0; pdIndex < 510; pdIndex++) {
+		for (; pdIndex < 510; pdIndex++) {
 			if ((pdpt[pdIndex] & PG_PRESENT) != PG_PRESENT) continue;
 			pdAddr = 0xffffff7f80000000 + (0x200000 * pdpIndex) + (0x1000 * pdIndex);
 			pd = (uint64_t*)pdAddr;
@@ -800,24 +804,35 @@ bool arch_mmu_duplicate(aspace_t *parent, aspace_t *child) {
     				ptAddr += (0x200000 * pdIndex);
     				ptAddr += (0x1000 * ptIndex);
 				pt = (uint64_t*)ptAddr;
-				for (int pgIndex = 0; pgIndex < 511; pgIndex++) {
-					if ((pt[pgIndex] & PG_OWNED) == PG_OWNED) {
-						if ((pt[pgIndex] & PG_USER) != PG_USER) continue;
-						// remove write permission in owner table.
-						uint64_t phys = pt[pgIndex];
-						phys &= ~0xfff;
-						pt[pgIndex] = (phys | (PG_PRESENT | PG_USER | PG_OWNED));
-						CHANGE_PD(child);
-						uint64_t virtualAddress = (uint64_t)GET_VIRTUAL_ADDRESS(pdpIndex,pdIndex,ptIndex,pgIndex,0);
-						arch_mmu_mapPage(NULL,virtualAddress,phys,(PG_PRESENT | PG_USER | PG_OWNED));
-						CHANGE_PD(parent);
-						//kprintf("Cloned 0x%x\r\n",virtualAddress);
-						//PANIC("AAAAAA");
+				for (int pgIndex = 0; pgIndex < 512; pgIndex++) {
+					if ((pt[pgIndex] & PG_PRESENT) == PG_PRESENT) {
+						if ((pt[pgIndex] & PG_OWNED) == PG_OWNED) {
+							if ((pt[pgIndex] & PG_USER) != PG_USER) continue;
+							// remove write permission in owner table.
+							uint64_t phys = pt[pgIndex];
+							phys &= ~0xfff;
+							pt[pgIndex] = (phys | (PG_PRESENT | PG_USER | PG_OWNED));
+							CHANGE_PD(child);
+							uint64_t virtualAddress = (uint64_t)GET_VIRTUAL_ADDRESS(pdpIndex,pdIndex,ptIndex,pgIndex,0);
+							arch_mmu_mapPage(NULL,virtualAddress,phys,(PG_PRESENT | PG_USER | PG_OWNED));
+							CHANGE_PD(parent);
+							//kprintf("Cloned 0x%x\r\n",virtualAddress);
+							//PANIC("AAAAAA");
+						} else {
+							int flags = pt[pgIndex] & 0xfff;
+							uint64_t phys = pt[pgIndex];
+							phys &= ~0xfff;
+							uintptr_t virt = GET_VIRTUAL_ADDRESS(pdpIndex,pdIndex,ptIndex,pgIndex,0);
+							CHANGE_PD(child);
+							arch_mmu_mapPage(NULL,virt,phys,flags);
+							CHANGE_PD(parent);
+						}
 					}
-				}	
+				}
 			}
 		}
-}
+		pdIndex = 0;
+	}
 	if (orig != NULL) {
 		CHANGE_PD(orig);
 	}
@@ -841,3 +856,84 @@ void copy_page_physical(uintptr_t src,uintptr_t dest) {
 	remove_page((void *)srcOf);
 }
 #endif
+int arch_mmu_processFlags(int flags) {
+	int ret = PG_PRESENT;
+	if ((flags & PROT_WRITE) == PROT_WRITE) { // PROT_WRITE
+		ret |= PG_WRITE;
+	}
+	if ((flags & PROT_USER) == PROT_USER) {
+		ret |= PG_USER;
+	}
+	if ((flags & PROT_OWNED) == PROT_OWNED) {
+		ret |= PG_OWNED;
+	}
+	// NX bit currently not supported :(
+	return ret;
+}
+bool arch_mmu_createTables(vaddr_t from,vaddr_t to) {
+#if defined(__x86_64__)
+	from >>= 12;
+	from >>= 9;
+	int fromPtIndex = from & 0x1ff;
+	from >>= 9;
+	int fromPdIndex = from & 0x1ff;
+	to >>= 12;
+	to >>= 9;
+	int toPtIndex = to & 0x1ff;
+	to >>= 9;
+	int toPdIndex = to & 0x1ff;
+	uint64_t *pml4 = (uint64_t *) 0xffffff7fbfdfe000;
+	uint64_t pdpAddr = 0xffffff7fbfc00000;
+	uint64_t *pdp = (uint64_t *)pdpAddr;
+	if (toPtIndex <= fromPtIndex) {
+		toPtIndex = 511 - toPtIndex;
+	}
+	for (; fromPdIndex < toPdIndex; fromPdIndex++) {
+		uint64_t pdAddr = 0xffffff7f80000000 + (0x200000 * 0) + (0x1000 * fromPdIndex);
+		uint64_t *pd = (uint64_t *)pdAddr;
+		if ((pdp[fromPdIndex] & PG_PRESENT) != PG_PRESENT) {
+			uint64_t *newpd = (uint64_t *)alloc_getPage();
+	    		pdp[fromPdIndex] = ((uint64_t)newpd | 3);
+	    		memset(pd,0,4096);
+	    		pd[511] = ((uint64_t)newpd | 3);
+			// PD is available now?
+		}
+		for (; fromPtIndex < toPtIndex; fromPtIndex++) {
+			// Check if the pt exist.
+			uint64_t ptAddr = 0xffffff0000000000;
+    			uint64_t ptOffset = (0x40000000 * 0);
+    			ptAddr += ptOffset;
+    			ptAddr += (0x200000 * fromPdIndex);
+    			ptAddr += (0x1000 * fromPtIndex);
+			uint64_t *pt = (uint64_t *)ptAddr;
+			if ((pd[fromPtIndex] & PG_PRESENT) != PG_PRESENT) {
+				uint64_t *newpt = (uint64_t *)alloc_getPage();
+	    			pd[fromPtIndex] = ((uint64_t)newpt | 3);
+	    			pd[511] = ((uint64_t)pd | 3);
+	    			memset(pt,0,4096);
+			}
+		}
+		fromPtIndex = 0;
+	}
+	return true;
+#endif
+        int pdFrom = PAGE_DIRECTORY_INDEX(from);
+        int pdTo = PAGE_DIRECTORY_INDEX(to);
+        int *pd = (int *)0xFFFFF000;
+        for (int pdIndx = pdFrom; pdIndx < pdTo; pdIndx++) {
+                uint32_t* pt = ((uint32_t*)0xFFC00000) + (0x400 * pdIndx);
+                if ((pd[pdIndx] & PG_PRESENT) != PG_PRESENT) {
+                        uintptr_t newTableAddr = alloc_getPage();
+                        pd[pdIndx] = (newTableAddr) | 3;
+                        INVALIDATE(0x1000);
+                        memset(pt,0,4096);
+                }
+        }
+	return true;
+}
+uintptr_t arch_mmu_get_io_addr(uintptr_t size) {
+        return arch_mmu_query(NULL,0xf0000000,size);
+}
+uintptr_t arch_mmu_getPageSize() {
+        return 4096;
+}

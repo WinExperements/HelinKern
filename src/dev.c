@@ -16,8 +16,9 @@ static bool devfs_readBlock(struct vfs_node *node,int blockN,int how,void *buff)
 static bool devfs_writeBlock(struct vfs_node *node,int blockN,int how,void *buff);
 static uint64_t devfs_ioctl(struct vfs_node *node,int request,va_list args);
 static bool devfs_isReady(struct vfs_node *node);
+static void devfs_close(vfs_node_t *node);
 static vfs_node_t *devfs_finddir(struct vfs_node *in,char *name);
-static struct dirent *devfs_readdir(struct vfs_node *dir,uint32_t index);
+static int devfs_readdir(struct vfs_node *dir,uint32_t index,struct dirent *to);
 static struct dirent devDirent; // global dirent for all code :)
 static bool devfs_mount(vfs_node_t *dev,vfs_node_t *mptr,void *unused);
 void dev_init() {
@@ -36,6 +37,7 @@ void dev_init() {
     fs->readdir = devfs_readdir; // ls or something
     fs->finddir = devfs_finddir;
     fs->mount = devfs_mount;
+    fs->close = devfs_close;
     vfs_addFS(fs);
     // Register some base devices(null,zero)
     dev_t *nulldev = (dev_t *)kmalloc(sizeof(dev_t));
@@ -55,6 +57,9 @@ void dev_add(dev_t *dev) {
     fil->priv_data = dev;
     fil->mask = dev->mode;
     fil->mask |= (S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
+    if ((dev->type & DEVFS_TYPE_BLOCK) == DEVFS_TYPE_BLOCK) {
+            fil->flags |= VFS_BLOCK;
+        }
     dev->devNode = fil;
     if (!device) {
         device = dev;
@@ -153,20 +158,21 @@ static vfs_node_t *devfs_finddir(struct vfs_node *in,char *name) {
     }
     return NULL;
 }
-static struct dirent *devfs_readdir(struct vfs_node *dir,uint32_t index) {
+static int devfs_readdir(struct vfs_node *dir,uint32_t index,struct dirent *to) {
     uint32_t i = 0;
     dev_t *start = device;
     while(start) {
         if (start->devNode != NULL) {
             if (i == index) {
-                strcpy(devDirent.name,start->name);
-                return &devDirent;
+                strcpy(to->name,start->name);
+                to->type = start->devNode->flags;
+                return 1;
             }
         }
         i++;
         start = start->next;
     }
-    return NULL;
+    return 0;
 }
 static bool devfs_mount(vfs_node_t *dev,vfs_node_t *mptr,void *unused) {
     if (dev == NULL || mptr == NULL) {
@@ -174,8 +180,18 @@ static bool devfs_mount(vfs_node_t *dev,vfs_node_t *mptr,void *unused) {
         return false;
     }
     mptr->fs = fs;
+    mptr->priv_data = NULL; // clean this shit.
     return true;
 }
 dev_t *dev_getRoot() {
 	return device;
+}
+static void devfs_close(vfs_node_t *dev) {
+	if (dev != NULL) {
+		dev_t *d = (dev_t *)dev->priv_data;
+		if (d->close != NULL) {
+			// Invoke this callback handler.
+			d->close(dev);
+		}
+	}
 }

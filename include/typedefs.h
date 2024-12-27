@@ -32,7 +32,7 @@ typedef __PTRDIFF_TYPE__ ssize_t;
 typedef unsigned short tcflag_t;
 typedef unsigned int speed_t;
 typedef enum {false,true} bool;
-#define OS_VERSION	"0.0.1"
+#define OS_VERSION	"0.0.2"
 #define OS_RELEASE	__DATE__
 #define PANIC(msg) panic(__FILE__,__LINE__,msg)
 #define assert(exp) (exp) ? 0 : panic(__FILE__,__LINE__,"Assert fail!")
@@ -165,5 +165,61 @@ static inline uint64_t swap_bytes64(uint64_t _x)
 
 #endif /* ! WORDS_BIGENDIAN */
 
+// errors.
+#define	EPERM 1		/* Not owner */
+#define	ENOENT 2	/* No such file or directory */
+#define	ESRCH 3		/* No such process */
+#define	EINTR 4		/* Interrupted system call */
+#define	EIO 5		/* I/O error */
+#define	ENXIO 6		/* No such device or address */
+#define	E2BIG 7		/* Arg list too long */
+#define	ENOEXEC 8	/* Exec format error */
+#define	EBADF 9		/* Bad file number */
+#define	ECHILD 10	/* No children */
+#define	EAGAIN 11	/* No more processes */
+#define	ENOMEM 12	/* Not enough space */
+#define	EACCES 13	/* Permission denied */
+#define	EFAULT 14	/* Bad address */
+#define	EBUSY 16	/* Device or resource busy */
+#define	EEXIST 17	/* File exists */
+#define	EXDEV 18	/* Cross-device link */
+#define	ENODEV 19	/* No such device */
+#define	ENOTDIR 20	/* Not a directory */
+#define	EISDIR 21	/* Is a directory */
+#define	EINVAL 22	/* Invalid argument */
+#define	ENFILE 23	/* Too many open files in system */
+#define	EMFILE 24	/* File descriptor value too large */
+#define	ENOTTY 25	/* Not a character device */
+#define	ETXTBSY 26	/* Text file busy */
+#define	EFBIG 27	/* File too large */
+#define	ENOSPC 28	/* No space left on device */
+#define	ESPIPE 29	/* Illegal seek */
+#define	EROFS 30	/* Read-only file system */
+#define	EMLINK 31	/* Too many links */
+#define	EPIPE 32	/* Broken pipe */
+#define	EDOM 33		/* Mathematics argument out of domain of function */
+#define	ERANGE 34	/* Result too large */
+#define	ENOMSG 35	/* No message of desired type */
+#define	EIDRM 36	/* Identifier removed */
+#define	EDEADLK 45	/* Deadlock */
+#define	ENOLCK 46	/* No lock */
+#define ENOSTR 60	/* Not a stream */
+#define ENODATA 61	/* No data (for no delay io) */
+#define ETIME 62	/* Stream ioctl timeout */
+#define ENOSR 63	/* No stream resources */
+#define ENOLINK 67	/* Virtual circuit is gone */
+#define EPROTO 71	/* Protocol error */
+#define	EMULTIHOP 74	/* Multihop attempted */
+#define EBADMSG 77	/* Bad message */
+#define EFTYPE 79	/* Inappropriate file type or format */
+#define ENOTUNIQ 80	/* Given log. name not unique */
+#define EBADFD 81	/* f.d. invalid for this operation */
+#define EREMCHG 82	/* Remote address changed */
+#define ELIBACC 83	/* Can't access a needed shared lib */
+#define ELIBBAD 84	/* Accessing a corrupted shared lib */
+#define ELIBSCN 85	/* .lib section in a.out corrupted */
+#define ELIBMAX 86	/* Attempting to link in too many libs */
+#define ELIBEXEC 87	/* Attempting to exec a shared library */
+#define ENOSYS 88	/* Function not implemented */
 #endif
 

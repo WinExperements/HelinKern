@@ -35,7 +35,12 @@ void printVersion() {
 void parseCommand(int argc,char **argv);
 void emergExit(); // exit on unrecoverable error.
 // Yes. Like shell commands, but parsed by internal parser.
-
+static void sigchld_handler(int sig) {
+	/*
+	 * As part of zombie process reaping we must call waitpid
+	*/
+	
+}
 // Service control structure.
 int serialdev_fd = 0;
 typedef struct serv {
@@ -51,12 +56,25 @@ typedef struct serv {
 static service_t *globalServiceList;
 extern char **environ;
 void sigint_handler(int sig);
+void sigusr1_handler(int sig);
+#if !defined(__linux__)
+// Taken from kernel source code.
+struct prcInfo {
+	char name[20];
+	int pid;
+	int status;
+  uintptr_t mem;
+};
+#endif
 int main(int argc,char **argv) {
 	int mypid = getpid();
-	/*if (mypid != 1) {
+	if (mypid != 1) {
 		fprintf(stderr,"The init system can be runned only as PID 1!\r\n");
 		return 1;
-	}*/
+	}
+	// Prepare signal handlers.
+	signal(SIGCHLD,sigchld_handler);
+	signal(SIGUSR1,sigusr1_handler);
 	printVersion();
   	signal(SIGINT,sigint_handler);
 	printf("Configuration path: %s\r\n",CONF_PATH);
@@ -66,12 +84,8 @@ int main(int argc,char **argv) {
 		perror("error");
 		emergExit();
 	}
-  	printf("init[1]: Setting up host name to \"localhost\"\r\n");
-  	char *hostname = "localhost";
-	int hostnamelen = strlen(hostname);
-  	sethostname(hostname,hostnamelen);
  	 // Setup environment.
-	setenv("PATH","/bin:/sbin",1);
+	setenv("PATH","/bin:/sbin:/usr/local/bin",1);
 	// Read init.rc file line by line.
 	char buffer[1024];
 	ssize_t readed;
@@ -107,9 +121,9 @@ int main(int argc,char **argv) {
 	close(rc_fd);
 	printf("init[1]: Creating init command file....");
 	fflush(stdout);
-	int cmdfd = creat("/mnt/initcmd",(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
+	int cmdfd = creat("/tmp/initcmd",(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
 	if (cmdfd < 0) {
-		printf("failure\r\n");
+		perror("error");
 	} else {
 		printf("done\r\n");
 	}
@@ -156,7 +170,17 @@ void emergExit() {
 }
 void parseCommand(int argc,char **argv) {
 	if (argc < 1) return;
-	if (!strcmp(argv[0],"echo")) {
+	if (!strcmp(argv[0],"hostname")) {
+		if (argc < 2) {
+			printf("hostname: pass hostname\n");
+			return;
+		}
+		// calculate size of hostname.
+		int len = strlen(argv[1]);
+		if (sethostname(argv[1],len) < 0) {
+			perror("sethostname");
+		}
+	} else if (!strcmp(argv[0],"echo")) {
 		for (int i = 1; i < argc; i++) {
 			printf("%s ",argv[i]);
 		}
@@ -255,8 +279,7 @@ void parseCommand(int argc,char **argv) {
 		}
 	}
 }
-void sigint_handler(int sig) {
-  printf("init[1]: Perfoming system poweroff\r\n");
+void killServices() {
   printf("Shutting down system services....");
   fflush(stdout);
   for (service_t *srv = globalServiceList; srv != NULL; srv = srv->next) {
@@ -264,10 +287,47 @@ void sigint_handler(int sig) {
 	printf("%s ",srv->serviceName);
 	fflush(stdout);
 	kill(srv->pid,SIGKILL);
+	printf("waiting to end\n");
 	waitpid(srv->pid,NULL,0);
   }
+  printf("\r\nKilling remaining processes...");
+  fflush(stdout);
+#if !defined(__linux__)
+  int howMany = syscall(SYS_ipc,2,'P',0,0,0);
+  struct prcInfo *list = malloc(sizeof(struct prcInfo) * howMany);
+  memset(list,0,sizeof(struct prcInfo) * howMany);
+  if (syscall(SYS_ipc,2,'P',1,(uintptr_t)list,0) < 0) {
+	  perror("Cannot get process list");
+	}
+  printf("Reported %d processes\n",howMany);
+  for (int i = 0; i < howMany; i++) {
+	  if (list[i].pid == 1) continue; // we can't kill ourself
+	  if (list[i].status == 5) {
+		  printf("zombie process detected!\n");
+		  continue;
+	  }
+	  printf("%s ",list[i].name);
+	  fflush(stdout);
+	  kill(list[i].pid,SIGKILL);
+	  //waitpid(list[i].pid,NULL,0); // we need to wait some time otherwise some unexpected things can happen.
+  }
+  free(list);
+#endif
   printf("\r\nDone, unmounting all removable file systems...");
   // TODO
   fflush(stdout);
-  reboot(RB_POWER_OFF);
+}
+void sigint_handler(int sig) {
+	printf("init: perfoming system powerdown.\n");
+  printf("init: waiting some time for system to prepare.\n");
+//  sleep(15);
+	killServices();
+	reboot(RB_POWER_OFF);
+	while(1) {}
+}
+void sigusr1_handler(int sig) {
+	printf("inti: perfoming system reboot\n");
+	killServices();
+	reboot(RB_AUTOBOOT);
+	while(1) {}
 }

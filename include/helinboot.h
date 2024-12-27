@@ -4,7 +4,7 @@
 // HelinOS specific boot description block
 #include <typedefs.h>
 
-#define HELINBOOT_KERNINFO_MAGIC 0xFACB
+#define HELINBOOT_KERNINFO_MAGIC 0x454c494e
 #define HELINBOOT_MMAP_MAGIC 0xABCFA
 #define HELINBOOT_MAGIC 0x48454c494e
 typedef struct memMap {

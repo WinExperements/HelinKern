@@ -25,6 +25,7 @@ void tty_init() {
 	dev->read = tty_read;
 	dev->ioctl = tty_ioctl;
 	dev->isReady = tty_isReady;
+	dev->buffer_sizeMax = 500;
 	dev_add(dev);
 	curState.c_lflag = FLAG_ECHO;
 	// Find keyboard in our devfs
@@ -42,9 +43,6 @@ void tty_init() {
 
 static uint64_t tty_write(vfs_node_t *node,uint64_t offset,uint64_t size,void *buff) {
 	char *char_buff = (char *)buff;
-	if ((curState.c_lflag & FLAG_ECHO) != FLAG_ECHO) {
-		return size;
-	}
 	for (uint64_t i = 0; i < size; i++) {
     		userWrite = true;
 		output_putc(char_buff[i]);
@@ -60,6 +58,7 @@ static uint64_t tty_read(vfs_node_t *node,uint64_t offset,uint64_t size,void *bu
 
 static uint64_t tty_ioctl(vfs_node_t *node,int request,va_list args) {
 	void *arg = va_arg(args,void *);
+  int *a = NULL;
 	switch(request) {
 		case 1:
 			// get
@@ -71,6 +70,11 @@ static uint64_t tty_ioctl(vfs_node_t *node,int request,va_list args) {
 			break;
 		case 3:
 			output_clear();
+			break;
+		case 4:
+			//tty's currently.
+			a = (int *)arg;
+			*a = 10;
 			break;
 		default:
 			return -1;

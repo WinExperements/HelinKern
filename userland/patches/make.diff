@@ -1,0 +1,21 @@
+Only in make-3.82: build
+diff --color -crB orig/make-3.82/config/config.sub make-3.82/config/config.sub
+*** orig/make-3.82/config/config.sub	2010-07-28 08:42:11.000000000 +0300
+--- make-3.82/config/config.sub	2024-12-20 20:11:17.719372395 +0200
+***************
+*** 1317,1323 ****
+  	      | -os2* | -vos* | -palmos* | -uclinux* | -nucleus* \
+  	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
+  	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
+! 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops* | -es*)
+  	# Remember, each alternative MUST END IN *, to match a version number.
+  		;;
+  	-qnx*)
+--- 1317,1323 ----
+  	      | -os2* | -vos* | -palmos* | -uclinux* | -nucleus* \
+  	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
+  	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
+! 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops* | -es* | -helin*)
+  	# Remember, each alternative MUST END IN *, to match a version number.
+  		;;
+  	-qnx*)

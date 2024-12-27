@@ -65,7 +65,7 @@ int msg_createIPC(process_t *caller,void *arg) {
 	memset(autoDestroy,0,sizeof(vfs_node_t));
 	autoDestroy->fs = msgFs;
 	autoDestroy->priv_data = obj;
-	return thread_openFor(caller,autoDestroy);
+	return thread_openFor(caller,autoDestroy,FD_RDWR);
 }
 int msg_command(process_t *caller,int cmd,void *arg) {
 	UserMsgObj *obj = (UserMsgObj *)arg;

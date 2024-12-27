@@ -16,9 +16,11 @@ typedef struct dev {
     bool (*writeBlock)(struct vfs_node *node,int blockNo,int how,void *buf);
     uint64_t (*ioctl)(struct vfs_node *node,int request,va_list args);
     bool (*isReady)(struct vfs_node *node); // select syscall
+    void (*close)(struct vfs_node *node); // some devices need this.
     // Power device type functions. Can be ignored.
     bool (*poweroff)(struct vfs_node *node);
     bool (*poweron)(struct vfs_node *node);
+
     void *device;
     int type;
     int mode;

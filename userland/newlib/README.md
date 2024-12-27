@@ -1,2 +1,2 @@
 # newlib
-OS specific files for newlib
+OS specific files for newlib and also apps.

@@ -6,10 +6,6 @@
 #include <mm/alloc.h>
 #include <thread.h>
 #include <syscall.h>
-#ifdef X86
-#include <dev/keyboard.h>
-#include <dev/ps2mouse.h>
-#endif
 #include <elf.h>
 #include <vfs.h>
 #include <dev.h>
@@ -21,27 +17,20 @@
 #include <lib/string.h>
 #include <dev/input.h>
 #include <dev/socket.h>
-#include <mbr/mbr.h>
-#include <atapi/atapi.h>
-#include <ahci/ahci.h>
-#include <ext2/ext2.h>
-#include <iso9660/iso9660.h>
 #include <fs/tmpfs.h>
 // Sockets!
 #include <socket/unix.h>
-#ifdef X86
-#include <pci/pci.h>
-#include <arch/x86/idt.h>
-#endif
 #ifdef HWCLOCK
 #include <dev/clock.h>
 #endif
 #include <ipc/ipc_manager.h>
+#include <dev/pts.h>
 static int fb_addr;
 extern int *syscall_table,ringBuffPtr;
 extern bool disableOutput;
 extern char *ringBuff;
 bool dontUseAta;
+char tt[16384] __attribute__((aligned(1024)));
 void *memset(void *dest,char val,int count) {
   char *temp = (char *)dest;
   for( ; count != 0; count--) *temp++ = val;
@@ -95,8 +84,9 @@ void kernel_main(const char *args) {
         // Pre-boot framebuffer
         output_changeToFB(); // important!
         disableOutput= false;
+	// Actually required, to test if the kernel boots or no.
         kprintf("Pre-Boot Platform Framebuffer. This buffer doesn't support scrolling outwise the MMU doesn't be initialized by arch-specific code\r\n");
-        //disableOutput = true; // change to false if you want to run it on an Lumia device with the provided in tree bootloader.
+        disableOutput = true; // change to false if you want to run it on an Lumia device with the provided in tree bootloader.
     }
     arch_init();
     // Hi!
@@ -111,8 +101,6 @@ void kernel_main(const char *args) {
     // Bootstrap end
     kheap_init();
     ringBuff = (char *)kmalloc(1<<CONF_RING_SIZE);
-    kprintf("HelinOS kernel compiled by GCC %s on %s\r\n",__VERSION__,__DATE__);
-    kprintf("%s: begin of parsing kernel arguments!\n",__func__);
     // Make sure the args is accessable.
     //arch_mmu_mapPage(NULL,(vaddr_t)args,(paddr_t)args,3);
     char *rootdev = NULL;
@@ -123,7 +111,10 @@ void kernel_main(const char *args) {
     		disableOutput = false;
     		kprintf("Verbose boot!\r\n");
     	} else if (strcmp(begin,"crash")) {
-    		PANIC("For debug purpose only");
+                kprintf("fbaddr => 0x%x\n",fb_addr);
+                int indx = (fb_addr >> 22) & 1024;
+                kprintf("index: %d\n",indx);
+    		while(1);
     	} else if (strcmp(begin,"noatapi")) {
     		// Don't init ATA/ATAPI driver at boot
     		dontUseAta = true;
@@ -136,6 +127,7 @@ void kernel_main(const char *args) {
     	}
     	begin = strtok(NULL," ");
     }
+    kprintf("HelinKern version %s builded on %s\n",__VERSION__,__DATE__);
     thread_init();
     syscall_init();
     vfs_init();
@@ -146,18 +138,10 @@ void kernel_main(const char *args) {
     ipc_init_standard();
     partTab_init();
     cpio_init();
-#ifdef X86
-    keyboard_init();
-    fbdev_init();
-    ps2mouse_init();
-    pci_init();
-    mbr_init();
-    ahci_init();
-    ext2_main();
-    iso9660_init();
-//    atapi_init();
-    #endif
+    kprintf("kernel: initializing architecture specific device drivers....\n");
+    arch_init_drivers();
     tty_init();
+    pts_init();
     socket_init();
 #ifdef HWCLOCK
     kprintf("initializing hardware clock\r\n");
@@ -183,15 +167,17 @@ void kernel_main(const char *args) {
 		    kprintf("Failed to mount device %s, fallback to initramfs\r\n",rootdev);
 	    }
 	}
+    kprintf("Trying to mount initrd\n");
     if (!mount_root("/initrdram","cpio")) {
 	    PANIC("Failed to mount initramfs. Check your system configuration/boot device integrity. You can also specify root device path using \"rootdev <device path>\" as part of kernel command line");
 	}
 #endif
-#if 1
 executeInit:
+#if 1
     kprintf("Detected Memory: %d MB. Used memory: %d(KB)\r\n",alloc_getAllMemory() / 1024 / 1024,alloc_getUsedPhysMem() / 1024);
     /*int (*insmod)(char *) = ((int (*)(char *))syscall_get(30));
     insmod("/initrd/pci.mod");*/
+    kprintf("NOTE: OS kernel is still in the alpha state! Ancient bugs fixing version and not only ancient :)\n");
     int (*exec)(char *,int,char **,char **) = ((int (*)(char *,int,char **,char **))syscall_get(13));
     char *environ[] = {NULL};
     char *initPaths[] = {"/init","/sbin/init","/usr/bin/init","/usr/sbin/init",NULL};
@@ -204,11 +190,9 @@ executeInit:
 	    PANIC("Cannot find working init program");
     }
 #else
+	kprintf("Starting kernel shell!\n");
 	thread_create("kshell",kshell_main,false);
-	//kshell_main();
-	//testTask();
 #endif
-end:
     arch_sti();
     while(1) {}
 }

@@ -1,8 +1,8 @@
 #ifndef MNTENT_H
 #define MNTENT_H
-#ifdef __cplusplus
-extern "C" {
-#endif
+
+#define _PATH_MOUNTED "/proc/mounts"
+
 struct mntent
   {
     char *mnt_fsname;           /* Device or server for filesystem.  */
@@ -12,9 +12,12 @@ struct mntent
     int mnt_freq;               /* Dump frequency (in days).  */
     int mnt_passno;             /* Pass number for `fsck'.  */
   };
-
-extern struct mntent *getmntent (FILE *__stream);
-#ifdef __cplusplus
+#ifdef __cpusplus
+extern "C" {
+#endif
+	extern struct mntent *getmntent (FILE *__stream);
+#ifdef __cpusplus
 }
 #endif
+
 #endif

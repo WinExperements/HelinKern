@@ -1,4 +1,4 @@
-/* 
+/*
  * CDBOOT - Initramfs mini program to prepare system startup from CDROM
  * using easy text messages to help user understood the process(Maybe)
 */
@@ -10,69 +10,87 @@
 #include <sys/mount.h>
 #include <sys/wait.h>
 #include <string.h>
-void retryAnotherDisk() {
-	printf("It's looks like the CD that in the medium does not contain required files/software or broken. We will open the tray for you, please insert correct optical drive that is formatted within file system ISO9660 and contains HelinOS CD/DVD disk applications.\r\n");
-	int fd = open("/dev/satapi0",O_RDWR);
-	if (fd < 0) {
-		printf("It's looks like you disconnect the optical drive. Cannot continue boot process\r\n");
-		while(1) {}
-	}
-	int cmd = 0x1b;
-	ioctl(fd,0x31,cmd);
-	printf("Press Enter when you are ready\r\n");
-	char buff[3];
-	read(0,buff,2);
-	close(fd);
-}
-
-int main() {
-	printf("Welcome to CDBOOT!\r\n");
-	printf("This program will help you to prepare the rest of the boot process from your CDROM drive\r\n");
-	printf("Warrning: Currently HelinOS doesn't support any kind of removable media except for the CD/DVD disks\r\n");
-	printf("Warrning: Currently only AHCI(SATA) CDROM's supported. If you have enabled legacy emulation in your BIOS settings, reboot and change again to AHCI, also some firmware vendors removes the communication between the controller and physical port, you can check it by finding the hard drive/CDROM detection messages, if you don't see any kind of CDROM detection messages, then your firmware likely disconnect this kind of connection, in this scenario the live cd is impossible.\r\n");
-	// Check the ATAPI device existance.
-	char *mntP = strdup("/dev/satapi0");
-	if (access("/dev/satapi0",F_OK) < 0) {
+#include <dirent.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/syscall.h>
+static char devpath[100];
+void tryDrive(char *drive) {
+	snprintf(devpath,100,"/dev/%s",drive);
+	printf("Checking for device: %s\n",devpath);
+	if (access(devpath,F_OK) < 0) {
 		printf("Cannot find the Optical Drive. The boot cannot be continued\r\n");
 		while(1) {}
 	}
 	int i = 0;
-	printf("Trying to mount: %s\r\n",mntP);
+	printf("Trying to mount: %s\r\n",devpath);
 retryMount:
 	for (i = 0; i < 3; i++) {
-		if (mount(mntP,"/mnt","iso9660",0,NULL) == 0) {
+		if (mount(devpath,"/mnt","iso9660",0,NULL) == 0) {
 			break;
 		}
 		i++;
 	}
 	if (i == 3) {
 		printf("Failed to mount current medium in ATAPI drive 0\r\n");
-		retryAnotherDisk();
-		goto retryMount;
+		return;
 	}
 	// Uppon successful, try to find the correct file.
-	if (access("/mnt/usr/bin/wm",F_OK) < 0) {
+	if (access("/mnt/init",F_OK) < 0) {
 		printf("This media doesn't contain required LIVE CD files\r\n");
-		retryAnotherDisk();
-		goto retryMount;
+		return;
+	}
+	// Try to chroot.
+	if (chroot("/mnt") < 0) {
+		perror("chroot");
 	}
 	printf("cdboot: user successfully prepared boot environment, booting rest of software from external devices\r\n");
-	int child = fork();
-	if (child == 0) {
-		char *app_argv[] = {"/mnt/usr/bin/wm",NULL};
-		char *app_envp[] = {"PATH=/bin:/mnt/usr/bin",NULL};
-		if (execve("/mnt/usr/bin/wm",app_argv,app_envp) < 0) {
-			perror("Failed to execute rest of the software");
-			return 1;
-		}
-	} else {
-		int status;
-		waitpid(child,&status,0);
-		if (status == 1) {
-			retryAnotherDisk();
-			goto retryMount;
+	char *app_argv[] = {"/init",NULL};
+	char *app_envp[] = {"PATH=/bin:/sbin",NULL};
+	if (execve("/init",app_argv,app_envp) < 0) {
+		perror("execute error");
+	}
+}
+int main() {
+	char *hostname = "localhost";
+	int hostlen = strlen(hostname);
+	sethostname(hostname,hostlen);
+	// Preapre some things.
+	if (mount("/dev","/dev","devfs",0,NULL) < 0) {
+		perror("Failed to mount devfs.");
+		while(1) {}
+	}
+//	ioctl(0,3);
+        printf("Tying to install AHCI driver\n");
+        if (syscall(SYS_insmod,(uintptr_t)"/lib/modules/fat32.mod",0,0,0,0)) {
+                perror("insmod");
+        }
+                if (syscall(SYS_insmod,(uintptr_t)"/lib/modules/ahci.mod",0,0,0,0)) {
+                perror("ahci insmod");
+        }
+        syscall(SYS_ipc,2,'P',2,NULL,0);
+	printf("Welcome to CDBOOT!\r\n");
+	printf("This program will help you to prepare the rest of the boot process from your CDROM drive\r\n");
+	printf("Warrning: Currently HelinOS doesn't support any kind of removable media except for the CD/DVD disks\r\n");
+	printf("Scanning for IDE/SATA CD-DRIVEs\n");
+	DIR *d = opendir("/dev/");
+	if (!d) {
+		perror("Failed to open dev\n");
+		while(1) {}
+	}
+	struct dirent *t = NULL;
+	while((t = readdir(d)) != NULL) {
+		if (strncmp(t->d_name,"cd",2) == 0) {
+			printf("Found IDE CD: %s\n",t->d_name);
+			tryDrive(t->d_name);
+		} else if (strncmp(t->d_name,"satapi",6) == 0) {
+			printf("Found SATA IDE\n");
+			tryDrive(t->d_name);
 		}
 	}
+	closedir(d);
+	printf("No IDE drives found OR the drive has invalid disk\n");
+	while(1) {}
 	return 0;
 }
-	
+

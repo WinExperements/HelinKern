@@ -1,0 +1,21 @@
+Only in gmp-5.0.0: build
+diff --color -crB orig/gmp-5.0.0/configfsf.sub gmp-5.0.0/configfsf.sub
+*** orig/gmp-5.0.0/configfsf.sub	2010-01-08 12:41:13.000000000 +0200
+--- gmp-5.0.0/configfsf.sub	2024-12-20 14:07:43.837279519 +0200
+***************
+*** 1270,1276 ****
+  	      | -os2* | -vos* | -palmos* | -uclinux* | -nucleus* \
+  	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
+  	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
+! 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops*)
+  	# Remember, each alternative MUST END IN *, to match a version number.
+  		;;
+  	-qnx*)
+--- 1270,1276 ----
+  	      | -os2* | -vos* | -palmos* | -uclinux* | -nucleus* \
+  	      | -morphos* | -superux* | -rtmk* | -rtmk-nova* | -windiss* \
+  	      | -powermax* | -dnix* | -nx6 | -nx7 | -sei* | -dragonfly* \
+! 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops* | -helin*)
+  	# Remember, each alternative MUST END IN *, to match a version number.
+  		;;
+  	-qnx*)

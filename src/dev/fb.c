@@ -130,7 +130,7 @@ static void psf_init()
 	}
     if (font->flags) {
         unicode = NULL;
-        return; 
+        return;
     }
 	unicode = kmalloc(font->numglyph);
 	memset(unicode,0,font->numglyph);
@@ -182,18 +182,19 @@ void fb_putc(char ch) {
   else if (ch == 0x09)
     {
       cursor_x = (cursor_x+8) & ~(8-1);
-    }
-
-  // Handle newline by moving cursor back to left and increasing the row
-  else if (ch == '\n')
-    {
-      fb_putchar(' ',cursor_x,cursor_y,0xffffff,BLACK);
-      cursor_x = 0;
-      cursor_y++;
     } else if (ch == '\r') {
 	    fb_putchar(' ',cursor_x,cursor_y,0xffffff,BLACK);
 	    cursor_x = 0;
-	    goto end;
+	    return;
+	}
+  // Handle newline by moving cursor back to left and increasing the row
+  else if (ch == '\n')
+    {
+	    if (cursor_x != 0) {
+	      fb_putchar(' ',cursor_x,cursor_y,0xffffff,BLACK);
+	    }
+      cursor_x = 0;
+      cursor_y++;
     }
 
   // IF all the above text fails , print the Character
@@ -221,6 +222,7 @@ static void printCursor(int x,int y) {
 /* Called when the FB need to be mapped to the memory, usually at startup and when creating new process */
 void fb_map() {
     //if (mapped) return;
+    int mapFlags = arch_mmu_processFlags(PROT_READ | PROT_WRITE | PROT_USER);
     if (width != 0 && height != 0) {
         GFX_MEMORY = /*0x02800000*/addr;
         // Map the FB
@@ -230,7 +232,7 @@ void fb_map() {
 	    uintptr_t pages = size / PAGESIZE_4K;
 	    for (uintptr_t i = 0; i < pages; i++) {
 		    uintptr_t offset = i * PAGESIZE_4K;
-		    arch_mmu_mapPage(NULL,v_address + offset,p_address + offset,7);
+		    arch_mmu_mapPage(NULL,v_address + offset,p_address + offset,mapFlags);
 	    }
 	    addr = v_address;
 	    mapped = true;
@@ -246,13 +248,11 @@ void fb_clear(int color) {
         bcolor = color;
         fcolor = 0xffffff;
     }
-    if (!disableOutput) {
-    	uint32_t *fb = (uint32_t *)addr;
-    	for (int y = 0; y < height; y++) {
-        	for (int x = 0; x < width; x++) {
-            		fb[x+y*width] = color;
-        	}
-    	}
+    uint32_t *fb = (uint32_t *)addr;
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            	fb[x+y*width] = color;
+        }
     }
     cursor_x = cursor_y = 0;
     // Clear character buffer
@@ -294,17 +294,20 @@ static uint64_t fbdev_write(vfs_node_t *node,uint64_t off,uint64_t size,void *bu
 }
 static void *fbdev_mmap(struct vfs_node *node,int _addr,int size,int offset,int flags) {
     // First allocate requested space
+    arch_cli();
     uint32_t vstart = (uint32_t)arch_mmu_query(NULL,(uintptr_t)(uint32_t)USER_MMAP_START,size);
     if (vstart == -1) {
 	    // No free virtual memory?
 	    return (void *)-1;
     }
+    int map_flags = arch_mmu_processFlags(PROT_READ | PROT_WRITE | PROT_USER);
     for (int i = 0; i < size/4096; i++) {
         // Map
         // TODO: Fix  this shit
         int pag = (i*4096);
-        arch_mmu_mapPage(NULL,vstart+pag,(uintptr_t)(uint32_t)paddr+pag,7);
+        arch_mmu_mapPage(NULL,vstart+pag,(uintptr_t)(uint32_t)paddr+pag,map_flags);
     }
+    arch_sti();
     //kprintf("Now found at 0x%x\r\n",arch_mmu_query(NULL,USER_MMAP_START,size));
     return (void *)(uintptr_t)vstart;
 }

@@ -4,7 +4,7 @@ SECTIONS {
     /* QEMU loads the kernel in Flash here. I strongly suggest you look at the
      * memory map provided in the CoreTile TRM (see below).
      */
-    . = 0x80010000;
+    . = 0x40010000;
     kernel_start = .;
  
     /* Make sure our entry stub goes first */

@@ -29,14 +29,17 @@ int pipe_create(process_t *caller,void *args) {
   data->creator = caller;
   data->queue = queueSize_create(64*1024);
   reader->fs = pipe_fs;
+  // Set permissions.
+  reader->mask = (S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
+  writer->mask = (S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
   writer->fs = pipe_fs;
   reader->priv_data = data;
   writer->priv_data = data;
   writer->inode = 1;
   // Populate the fds.
   int *fds = (int *)args;
-  fds[0] = thread_openFor(caller,reader);
-  fds[1] = thread_openFor(caller,writer);
+  fds[0] = thread_openFor(caller,reader,FD_RDWR);
+  fds[1] = thread_openFor(caller,writer,FD_RDWR);
   data->write_fd = fds[1];
   data->read_fd = fds[0];
   return 0;
@@ -48,14 +51,19 @@ int pipe_destroyIPC(process_t *caller) {
 static uint64_t pipe_vfs_write(vfs_node_t *node,uint64_t start,uint64_t size,void *buffer) {
   // Determinate what kind of file we are(reader or writer.)
   PipeData *data = (PipeData *)node->priv_data;
-  return (uint64_t)queueSize_enqueue(data->queue,(uint8_t *)buffer,(uint32_t)size);
+  int free = queueSize_get_free(data->queue);
+  int how = min(free,size);
+  return (uint64_t)queueSize_enqueue(data->queue,(uint8_t *)buffer,how);
 }
 static uint64_t pipe_vfs_read(vfs_node_t *node,uint64_t start,uint64_t size,void *buffer) {
   PipeData *data = (PipeData *)node->priv_data;
   if ((node->flags & VFS_NONBLOCK) != VFS_NONBLOCK) {
     while(queueSize_is_empty(data->queue));
   }
-  return queueSize_dequeue(data->queue,(char *)buffer,(uint32_t)size);
+  int cap = queueSize_get_size(data->queue);
+  int h = min(cap,size);
+  return queueSize_dequeue(data->queue,(uint8_t *)buffer,h);
+
 }
 static void pipe_vfs_close(vfs_node_t *node) {
   // Did we read or write node type?
@@ -67,11 +75,15 @@ static void pipe_vfs_close(vfs_node_t *node) {
   }
   if (data->write_fd == 0 && data->read_fd == 0) {
     // Clean up resources.
-    kprintf("pipe: Cleaning up resources due to closing up of the pipe itself\r\n");
-    queueSize_destroy(data->queue);
-    kfree(data);
+    if (data->creator->died) {
+    	kprintf("pipe: Cleaning up resources due to closing up of the pipe itself\r\n");
+    	queueSize_destroy(data->queue);
+    	kfree(data);
+	kfree(node);
+    } else {
+	    kprintf("pipe: creator(%d) didn't died. Don't clean resources\n",data->creator->pid);
+    }
   }
-  kfree(node);
 }
 void pipe_init() {
   // Register fs.

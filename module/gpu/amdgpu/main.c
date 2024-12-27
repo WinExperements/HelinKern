@@ -5,54 +5,75 @@
 #include <pci/driver.h>
 #include <pci/registry.h>
 #include <output.h>
-
+#include <arch/mmu.h>
 // Module name.
-__attribute__((section(".modname"))) char *name = "amdgpu";
+//__attribute__((section(".modname"))) char *name = "amdgpu";
 // PCI search.
 static int ctrl_id = 0;
 
-static bool PciVisit(unsigned int bus, unsigned int dev, unsigned int func)
-{
-    unsigned int id = PCI_MAKE_ID(bus, dev, func);
+// Structures.
+typedef struct {
+	uint16_t bios_magic;
+	char atiMagic[10];
+	uint16_t romTableBase;
+} MainHeader;
 
-    PciDeviceInfo info;
-    info.vendorId = PciRead16(id, PCI_CONFIG_VENDOR_ID);
-    if (info.vendorId == 0xffff)
-    {
-        return false;
-    }
+typedef struct {
+	uint16_t size;
+	char formatRev;
+	char contentRev;
+} CommonHeader;
 
-    info.deviceId = PciRead16(id, PCI_CONFIG_DEVICE_ID);
-    info.progIntf = PciRead8(id, PCI_CONFIG_PROG_INTF);
-    info.subclass = PciRead8(id, PCI_CONFIG_SUBCLASS);
-    info.classCode = PciRead8(id, PCI_CONFIG_CLASS_CODE);
-    if (((info.classCode << 8) | info.subclass) == PCI_DISPLAY_VGA) {
-      kprintf("Device vendor: 0x%x\r\n",info.vendorId);
-      ctrl_id = id;
-      return true;
-  }
-  return false;
+typedef struct {
+	CommonHeader hdr;
+	char magic[4];
+	uint16_t biosRuntimeSegment;
+	uint16_t protectedModeSegment;
+	uint16_t configOffset;
+	uint16_t crtOffset;
+	uint16_t nameOffset;
+	uint16_t biosCallOffset;
+	uint16_t pciInitCode;
+	uint16_t ioBase;
+	uint16_t subsystemVendorId;
+	uint16_t subsystemId;
+	uint16_t pciInfoOffset;
+	uint16_t commandTableOffset;
+	uint16_t dataTableOffset;
+	char extendedFunctionCode;
+	char reserved[];
+} RomTable;
+
+static bool GPUSearch(PciDeviceInfo *dev) {
+	uint32_t devType = (dev->classCode << 8) | dev->subclass;
+	if (devType == PCI_DISPLAY_VGA || devType == PCI_VGA_COMPATIBLE) {
+		if (dev->vendorId == VENDOR_AMD) {
+			PciBar bar;
+			PciGetBar(&bar,dev->baseID,0);
+			if (bar.flags & PCI_BAR_IO) {
+				kprintf("Failed to find device I/O base.\n");
+				return false;
+			}
+			kprintf("AtomBIOS Should Be in 0x%x\n",bar.u.address);
+			arch_mmu_mapPage(NULL,(vaddr_t)bar.u.address,(paddr_t)bar.u.address,3);
+			MainHeader *hdr = (MainHeader *)bar.u.address;
+			if (hdr->bios_magic != 0xAA55) {
+				kprintf("Invalid magic of AtomBIOS: 0x%x at BAR0. Checking PCI ROM\n",hdr->bios_magic);
+				uint32_t PciRomAddress = PciRead32(dev->baseID,PCI_CONFIG_EXPANSION_ROM);
+				kprintf("Expansion ROM at 0x%x\n",PciRomAddress);
+				return false;
+			}
+			kprintf("AtomBIOS ROM Table Base -> 0x%x\n",hdr->romTableBase);
+		}
+		return true;
+	}
+	return false;
 }
 
-
+void amdgpu_init() {
+  kprintf("Searchig for AMD Graphics Card.....\n");
+  PciForeach(GPUSearch);
+}
 static void module_main() {
-  kprintf("Searchig for AMD Graphics Card.....");
-  for (unsigned int bus = 0; bus < 256; bus++) {
-    for (unsigned int dev = 0; dev < 32; dev++) {
-      unsigned int baseId = PCI_MAKE_ID(bus, dev, 0);
-      uint8_t headerType = PciRead8(baseId, PCI_CONFIG_HEADER_TYPE);
-      unsigned int funcCount = headerType & PCI_TYPE_MULTIFUNC ? 8 : 1;
-      for (unsigned int func = 0; func < funcCount; ++func)
-      {
-        if (PciVisit(bus, dev, func)) {
-          goto found;
-        }
-      }
-    }
-    kprintf("Device not found, stop\r\n");
-    return;
-  found:
-    unsigned int BAR0 = PciRead32(ctrl_id,PCI_CONFIG_BAR0);
-    kprintf("AtomBIOS must be right in 0x%x\r\n",BAR0);
-  }
+	amdgpu_init();
 }
