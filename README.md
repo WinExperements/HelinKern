@@ -1,5 +1,8 @@
 # HelinKern
 
+# WARRNING
+Project is moved to gitlab: https://gitlab.com/helinos
+
 ![screenshot](res/screenshot.png)
 
 New implementation of my previous osdev project with main goal to implement full POSIX support and stay as much portable as it can be.
